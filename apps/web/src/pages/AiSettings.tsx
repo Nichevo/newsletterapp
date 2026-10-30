@@ -1,9 +1,10 @@
-import type { AiStatusView, AppSettings, ModelInfo, ModelRef, PromptInfo, Source, TrialView } from '@newsletterapp/shared';
+import type { AiStatusView, AiUsageView, AppSettings, ModelInfo, ModelRef, PromptInfo, Source, TrialView } from '@newsletterapp/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { relativeTime } from '../format';
 import { IconBack } from '../icons';
+import { LimitNotice, minutesLabel } from './AiUsage';
 
 const HELPER_STALE_MS = 5 * 60_000;
 
@@ -12,12 +13,14 @@ export function AiSettingsPage() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<AiStatusView | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [usage, setUsage] = useState<AiUsageView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     api.aiStatus().then(setStatus).catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load'));
     api.aiModels().then(setModels).catch(() => undefined);
+    api.aiUsage().then(setUsage).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -54,7 +57,9 @@ export function AiSettingsPage() {
         </p>
       )}
 
+      {usage?.now.limited && <LimitNotice usage={usage} />}
       {status && <StatusSection status={status} onAct={act} />}
+      {usage && <UsageLink usage={usage} />}
       <ModelsSection models={models} onChange={setModels} onAct={act} />
       <PromptsSection />
       <TrialSection models={models} />
@@ -131,6 +136,31 @@ function StatusSection({ status, onAct }: { status: AiStatusView; onAct: (fn: ()
           </button>
         )}
       </section>
+    </div>
+  );
+}
+
+function UsageLink({ usage }: { usage: AiUsageView }) {
+  const { limits, cost } = usage.settings;
+  const caps = [
+    limits.perHourMinutes !== null && `${limits.perHourMinutes} min/hour`,
+    limits.perDayMinutes !== null && `${limits.perDayMinutes} min/day`,
+    limits.perSessionMinutes !== null && `${limits.perSessionMinutes} min/session`,
+  ].filter(Boolean);
+  const today = usage.totals.today;
+  return (
+    <div className="section">
+      <div className="card card--list">
+        <Link to="/settings/ai/usage" className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">Usage limits and cost</span>
+            <span className="cardrow__sub">
+              Today {minutesLabel(today.minutes)} · about {cost.currency}
+              {(today.electricity + today.wear).toFixed(2)} · {caps.length ? `limits ${caps.join(', ')}` : 'no limits set'}
+            </span>
+          </div>
+        </Link>
+      </div>
     </div>
   );
 }

@@ -23,6 +23,7 @@ import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
 import { fetchJobsWaiting } from './feeds';
 import { loadSettings } from './settings';
+import { jobsThatFit, limitState } from './usage';
 
 // The AI job queue. The PC helper checks in, claims a few items, summarises
 // them with a local model and posts the results back. Everything here is
@@ -47,7 +48,7 @@ interface AiState {
 
 const NO_STATE: AiState = { paused: false, pauseReason: null, lastError: null, consecutiveFailures: 0 };
 
-async function readJson<T>(env: Env, key: string): Promise<T | null> {
+export async function readJson<T>(env: Env, key: string): Promise<T | null> {
   const row = await env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind(key).first<{ value: string }>();
   if (!row) return null;
   try {
@@ -57,7 +58,7 @@ async function readJson<T>(env: Env, key: string): Promise<T | null> {
   }
 }
 
-async function writeJson(env: Env, key: string, value: unknown): Promise<void> {
+export async function writeJson(env: Env, key: string, value: unknown): Promise<void> {
   await env.DB.prepare(
     'INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = ?2, updated_at = ?3',
   )
@@ -219,11 +220,12 @@ export function registerAi(app: App) {
     }
     if (stmts.length) await c.env.DB.batch(stmts);
 
-    const [state, models, trial, fetchWaiting] = await Promise.all([
+    const [state, models, trial, fetchWaiting, usage] = await Promise.all([
       loadState(c.env),
       c.env.DB.prepare('SELECT provider, name FROM models WHERE enabled = 1 AND installed = 1 ORDER BY position').all<ModelRef>(),
       c.env.DB.prepare("SELECT id FROM trials WHERE status != 'done' ORDER BY created_at LIMIT 1").first<{ id: string }>(),
       fetchJobsWaiting(c.env),
+      limitState(c.env),
     ]);
     const config: HelperConfig = {
       paused: state.paused,
@@ -233,6 +235,7 @@ export function registerAi(app: App) {
       batchSize: BATCH_SIZE,
       trialId: trial?.id ?? null,
       fetchWaiting,
+      limited: usage.limited,
     };
     return c.json(config);
   });
@@ -240,8 +243,11 @@ export function registerAi(app: App) {
   app.post('/api/helper/claim', async (c) => {
     const state = await loadState(c.env);
     if (state.paused) return c.json({ jobs: [], paused: true });
+    // Usage caps hold work back here too, so an older helper that doesn't know about them still stops.
+    const usage = await limitState(c.env);
+    if (usage.limited) return c.json({ jobs: [], limited: usage.limited });
     const input = (await c.req.json().catch(() => ({}))) as { max?: number };
-    const max = Math.min(Math.max(Number(input.max) || BATCH_SIZE, 1), 10);
+    const max = await jobsThatFit(c.env, usage.remainingSeconds, Math.min(Math.max(Number(input.max) || BATCH_SIZE, 1), 10));
     const settings = await loadSettings(c.env);
     const t = now();
     const stale = t - LEASE_MS;
@@ -309,11 +315,12 @@ export function registerAi(app: App) {
     const t = now();
     const runId = newId();
     const seconds = Number.isFinite(r.seconds) ? Math.round(r.seconds * 10) / 10 : null;
+    const watts = Number.isFinite(r.watts) && r.watts! > 0 ? Math.round(r.watts!) : null;
 
     const stmts = [
       c.env.DB.prepare(
-        `INSERT INTO ai_runs (id, item_id, source_id, provider, model, prompt_id, prompt_version, seconds, ok, error, at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO ai_runs (id, item_id, source_id, provider, model, prompt_id, prompt_version, seconds, watts, ok, error, at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         runId,
         item.id,
@@ -323,6 +330,7 @@ export function registerAi(app: App) {
         r.promptId ?? null,
         Number.isFinite(r.promptVersion) ? r.promptVersion : null,
         seconds,
+        watts,
         ok ? 1 : 0,
         error,
         t,
@@ -366,7 +374,8 @@ export function registerAi(app: App) {
       next.pauseReason = `${next.consecutiveFailures} items failed in a row`;
     }
     if (next.consecutiveFailures !== state.consecutiveFailures || next.paused !== state.paused) await writeJson(c.env, 'ai_state', next);
-    return c.json({ ok, paused: next.paused });
+    const usage = await limitState(c.env, t);
+    return c.json({ ok, paused: next.paused, limited: usage.limited });
   });
 
   app.get('/api/helper/trials/:id', async (c) => {
@@ -407,10 +416,12 @@ export function registerAi(app: App) {
     const results = (await c.req.json().catch(() => null)) as TrialResultInput[] | null;
     if (!Array.isArray(results)) return c.json({ error: 'array required' }, 400);
     const settings = await loadSettings(c.env);
+    const t = now();
     const stmts = results.slice(0, 200).map((r) => {
       const output = cleanOutput(r.output, settings.categories);
       return c.env.DB.prepare(
-        `INSERT OR REPLACE INTO trial_results (trial_id, item_id, provider, model, output, error, seconds) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO trial_results (trial_id, item_id, provider, model, output, error, seconds, watts, at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         id,
         r.itemId,
@@ -419,6 +430,8 @@ export function registerAi(app: App) {
         output ? JSON.stringify(output) : null,
         output ? null : String(r.error || 'Unusable answer').slice(0, 500),
         Number.isFinite(r.seconds) ? r.seconds : null,
+        Number.isFinite(r.watts) && r.watts! > 0 ? Math.round(r.watts!) : null,
+        t,
       );
     });
     if (stmts.length) await c.env.DB.batch(stmts);

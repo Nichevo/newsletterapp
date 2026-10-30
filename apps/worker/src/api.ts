@@ -40,6 +40,7 @@ import { newId, now, slugify } from './ids';
 import { categoryFromRules, quickSummary } from './quick';
 import { scoreRecentItems } from './scoring';
 import { loadSettings, normalizeSettings, saveSettings } from './settings';
+import { registerUsage } from './usage';
 
 export const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -68,6 +69,7 @@ app.get('/api/me', (c) => {
 registerAi(app);
 // Feeds and websites: discovery, following, the Feedly import and the PC's fetch jobs.
 registerFeeds(app);
+registerUsage(app);
 
 // ---------- Items ----------
 

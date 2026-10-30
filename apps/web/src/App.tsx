@@ -5,6 +5,7 @@ import { ApiError, api } from './api';
 import { TabBar } from './components/TabBar';
 import { AddPage } from './pages/Add';
 import { AiSettingsPage } from './pages/AiSettings';
+import { AiUsagePage } from './pages/AiUsage';
 import { DigestPage } from './pages/Digest';
 import { InboxPage } from './pages/Inbox';
 import { ReaderPage } from './pages/Reader';
@@ -64,6 +65,7 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage me={me} />} />
         <Route path="/source/:id" element={<SourcePage />} />
         <Route path="/settings/ai" element={<AiSettingsPage />} />
+        <Route path="/settings/ai/usage" element={<AiUsagePage />} />
         <Route path="/settings/sources" element={<SourcesPage />} />
         <Route path="/stats" element={<StatsPage />} />
         <Route path="*" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
