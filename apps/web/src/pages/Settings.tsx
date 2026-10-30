@@ -74,8 +74,20 @@ export function SettingsPage({ me }: { me: Me }) {
       {settings && <CategoriesSection settings={settings} onSave={save} />}
       {settings && <AiSection settings={settings} onSave={save} />}
 
-      <SourceList title="Newsletters you receive" sources={sources.filter((s) => s.kind === 'newsletter')} noun="issue" />
-      <SourceList title="Feeds and websites you follow" sources={sources.filter((s) => s.kind !== 'newsletter')} noun="post" />
+      <div className="section">
+        <div className="card card--list">
+          <Link to="/settings/sources" className="cardrow">
+            <div className="cardrow__main">
+              <span className="cardrow__title">Your sources</span>
+              <span className="cardrow__sub">
+                {sources.length === 0
+                  ? 'Newsletters, feeds and websites appear here once something arrives'
+                  : `${sources.length} source${sources.length === 1 ? '' : 's'} · category, AI mode, pause and history for each`}
+              </span>
+            </div>
+          </Link>
+        </div>
+      </div>
 
       <div className="section">
         <span className="label">Account</span>
@@ -411,33 +423,6 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
         </div>
         {note && <span className="hint">{note}</span>}
       </section>
-    </div>
-  );
-}
-
-function SourceList({ title, sources, noun }: { title: string; sources: Source[]; noun: string }) {
-  if (sources.length === 0) return null;
-  return (
-    <div className="section">
-      <span className="label">{title}</span>
-      <div className="card card--list">
-        {sources.map((s) => (
-          <Link key={s.id} to={`/source/${s.id}`} className="cardrow">
-            <div className="cardrow__main">
-              <span className="cardrow__title">{s.name}</span>
-              <span className="cardrow__sub">
-                {s.kind === 'site' ? 'Website · ' : ''}
-                {s.itemCount} {noun}
-                {s.itemCount === 1 ? '' : 's'}
-                {s.lastReceivedAt ? ` · last ${shortTime(s.lastReceivedAt)}` : ''}
-                {s.category ? ` · ${s.category}` : ''}
-                {s.aiMode !== 'default' ? ` · AI ${s.aiMode}` : ''}
-                {s.pausedAt ? ' · paused' : s.lastError ? ' · last check failed' : ''}
-              </span>
-            </div>
-          </Link>
-        ))}
-      </div>
     </div>
   );
 }
