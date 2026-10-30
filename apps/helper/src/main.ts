@@ -13,8 +13,9 @@ import { itemText, parseOutput } from './text';
 
 // The PC helper: every minute it checks in with the app, does any feed,
 // website or full-article fetches the app has queued for the PC, then
-// summarises a few waiting items with the first switched-on model and posts
-// the results. It only ever makes outbound requests.
+// summarises a few waiting items with the first switched-on model (or the
+// one the app names, when it splits the work) and posts the results. It only
+// ever makes outbound requests.
 
 const cfg = loadConfig();
 const app = new AppClient(cfg);
@@ -76,12 +77,14 @@ const until = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-dig
 async function summariseQueue(config: HelperConfig) {
   if (config.paused) return log('AI is paused in the app; not taking work');
   if (config.limited) return log(`usage limit: ${config.limited.message}; back at ${until(config.limited.until)}`);
-  const model = config.models.find((m) => findProvider(providers, m));
-  if (!model) return log('No switched-on model is available on this PC');
-  const provider = findProvider(providers, model)!;
+  const first = config.models.find((m) => findProvider(providers, m));
+  if (!first) return log('No switched-on model is available on this PC');
 
   const { jobs } = await app.claim(config.batchSize);
   for (const [i, job] of jobs.entries()) {
+    // When the app splits the work between models it names one per job; otherwise use the first.
+    const model = job.model && findProvider(providers, job.model) ? job.model : first;
+    const provider = findProvider(providers, model)!;
     const base = { itemId: job.itemId, provider: model.provider, model: model.name, promptId: job.promptId, promptVersion: job.promptVersion };
     let res: Awaited<ReturnType<typeof app.result>>;
     try {

@@ -1,9 +1,9 @@
-import type { AiStatusView, AiUsageView, AppSettings, ModelInfo, ModelRef, PromptInfo, Source, TrialView } from '@newsletterapp/shared';
+import type { AiStatusView, AiUsageView, AppSettings, ModelInfo, ModelMode, ModelRef, PromptInfo, Source, TrialView } from '@newsletterapp/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { relativeTime } from '../format';
-import { IconBack } from '../icons';
+import { IconBack, IconThumbDown, IconThumbUp } from '../icons';
 import { LimitNotice, minutesLabel } from './AiUsage';
 
 const HELPER_STALE_MS = 5 * 60_000;
@@ -184,6 +184,17 @@ function ModelsSection({
   onChange: (m: ModelInfo[]) => void;
   onAct: (fn: () => Promise<unknown>, msg?: string) => Promise<void>;
 }) {
+  const [mode, setMode] = useState<ModelMode>('first');
+  useEffect(() => {
+    api.modelMode().then((r) => setMode(r.mode)).catch(() => undefined);
+  }, []);
+  const inUse = models.filter((m) => m.enabled && m.installed);
+
+  async function changeMode(next: ModelMode) {
+    setMode(next);
+    await onAct(() => api.saveModelMode(next));
+  }
+
   async function save(next: ModelInfo[]) {
     onChange(next);
     await onAct(() => api.saveAiModels(next.map((m) => ({ provider: m.provider, name: m.name, enabled: m.enabled }))));
@@ -201,13 +212,22 @@ function ModelsSection({
     <div className="section">
       <span className="label">Models</span>
       <section className="card">
+        <strong style={{ fontSize: 14 }}>Everyday summaries use</strong>
+        <div className="segmented" role="group" aria-label="Which models write everyday summaries">
+          <button aria-pressed={mode === 'first'} onClick={() => void changeMode('first')}>
+            The first model
+          </button>
+          <button aria-pressed={mode === 'split'} onClick={() => void changeMode('split')}>
+            Split between all on
+          </button>
+        </div>
         {models.length === 0 && <span className="hint">Models appear here once the PC helper has checked in.</span>}
         {models.map((m, i) => (
           <div key={`${m.provider}/${m.name}`} className="switchrow" style={{ opacity: m.installed ? 1 : 0.5 }}>
             <span style={{ minWidth: 0 }}>
               <strong style={{ fontSize: 14, wordBreak: 'break-all' }}>{m.name}</strong>
               <span className="cardrow__sub" style={{ display: 'block' }}>
-                {i === models.findIndex((x) => x.enabled && x.installed) ? 'In use · ' : ''}
+                {(mode === 'split' ? m.enabled && m.installed : i === models.findIndex((x) => x.enabled && x.installed)) ? 'In use · ' : ''}
                 {m.provider}
                 {m.sizeBytes ? ` · ${(m.sizeBytes / 1e9).toFixed(1)} GB` : ''}
                 {m.installed ? '' : ' · not installed'}
@@ -245,7 +265,11 @@ function ModelsSection({
               ))}
           </div>
         )}
-        <span className="hint">The helper uses the first model that is switched on and installed. Switched-off models are never used.</span>
+        <span className="hint">
+          {mode === 'split'
+            ? `Summaries are shared evenly between the ${inUse.length} switched-on, installed models: each batch of 5 goes to whichever has done the fewest in the last day, so the PC isn't swapping models for every item. Thumbs on each summary show up per model in AI statistics.`
+            : 'The helper uses the first model that is switched on and installed. Switched-off models are never used.'}
+        </span>
       </section>
     </div>
   );
@@ -433,17 +457,37 @@ function TrialSection({ models }: { models: ModelInfo[] }) {
           Start test run
         </button>
       </section>
-      {trial && <TrialResults trial={trial} />}
+      {trial && <TrialResults trial={trial} onTrial={setTrial} />}
     </div>
   );
 }
 
-function TrialResults({ trial }: { trial: TrialView }) {
+function TrialResults({ trial, onTrial }: { trial: TrialView; onTrial: (t: TrialView) => void }) {
   const [open, setOpen] = useState<string | null>(trial.items[0]?.id ?? null);
+  const resultsOf = (m: ModelRef) => trial.results.filter((r) => r.provider === m.provider && r.model === m.name);
+  const tally = trial.models.map((m) => {
+    const rs = resultsOf(m);
+    return { model: m, up: rs.filter((r) => r.rating === 1).length, down: rs.filter((r) => r.rating === -1).length };
+  });
+  // Leader = most thumbs up net of thumbs down; only once something is rated and there's no tie.
+  const score = (t: (typeof tally)[number]) => t.up - t.down;
+  const best = Math.max(...tally.map(score));
+  const leaders = tally.filter((t) => score(t) === best);
+  const leader = tally.some((t) => t.up + t.down > 0) && leaders.length === 1 ? leaders[0]!.model : null;
+
+  async function rate(itemId: string, m: ModelRef, value: 1 | -1) {
+    const current = trial.results.find((r) => r.itemId === itemId && r.provider === m.provider && r.model === m.name)?.rating ?? null;
+    const next = current === value ? null : value;
+    onTrial({
+      ...trial,
+      results: trial.results.map((r) => (r.itemId === itemId && r.provider === m.provider && r.model === m.name ? { ...r, rating: next } : r)),
+    });
+    await api.rateTrial(trial.id, { itemId, provider: m.provider, model: m.name, rating: next ?? 0 }).catch(() => undefined);
+  }
   const done = trial.results.length;
   const total = trial.items.length * trial.models.length;
   const avg = (m: ModelRef) => {
-    const rs = trial.results.filter((r) => r.provider === m.provider && r.model === m.name && r.output);
+    const rs = resultsOf(m).filter((r) => r.output);
     return rs.length ? Math.round(rs.reduce((s, r) => s + r.seconds, 0) / rs.length) : null;
   };
 
@@ -453,13 +497,16 @@ function TrialResults({ trial }: { trial: TrialView }) {
         Test run {relativeTime(trial.createdAt)} · {trial.status === 'done' ? 'finished' : trial.status === 'running' ? `running, ${done} of ${total}` : 'waiting for your PC'}
       </strong>
       <div className="inline" style={{ flexWrap: 'wrap' }}>
-        {trial.models.map((m) => (
-          <span key={m.name} className="chip chip--outline">
+        {tally.map(({ model: m, up, down }) => (
+          <span key={m.name} className={`chip ${leader === m ? 'chip--leader' : 'chip--outline'}`}>
+            {leader === m ? 'Leading: ' : ''}
             {m.name}
             {avg(m) !== null ? ` · ${avg(m)} s avg` : ''}
+            {up + down > 0 ? ` · ${up} up, ${down} down` : ''}
           </span>
         ))}
       </div>
+      <span className="hint">Thumbs up or down each answer to pick a winner. Ratings also count towards each model's chart in AI statistics.</span>
       {trial.items.map((item) => (
         <div key={item.id}>
           <button className="quick__toggle" onClick={() => setOpen(open === item.id ? null : item.id)}>
@@ -493,6 +540,24 @@ function TrialResults({ trial }: { trial: TrialView }) {
                           {[...r.output.category, ...r.output.topics].join(' · ')}
                           {r.output.thin_content ? ' · thin content' : ''}
                         </span>
+                        <div className="inline">
+                          <button
+                            className="iconbtn iconbtn--small"
+                            aria-label={`Good answer from ${m.name}`}
+                            aria-pressed={r.rating === 1}
+                            onClick={() => void rate(item.id, m, 1)}
+                          >
+                            <IconThumbUp size={18} />
+                          </button>
+                          <button
+                            className="iconbtn iconbtn--small"
+                            aria-label={`Poor answer from ${m.name}`}
+                            aria-pressed={r.rating === -1}
+                            onClick={() => void rate(item.id, m, -1)}
+                          >
+                            <IconThumbDown size={18} />
+                          </button>
+                        </div>
                       </>
                     )}
                   </div>

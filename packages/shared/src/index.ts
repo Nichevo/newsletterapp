@@ -438,7 +438,7 @@ export interface HelperHeartbeat {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.2.1';
+export const HELPER_VERSION = '0.2.2';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -470,6 +470,8 @@ export interface HelperJob {
   promptId: string;
   promptVersion: number;
   categories: string[];
+  /** The model to use when the work is split between models; otherwise the helper uses its first. */
+  model?: ModelRef;
 }
 
 export interface HelperResult {
@@ -489,7 +491,7 @@ export interface HelperResult {
 export interface TrialJob {
   trialId: string;
   models: ModelRef[];
-  items: Omit<HelperJob, 'promptId' | 'promptVersion'>[];
+  items: Omit<HelperJob, 'promptId' | 'promptVersion' | 'model'>[];
 }
 
 export interface TrialResultInput {
@@ -509,7 +511,31 @@ export interface TrialView {
   createdAt: number;
   models: ModelRef[];
   items: { id: string; subject: string; sourceName: string | null }[];
-  results: { itemId: string; provider: string; model: string; seconds: number; output: AiOutput | null; error: string | null }[];
+  results: {
+    itemId: string;
+    provider: string;
+    model: string;
+    seconds: number;
+    output: AiOutput | null;
+    error: string | null;
+    rating: -1 | 1 | null;
+  }[];
+}
+
+/**
+ * How everyday summaries pick a model: 'first' = the first switched-on model,
+ * 'split' = shared out between all switched-on models.
+ */
+export type ModelMode = 'first' | 'split';
+
+/** One thumbs up or down, for the ratings-over-time charts. */
+export interface ModelRating {
+  provider: string;
+  model: string;
+  rating: -1 | 1;
+  at: number;
+  /** 'reading' = an everyday summary, 'test' = a test-run result. */
+  from: 'reading' | 'test';
 }
 
 /** For the Settings > AI status panel. */
