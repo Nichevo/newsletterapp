@@ -1,0 +1,2 @@
+ALTER TABLE items ADD COLUMN read_via TEXT;
+ALTER TABLE items ADD COLUMN read_device TEXT;

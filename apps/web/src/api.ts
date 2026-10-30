@@ -86,7 +86,7 @@ export const api = {
   item: (id: string) => get<ItemSummary>(`/api/items/${id}`),
   itemBody: (id: string) => get<ItemBody>(`/api/items/${id}/body`),
   itemAction: (id: string, action: 'read' | 'unread' | 'save' | 'unsave' | 'archive' | 'unarchive') =>
-    post<ItemSummary>(`/api/items/${id}/${action}`),
+    post<ItemSummary>(`/api/items/${id}/${action}`, action === 'read' ? { device: isPhone() } : undefined),
   rawUrl: (id: string) => `/api/items/${id}/raw`,
   related: (id: string) => get<RelatedItem[]>(`/api/items/${id}/related`),
   unsubscribe: (id: string) => post<UnsubscribeResult>(`/api/items/${id}/unsubscribe`),
@@ -118,7 +118,8 @@ export const api = {
 
   digests: () => get<Digest[]>('/api/digests'),
   buildDigest: () => post<Digest | { empty: true }>('/api/digests/build'),
-  digestDone: (day: string) => post<{ readAt: number; itemsRead: number }>(`/api/digests/${day}/done`),
+  digestDone: (day: string, markRead: boolean) =>
+    post<{ readAt: number; itemsRead: number }>(`/api/digests/${day}/done`, { markRead, device: isPhone() }),
   digestUndone: (day: string) => post<{ readAt: null }>(`/api/digests/${day}/undone`),
 
   settings: () => get<AppSettings>('/api/settings'),

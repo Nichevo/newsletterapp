@@ -453,7 +453,7 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
         </div>
         <OptionSwitch label="Include issues you've already read" value={d.includeRead} onChange={(v) => void saveDigest({ includeRead: v })} />
         <OptionSwitch label="Include sponsored-heavy issues" value={d.includeSponsored} onChange={(v) => void saveDigest({ includeSponsored: v })} />
-        <OptionSwitch label="Done also marks its stories read" value={d.doneMarksRead} onChange={(v) => void saveDigest({ doneMarksRead: v })} />
+        <OptionSwitch label="Done marks stories read by default (changeable per digest)" value={d.doneMarksRead} onChange={(v) => void saveDigest({ doneMarksRead: v })} />
         <div className="field">
           <label>Leave out categories</label>
           <div className="chipedit">

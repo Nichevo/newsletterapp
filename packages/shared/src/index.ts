@@ -59,7 +59,14 @@ export interface ItemSummary {
   ai: AiAttribution | null;
   /** 0-100, how worth your time this item looks; see scoring.ts. */
   score: number | null;
+  /** How it came to be marked read: opened in the reader, swiped in the inbox, a bulk action, or a digest marked done. */
+  readVia: ReadVia | null;
+  /** Which kind of device it was read on. */
+  readDevice: ReadDevice | null;
 }
+
+export type ReadVia = 'reader' | 'swipe' | 'bulk' | 'digest';
+export type ReadDevice = 'phone' | 'desktop';
 
 /** An older item that shares topics with the one being read. */
 export interface RelatedItem {

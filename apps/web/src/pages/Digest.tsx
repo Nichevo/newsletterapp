@@ -12,6 +12,8 @@ export function DigestPage() {
   const [building, setBuilding] = useState(false);
   const [showEarlier, setShowEarlier] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // Whether Done also marks the stories read; starts from the Settings default, changeable per digest.
+  const [markRead, setMarkRead] = useState<boolean | null>(null);
 
   function load() {
     return api
@@ -25,6 +27,10 @@ export function DigestPage() {
 
   useEffect(() => {
     void load();
+    api
+      .settings()
+      .then((st) => setMarkRead((v) => v ?? st.digest.doneMarksRead))
+      .catch(() => setMarkRead((v) => v ?? false));
   }, []);
 
   async function buildNow() {
@@ -49,7 +55,7 @@ export function DigestPage() {
 
   async function markDone(d: Digest) {
     try {
-      const r = await api.digestDone(d.day);
+      const r = await api.digestDone(d.day, markRead === true);
       setNote(r.itemsRead > 0 ? `Done. ${r.itemsRead} stor${r.itemsRead === 1 ? 'y' : 'ies'} marked read.` : null);
       setDigests((list) => list?.map((x) => (x.day === d.day ? { ...x, readAt: r.readAt } : x)) ?? null);
       setDay(null);
@@ -126,6 +132,12 @@ export function DigestPage() {
               </button>
             )}
           </div>
+          {!current.readAt && (
+            <label className="digest__option">
+              <input type="checkbox" checked={markRead === true} onChange={(e) => setMarkRead(e.target.checked)} />
+              Done also marks these stories read
+            </label>
+          )}
           {current.sections.map((section) => (
             <section key={section.title} className="card digest__section">
               <h2>{section.title}</h2>

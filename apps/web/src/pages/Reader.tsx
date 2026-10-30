@@ -145,6 +145,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
           <h1>{item.subject}</h1>
           <div className="reader__chips">
             <span className="chip chip--outline">{longDate(item.receivedAt)}</span>
+            {item.readAt && <span className="chip chip--outline">{readLabel(item)}</span>}
             {item.toAddress && <span className="chip chip--outline">to {item.toAddress}</span>}
             {item.savedAt && <span className="chip chip--warn">Saved</span>}
             {item.category && <span className="chip chip--category">{item.category}</span>}
@@ -562,4 +563,18 @@ function useReadingTracker(id: string, ready: boolean) {
       flush();
     };
   }, [id, ready]);
+}
+
+const READ_VIA_LABEL: Record<NonNullable<ItemSummary['readVia']>, string> = {
+  reader: 'Read',
+  swipe: 'Marked read',
+  bulk: 'Marked read with its newsletter',
+  digest: 'Marked read from the digest',
+};
+
+/** "Read on phone, Thu 30 Oct 9:12" or "Marked read from the digest on desktop, …". */
+function readLabel(item: ItemSummary): string {
+  const how = item.readVia ? READ_VIA_LABEL[item.readVia] : 'Read';
+  const where = item.readDevice ? ` on ${item.readDevice}` : '';
+  return `${how}${where}, ${item.readAt ? longDate(item.readAt) : ''}`.replace(/, $/, '');
 }
