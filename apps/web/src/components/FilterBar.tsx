@@ -1,4 +1,4 @@
-import type { ItemSort, ItemView, Source } from '@newsletterapp/shared';
+import type { ItemKind, ItemSort, ItemView, Source } from '@newsletterapp/shared';
 import { useState } from 'react';
 import { IconChevron, IconFilter } from '../icons';
 
@@ -7,7 +7,10 @@ export interface Filters {
   sort: ItemSort;
   source: string | null;
   category: string | null;
+  kind: ItemKind | null;
 }
+
+export const KIND_LABEL: Record<ItemKind, string> = { newsletter: 'Newsletters', feed: 'Feeds', site: 'Websites' };
 
 const VIEW_LABEL: Record<ItemView, string> = {
   inbox: 'All',
@@ -39,8 +42,11 @@ export function FilterBar({
 }) {
   const [open, setOpen] = useState(false);
   const sourceName = filters.source ? (sources.find((s) => s.id === filters.source)?.name ?? 'One source') : 'All sources';
+  // With a type picked, only that type's sources are offered (a Feedly import can add hundreds).
+  const shownSources = filters.kind ? sources.filter((s) => s.kind === filters.kind || s.id === filters.source) : sources;
   const summary = [
     fixedView ? null : VIEW_LABEL[filters.view],
+    filters.kind ? KIND_LABEL[filters.kind] : null,
     filters.category,
     sourceName,
     SORT_LABEL[filters.sort],
@@ -75,6 +81,24 @@ export function FilterBar({
               </div>
             </div>
           )}
+          <div className="filterbar__group">
+            <span className="label">Type</span>
+            <div className="pills">
+              <button className="pill" aria-pressed={filters.kind === null} onClick={() => onChange({ ...filters, kind: null })}>
+                All
+              </button>
+              {(Object.keys(KIND_LABEL) as ItemKind[]).map((k) => (
+                <button
+                  key={k}
+                  className="pill"
+                  aria-pressed={filters.kind === k}
+                  onClick={() => onChange({ ...filters, kind: k, source: null })}
+                >
+                  {KIND_LABEL[k]}
+                </button>
+              ))}
+            </div>
+          </div>
           {categories.length > 0 && (
             <div className="filterbar__group">
               <span className="label">Category</span>
@@ -101,7 +125,7 @@ export function FilterBar({
               <button className="pill" aria-pressed={filters.source === null} onClick={() => onChange({ ...filters, source: null })}>
                 All
               </button>
-              {sources.map((s) => (
+              {shownSources.map((s) => (
                 <button
                   key={s.id}
                   className="pill"
@@ -146,7 +170,7 @@ export function FilterBar({
           <div className="inline" style={{ justifyContent: 'space-between' }}>
             <button
               className="btn btn--ghost btn--small"
-              onClick={() => onChange({ view: fixedView ? filters.view : 'inbox', sort: 'newest', source: null, category: null })}
+              onClick={() => onChange({ view: fixedView ? filters.view : 'inbox', sort: 'newest', source: null, category: null, kind: null })}
             >
               Reset
             </button>

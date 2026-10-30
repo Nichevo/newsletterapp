@@ -1,4 +1,13 @@
-import type { HelperConfig, HelperHeartbeat, HelperJob, HelperResult, TrialJob, TrialResultInput } from '@newsletterapp/shared';
+import type {
+  FetchJob,
+  FetchJobResult,
+  HelperConfig,
+  HelperHeartbeat,
+  HelperJob,
+  HelperResult,
+  TrialJob,
+  TrialResultInput,
+} from '@newsletterapp/shared';
 import type { LocalConfig } from './config';
 
 /** Talks to the app through Cloudflare Access with the helper's service token. Outbound only. */
@@ -31,6 +40,8 @@ export class AppClient {
   trial = (id: string) => this.call<TrialJob>('GET', `/api/helper/trials/${id}`);
   trialResults = (id: string, results: TrialResultInput[]) => this.call('POST', `/api/helper/trials/${id}/results`, results);
   trialDone = (id: string) => this.call('POST', `/api/helper/trials/${id}/done`, {});
+  fetchClaim = (max: number) => this.call<{ jobs: FetchJob[] }>('POST', '/api/helper/fetch/claim', { max });
+  fetchResult = (r: FetchJobResult) => this.call<{ ok: boolean; added?: number }>('POST', '/api/helper/fetch/result', r);
 
   /** Downloads a file the web app serves (used for self-update). */
   async download(path: string): Promise<string> {

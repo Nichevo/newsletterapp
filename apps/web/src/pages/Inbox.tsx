@@ -1,4 +1,4 @@
-import type { ItemSummary, ItemView, Me, Source } from '@newsletterapp/shared';
+import type { ItemKind, ItemSummary, ItemView, Me, Source } from '@newsletterapp/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
@@ -9,6 +9,7 @@ import { todayLabel } from '../format';
 import { IconPlus, IconRefresh } from '../icons';
 
 const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'archived'];
+const KINDS: ItemKind[] = ['newsletter', 'feed', 'site'];
 
 /** The filter bar choices are remembered per screen on this device. */
 function storageKey(mode: 'inbox' | 'saved') {
@@ -16,7 +17,7 @@ function storageKey(mode: 'inbox' | 'saved') {
 }
 
 function loadFilters(mode: 'inbox' | 'saved'): Filters {
-  const fallback: Filters = { view: mode === 'saved' ? 'saved' : 'inbox', sort: 'newest', source: null, category: null };
+  const fallback: Filters = { view: mode === 'saved' ? 'saved' : 'inbox', sort: 'newest', source: null, category: null, kind: null };
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey(mode)) ?? 'null') as Partial<Filters> | null;
     if (!saved) return fallback;
@@ -25,6 +26,7 @@ function loadFilters(mode: 'inbox' | 'saved'): Filters {
       sort: saved.sort === 'oldest' || saved.sort === 'top' ? saved.sort : 'newest',
       source: typeof saved.source === 'string' ? saved.source : null,
       category: typeof saved.category === 'string' ? saved.category : null,
+      kind: KINDS.includes(saved.kind as ItemKind) ? (saved.kind as ItemKind) : null,
     };
   } catch {
     return fallback;
@@ -55,7 +57,7 @@ export function InboxPage({
     // A link like /?source=<id> (from Settings) opens the inbox on that source.
     const linked = searchParams.get('source');
     const stored = loadFilters(mode);
-    return linked ? { ...stored, view: mode === 'saved' ? 'saved' : 'inbox', source: linked, category: null } : stored;
+    return linked ? { ...stored, view: mode === 'saved' ? 'saved' : 'inbox', source: linked, category: null, kind: null } : stored;
   });
   const [items, setItems] = useState<ItemSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -153,7 +155,7 @@ export function InboxPage({
   }
 
   async function bulk(sourceId: string, action: 'read-all' | 'archive-all') {
-    const name = sources.find((s) => s.id === sourceId)?.name ?? 'this newsletter';
+    const name = sources.find((s) => s.id === sourceId)?.name ?? 'this source';
     if (action === 'archive-all' && !window.confirm(`Archive every inbox issue from ${name}?`)) return;
     try {
       await api.sourceBulk(sourceId, action);
@@ -177,7 +179,7 @@ export function InboxPage({
           <button className="iconbtn" aria-label="Refresh" onClick={() => void load(false)}>
             <IconRefresh />
           </button>
-          <Link to="/add" className="iconbtn iconbtn--primary" aria-label="Add a newsletter">
+          <Link to="/add" className="iconbtn iconbtn--primary" aria-label="Add a newsletter, feed or website">
             <IconPlus />
           </Link>
         </div>
