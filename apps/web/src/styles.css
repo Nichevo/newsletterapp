@@ -24,6 +24,8 @@
   --radius: 14px;
   --tab-height: 64px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Set by viewport.ts when the browser's hidden toolbar leaves a strip below the layout viewport. */
+  --vv-gap: 0px;
   color-scheme: light dark;
 }
 
@@ -503,6 +505,95 @@ select {
   overflow: hidden;
 }
 
+/* Density: compact = one line, expanded = full summary + key points */
+.row--compact .row__card {
+  gap: 2px;
+  padding: 8px 16px;
+}
+
+.row--compact .row__meta .chip {
+  display: none;
+}
+
+.row--compact .row__source {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.row--compact .row__title {
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (min-width: 640px) {
+  .row--compact .row__card {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .row--compact .row__meta {
+    display: contents;
+  }
+
+  .row--compact .row__dot {
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    margin-top: -4px;
+  }
+
+  .row--compact .row__source {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .row--compact .row__title {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .row--compact .row__time {
+    grid-column: 3;
+    grid-row: 1;
+    margin-left: 0;
+  }
+}
+
+.row--expanded .row__card {
+  padding: 16px;
+  gap: 8px;
+}
+
+.row--expanded .row__title {
+  font-size: 18px;
+}
+
+.row--expanded .row__snippet {
+  color: var(--ink);
+}
+
+.row__points {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--quiet);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row__why {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--teal-ink);
+}
+
 .row__tags {
   display: flex;
   gap: 6px;
@@ -537,7 +628,7 @@ select {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: calc(-1 * var(--vv-gap));
   height: calc(var(--tab-height) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   border-top: 1px solid var(--border);
@@ -601,6 +692,26 @@ select {
   gap: 4px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+}
+
+.reader__nav {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.reader__nav .iconbtn:disabled {
+  opacity: 0.3;
+  background: transparent;
+}
+
+.reader__nav-pos {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 3ch;
+  text-align: center;
 }
 
 .reader__who {
@@ -680,7 +791,7 @@ select {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: calc(-1 * var(--vv-gap));
   height: calc(76px + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   border-top: 1px solid var(--border);

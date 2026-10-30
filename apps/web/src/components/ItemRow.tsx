@@ -1,6 +1,7 @@
 import type { ItemSummary } from '@newsletterapp/shared';
 import { useRef, useState, type PointerEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useDensity, useViewOptions } from './DensityToggle';
 import { readingMinutes, shortTime } from '../format';
 import { IconBookmark, IconCheck } from '../icons';
 
@@ -21,6 +22,8 @@ export function ItemRow({
   rightLabel?: string;
 }) {
   const navigate = useNavigate();
+  const density = useDensity();
+  const opts = useViewOptions();
   const [dx, setDx] = useState(0);
   const [snapping, setSnapping] = useState(false);
   const start = useRef<{ x: number; y: number; id: number } | null>(null);
@@ -74,10 +77,14 @@ export function ItemRow({
   const bg = dx < 0 ? 'var(--swipe-read)' : dx > 0 ? 'var(--swipe-save)' : 'transparent';
   const kindClass = `chip chip--${item.kind}`;
   const preview = item.summary ?? item.preheader ?? item.snippet;
-  const showTags = item.savedAt || item.category || item.sponsored || item.tags.length > 0;
+  const expanded = density === 'expanded';
+  const hasTags = item.savedAt || item.category || item.sponsored || item.tags.length > 0;
+  const showTags = hasTags && (expanded ? opts.expandedTags : density === 'card' && opts.cardTags);
+  const showPreview = preview && (expanded ? true : density === 'card' && opts.cardLines > 0);
+  const previewLines = expanded ? (opts.expandedFullSummary ? 'unset' : 4) : opts.cardLines;
 
   return (
-    <div className={`row${item.readAt ? ' row--read' : ''}`} style={{ background: bg }}>
+    <div className={`row row--${density}${item.readAt ? ' row--read' : ''}`} style={{ background: bg }}>
       <div className="row__under" aria-hidden="true">
         <span style={{ opacity: dx > 20 ? 1 : 0 }}>
           <IconBookmark />
@@ -112,7 +119,19 @@ export function ItemRow({
           </span>
         </div>
         <span className="row__title">{item.subject}</span>
-        {preview ? <span className="row__snippet">{preview}</span> : null}
+        {showPreview ? (
+          <span className="row__snippet" style={{ WebkitLineClamp: previewLines }}>
+            {preview}
+          </span>
+        ) : null}
+        {expanded && opts.expandedPoints > 0 && item.keyPoints.length > 0 && (
+          <ul className="row__points">
+            {item.keyPoints.slice(0, opts.expandedPoints).map((k) => (
+              <li key={k}>{k}</li>
+            ))}
+          </ul>
+        )}
+        {expanded && opts.expandedWhy && item.whyItMatters && <span className="row__why">Why it matters: {item.whyItMatters}</span>}
         {showTags && (
           <div className="row__tags">
             {item.savedAt && <span className="chip chip--warn">Saved</span>}

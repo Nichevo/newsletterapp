@@ -4,6 +4,9 @@ import { BrowserRouter } from 'react-router-dom';
 import { registerSW } from 'virtual:pwa-register';
 import App from './App';
 import './styles.css';
+import { trackViewportGap } from './viewport';
+
+trackViewportGap();
 
 // An installed app on a phone can stay open in the background for days, so
 // look for a new version whenever it comes back to the screen (and hourly).

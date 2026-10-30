@@ -105,7 +105,7 @@ export function SourcePage() {
               {source.lastReceivedAt ? ` · last ${shortTime(source.lastReceivedAt)}` : ''}
               {source.senderEmail ? ` · ${source.senderEmail}` : ''}
               {source.unsubscribedAt ? ` · unsubscribed ${shortTime(source.unsubscribedAt)}` : ''}
-              {source.pausedAt ? ' · not following' : ''}
+              {source.pausedAt ? ` · paused since ${shortTime(source.pausedAt)}` : ''}
             </span>
             <div className="inline">
               <Link to={`/?source=${source.id}`} className="btn btn--small">
@@ -117,7 +117,17 @@ export function SourcePage() {
               <button className="btn btn--small" onClick={() => void bulk('archive-all')}>
                 Archive all
               </button>
+              <button className="btn btn--small" onClick={() => void update({ paused: !source.pausedAt })}>
+                {source.pausedAt ? 'Resume' : 'Pause'}
+              </button>
             </div>
+            <span className="hint">
+              {source.pausedAt
+                ? source.kind === 'newsletter'
+                  ? 'Paused: new issues are kept but go straight to Archived. Nothing is deleted.'
+                  : 'Paused: not checked for new posts. Nothing is deleted.'
+                : `Pause keeps everything you already have and stops new ${noun}s reaching your inbox until you resume.`}
+            </span>
             {done && <span className="hint">{done}</span>}
           </div>
 
@@ -178,7 +188,7 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
         </span>
         <span className="hint" style={{ margin: 0 }}>
           {source.pausedAt
-            ? `Not following since ${shortTime(source.pausedAt)}.`
+            ? 'Paused.'
             : source.lastCheckedAt
               ? `Last checked ${shortTime(source.lastCheckedAt)}${source.nextCheckAt ? `, next ${shortTime(source.nextCheckAt)}` : ''}.`
               : 'Not checked yet.'}
@@ -193,13 +203,7 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
           <button className="btn btn--small" onClick={onCheck} disabled={Boolean(source.pausedAt)}>
             Check now
           </button>
-          <button className="btn btn--small" onClick={() => onUpdate({ paused: !source.pausedAt })}>
-            {source.pausedAt ? 'Follow again' : 'Stop following'}
-          </button>
         </div>
-        <span className="hint" style={{ margin: 0 }}>
-          Stop following keeps everything already in your inbox.
-        </span>
       </section>
 
       <section className="card">
