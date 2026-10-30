@@ -27,6 +27,11 @@ export function dataDir(): string {
 
 export const configPath = () => process.env.HELPER_CONFIG ?? join(dataDir(), 'config.json');
 
+function toList(value: unknown): LocalConfig['openaiCompatible'] {
+  if (Array.isArray(value)) return value;
+  return value && typeof value === 'object' && 'baseUrl' in value ? [value as LocalConfig['openaiCompatible'][number]] : [];
+}
+
 export function loadConfig(): LocalConfig {
   const path = configPath();
   if (!existsSync(path)) throw new Error(`No config at ${path}. Run install-helper.ps1 first.`);
@@ -39,7 +44,7 @@ export function loadConfig(): LocalConfig {
     clientSecret: raw.clientSecret,
     ollamaUrl: (raw.ollamaUrl ?? 'http://127.0.0.1:11434').replace(/\/+$/, ''),
     // PowerShell 5's ConvertTo-Json turns an empty list into {} and a one-item list into the bare item.
-    openaiCompatible: Array.isArray(raw.openaiCompatible) ? raw.openaiCompatible : raw.openaiCompatible?.baseUrl ? [raw.openaiCompatible] : [],
+    openaiCompatible: toList(raw.openaiCompatible),
     anthropicApiKey: raw.anthropicApiKey,
     maxChars: raw.maxChars ?? 24_000,
   };
