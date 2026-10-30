@@ -1,6 +1,7 @@
 import type { ItemSummary, ItemView, Me, Source } from '@newsletterapp/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { rememberList } from '../readingList';
 import { api } from '../api';
 import type { Counts } from '../App';
 import { FilterBar, type Filters } from '../components/FilterBar';
@@ -119,6 +120,10 @@ export function InboxPage({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsBackfill]);
+
+  useEffect(() => {
+    rememberList(items.map((i) => i.id));
+  }, [items]);
 
   function patch(updated: ItemSummary) {
     setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
