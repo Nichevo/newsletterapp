@@ -246,6 +246,11 @@ select {
   color: var(--amber-ink);
 }
 
+.chip--category {
+  background: var(--border);
+  color: var(--ink);
+}
+
 /* Filter bar */
 .filterbar {
   padding: 0 16px 8px;
@@ -905,4 +910,68 @@ select {
   .page {
     padding-top: 12px;
   }
+}
+
+/* Quick summary (rules, no AI) in the reader */
+.quick {
+  gap: 8px;
+}
+
+.quick__lead {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.quick__list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.quick__toggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--teal);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.attribution {
+  margin: 0;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--quiet);
+}
+
+/* Settings editors */
+.chipedit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chipedit .chip button {
+  margin-left: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.switchrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }

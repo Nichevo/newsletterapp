@@ -33,7 +33,14 @@ export interface ItemSummary {
   authSpf: AuthResult;
   authDkim: AuthResult;
   authDmarc: AuthResult;
-  // Filled in from Phase 2 onwards.
+  /** Quick summary, worked out by rules when the item arrives (no AI). */
+  preheader: string | null;
+  wordCount: number | null;
+  /** Rules-based category: a keyword rule match, else the source's default. */
+  category: string | null;
+  /** The email looks like it carries a sponsored section. */
+  sponsored: boolean;
+  // AI fields, filled in by the PC helper.
   summary: string | null;
   tags: string[];
   score: number | null;
@@ -50,6 +57,9 @@ export interface ItemListResponse {
 }
 
 export type ItemView = 'inbox' | 'unread' | 'saved' | 'archived';
+
+/** Per-source AI switch. "default" follows the setting for the source's kind. */
+export type AiMode = 'default' | 'on' | 'off';
 export type ItemSort = 'newest' | 'oldest';
 
 export interface Source {
@@ -59,6 +69,9 @@ export interface Source {
   senderEmail: string | null;
   addressId: string | null;
   folder: string | null;
+  /** Default category for this source's items. */
+  category: string | null;
+  aiMode: AiMode;
   createdAt: number;
   itemCount: number;
   lastReceivedAt: number | null;
@@ -117,4 +130,32 @@ export interface ReadingEventInput {
 export interface Me {
   email: string;
   domain: string | null;
+}
+
+export interface KeywordRule {
+  /** Comma-separated words or phrases, matched against subject and preview line. */
+  match: string;
+  category: string;
+}
+
+/** App-wide settings, stored in D1 and edited on the Settings screen. */
+export interface AppSettings {
+  categories: string[];
+  keywordRules: KeywordRule[];
+  /** Whether each kind of source goes to the AI by default. */
+  aiByKind: Record<ItemKind, boolean>;
+  /** A short line about the reader's interests, used by the summary prompt. */
+  interests: string;
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  categories: ['AI', 'Tech', 'Business', 'Finance', 'Science', 'Politics', 'Health', 'Productivity', 'Culture', 'Other'],
+  keywordRules: [],
+  aiByKind: { newsletter: true, feed: false, site: false },
+  interests: '',
+};
+
+export interface SourceUpdate {
+  category?: string | null;
+  aiMode?: AiMode;
 }

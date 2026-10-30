@@ -1,7 +1,7 @@
 import type { ItemSummary } from '@newsletterapp/shared';
 import { useRef, useState, type PointerEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { shortTime } from '../format';
+import { readingMinutes, shortTime } from '../format';
 import { IconBookmark, IconCheck } from '../icons';
 
 const THRESHOLD = 88; // px of travel before a swipe counts
@@ -73,6 +73,8 @@ export function ItemRow({
 
   const bg = dx < 0 ? 'var(--swipe-read)' : dx > 0 ? 'var(--swipe-save)' : 'transparent';
   const kindClass = `chip chip--${item.kind}`;
+  const preview = item.summary ?? item.preheader ?? item.snippet;
+  const showTags = item.savedAt || item.category || item.sponsored || item.tags.length > 0;
 
   return (
     <div className={`row${item.readAt ? ' row--read' : ''}`} style={{ background: bg }}>
@@ -104,13 +106,18 @@ export function ItemRow({
           {!item.readAt && <span className="row__dot" />}
           <span className="row__source">{item.sourceName ?? item.fromName ?? item.fromEmail}</span>
           <span className={kindClass}>{item.kind === 'newsletter' ? 'Newsletter' : item.kind === 'feed' ? 'Feed' : 'Site'}</span>
-          <span className="row__time">{shortTime(item.receivedAt)}</span>
+          <span className="row__time">
+            {item.wordCount ? `${readingMinutes(item.wordCount)} min · ` : ''}
+            {shortTime(item.receivedAt)}
+          </span>
         </div>
         <span className="row__title">{item.subject}</span>
-        {item.summary || item.snippet ? <span className="row__snippet">{item.summary ?? item.snippet}</span> : null}
-        {(item.savedAt || item.tags.length > 0) && (
+        {preview ? <span className="row__snippet">{preview}</span> : null}
+        {showTags && (
           <div className="row__tags">
             {item.savedAt && <span className="chip chip--warn">Saved</span>}
+            {item.category && <span className="chip chip--category">{item.category}</span>}
+            {item.sponsored && <span className="chip chip--outline">Sponsored</span>}
             {item.tags.map((t) => (
               <span key={t} className="chip chip--outline">
                 {t}

@@ -6,6 +6,7 @@ export interface Filters {
   view: ItemView;
   sort: ItemSort;
   source: string | null;
+  category: string | null;
 }
 
 const VIEW_LABEL: Record<ItemView, string> = {
@@ -19,12 +20,14 @@ export function FilterBar({
   filters,
   onChange,
   sources,
+  categories,
   count,
   fixedView,
 }: {
   filters: Filters;
   onChange: (f: Filters) => void;
   sources: Source[];
+  categories: string[];
   count: number | null;
   /** When set, the view pills are hidden (e.g. the Saved screen). */
   fixedView?: boolean;
@@ -33,6 +36,7 @@ export function FilterBar({
   const sourceName = filters.source ? (sources.find((s) => s.id === filters.source)?.name ?? 'One source') : 'All sources';
   const summary = [
     fixedView ? null : VIEW_LABEL[filters.view],
+    filters.category,
     sourceName,
     filters.sort === 'newest' ? 'Newest first' : 'Oldest first',
   ]
@@ -61,6 +65,26 @@ export function FilterBar({
                     onClick={() => onChange({ ...filters, view: v })}
                   >
                     {VIEW_LABEL[v]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {categories.length > 0 && (
+            <div className="filterbar__group">
+              <span className="label">Category</span>
+              <div className="pills">
+                <button className="pill" aria-pressed={filters.category === null} onClick={() => onChange({ ...filters, category: null })}>
+                  All
+                </button>
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    className="pill"
+                    aria-pressed={filters.category === cat}
+                    onClick={() => onChange({ ...filters, category: cat })}
+                  >
+                    {cat}
                   </button>
                 ))}
               </div>
@@ -98,7 +122,7 @@ export function FilterBar({
           <div className="inline" style={{ justifyContent: 'space-between' }}>
             <button
               className="btn btn--ghost btn--small"
-              onClick={() => onChange({ view: fixedView ? filters.view : 'inbox', sort: 'newest', source: null })}
+              onClick={() => onChange({ view: fixedView ? filters.view : 'inbox', sort: 'newest', source: null, category: null })}
             >
               Reset
             </button>

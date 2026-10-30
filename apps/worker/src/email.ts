@@ -2,7 +2,9 @@ import PostalMime from 'postal-mime';
 import type { Env } from './env';
 import { findWebVersionUrl, htmlToText, snippetOf } from './html';
 import { localPartOf, newId, normalizeEmail, now } from './ids';
+import { categoryFromRules, quickSummary } from './quick';
 import { parseAuthResults, screen } from './screening';
+import { loadSettings } from './settings';
 
 /**
  * Entry point for every email sent to the domain (catch-all rule -> this Worker).
@@ -45,6 +47,7 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
   const html = parsed?.html ?? null;
   const text = parsed?.text ?? (html ? htmlToText(html) : null);
   const snippet = text ? snippetOf(text) : null;
+  const quick = quickSummary(html, text);
   const receivedAt = parsed?.date ? Date.parse(parsed.date) || t : t;
   const date = new Date(t);
   const prefix = `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -64,6 +67,10 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
   let source = await env.DB.prepare('SELECT id FROM sources WHERE sender_email = ? AND address_id = ?')
     .bind(fromEmail, decision.address.id)
     .first<{ id: string }>();
+  // A keyword rule match wins over the source's default category, which is
+  // applied at read time so changing it re-files older issues too.
+  const settings = await loadSettings(env);
+  const category = categoryFromRules(settings.keywordRules, subject, quick.preheader);
   if (!source) {
     source = { id: newId() };
     await env.DB.prepare(
@@ -77,8 +84,9 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
     `INSERT INTO items (
        id, source_id, sender_id, address_id, kind, status, subject, from_name, from_email, to_address,
        snippet, received_at, message_id, raw_key, html_key, text_key, raw_size, has_html,
-       list_unsubscribe, auth_spf, auth_dkim, auth_dmarc, web_url, created_at
-     ) VALUES (?, ?, ?, ?, 'newsletter', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       list_unsubscribe, auth_spf, auth_dkim, auth_dmarc, web_url, created_at,
+       preheader, word_count, category, sponsored
+     ) VALUES (?, ?, ?, ?, 'newsletter', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
@@ -104,6 +112,10 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
       auth.dmarc,
       html ? findWebVersionUrl(html) : null,
       t,
+      quick.preheader,
+      quick.wordCount,
+      category,
+      quick.sponsored ? 1 : 0,
     )
     .run();
 }

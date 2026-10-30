@@ -1,10 +1,11 @@
 import type { ItemBody, ItemSummary } from '@newsletterapp/shared';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
 import { EmailBody } from '../components/EmailBody';
 import { longDate, readingMinutes } from '../format';
 import { IconArchive, IconBack, IconBookmark, IconExternal, IconImage } from '../icons';
+import { outlineOf } from '../quick';
 
 export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const { id = '' } = useParams();
@@ -68,7 +69,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
         <div className="reader__who">
           <strong>{item?.sourceName ?? item?.fromName ?? item?.fromEmail ?? ''}</strong>
           <span>
-            {item ? `${item.kind === 'newsletter' ? 'Newsletter' : item.kind} · ${readingMinutes(body?.text)} min read` : ''}
+            {item ? `${item.kind === 'newsletter' ? 'Newsletter' : item.kind} · ${readingMinutes(item.wordCount ?? body?.text)} min read` : ''}
           </span>
         </div>
       </div>
@@ -82,6 +83,8 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             <span className="chip chip--outline">{longDate(item.receivedAt)}</span>
             {item.toAddress && <span className="chip chip--outline">to {item.toAddress}</span>}
             {item.savedAt && <span className="chip chip--warn">Saved</span>}
+            {item.category && <span className="chip chip--category">{item.category}</span>}
+            {item.sponsored && <span className="chip chip--outline">Has a sponsored section</span>}
             {item.tags.map((t) => (
               <span key={t} className="chip chip--outline">
                 {t}
@@ -96,6 +99,12 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
               <p style={{ margin: 0, fontSize: 15, lineHeight: 1.45 }}>{item.summary}</p>
             </section>
           )}
+          <QuickSummary
+            preview={item.preheader ?? item.snippet}
+            html={body?.html ?? null}
+            folded={Boolean(item.summary)}
+            onLinkClick={onLinkClick}
+          />
           {hasRemoteImages && !loadImages && (
             <div className="reader__images">
               <span>
@@ -160,6 +169,104 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
       </div>
     </div>
   );
+}
+
+/**
+ * The rules-based summary every item gets: the sender's preview line plus the
+ * headings and main story links in the issue. Folds away under an AI summary.
+ */
+function QuickSummary({
+  preview,
+  html,
+  folded,
+  onLinkClick,
+}: {
+  preview: string | null;
+  html: string | null;
+  folded: boolean;
+  onLinkClick: (href: string) => void;
+}) {
+  const [open, setOpen] = useState(!folded);
+  const [showOutline, setShowOutline] = useState(() => readFlag(OUTLINE_KEY));
+  const outline = useMemo(() => (html ? outlineOf(html) : { headings: [], links: [] }), [html]);
+  useEffect(() => setOpen(!folded), [folded]);
+  const headings = outline.headings.length > 1 ? outline.headings : [];
+  const outlineCount = headings.length + outline.links.length;
+  if (!preview && outlineCount === 0) return null;
+
+  function toggleOutline() {
+    setShowOutline((v) => {
+      writeFlag(OUTLINE_KEY, !v);
+      return !v;
+    });
+  }
+
+  return (
+    <section className="card quick" aria-label="Quick summary">
+      <span className="label" style={{ color: 'var(--teal-ink)' }}>
+        Quick summary
+      </span>
+      {folded && (
+        <button className="quick__toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+          {open ? 'Hide' : 'Show'}
+        </button>
+      )}
+      {open && (
+        <>
+          {preview && <p className="quick__lead">{preview}</p>}
+          {outlineCount > 0 && (
+            <button className="quick__toggle" onClick={toggleOutline} aria-expanded={showOutline}>
+              {showOutline ? 'Hide' : 'Show'} what's in this issue ({outlineCount})
+            </button>
+          )}
+          {showOutline && headings.length > 0 && (
+            <>
+              <span className="label">In this issue</span>
+              <ul className="quick__list">
+                {headings.map((h) => (
+                  <li key={h}>{h}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          {showOutline && outline.links.length > 0 && (
+            <>
+              <span className="label">Main links</span>
+              <ul className="quick__list">
+                {outline.links.map((l) => (
+                  <li key={l.href + l.text}>
+                    <a href={l.href} target="_blank" rel="noopener noreferrer nofollow" onClick={() => onLinkClick(l.href)}>
+                      {l.text}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <p className="attribution">Quick summary (no AI)</p>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Whether the "what's in this issue" lists start open, remembered on this device. */
+const OUTLINE_KEY = 'reader:showOutline';
+
+function readFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeFlag(key: string, value: boolean) {
+  try {
+    localStorage.setItem(key, value ? '1' : '0');
+  } catch {
+    // Storage unavailable; the choice just isn't remembered.
+  }
 }
 
 /** Picks the https link out of a List-Unsubscribe header, if there is one. */

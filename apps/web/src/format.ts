@@ -31,9 +31,10 @@ export function todayLabel(): string {
   return new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
-/** Rough reading time from a character count. */
-export function readingMinutes(text: string | null | undefined): number {
-  if (!text) return 1;
-  const words = text.trim().split(/\s+/).length;
-  return Math.max(1, Math.round(words / 230));
+const WORDS_PER_MINUTE = 230;
+
+/** Rough reading time from the item's word count, or from its text. */
+export function readingMinutes(source: number | string | null | undefined): number {
+  const words = typeof source === 'number' ? source : source ? source.trim().split(/\s+/).length : 0;
+  return Math.max(1, Math.round(words / WORDS_PER_MINUTE));
 }
