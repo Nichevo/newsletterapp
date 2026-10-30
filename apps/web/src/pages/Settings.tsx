@@ -3,7 +3,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { shortTime } from '../format';
-import { TEXT_SIZES, getHideSponsored, getTextSize, setHideSponsored, setTextSize, type TextSize } from '../prefs';
+import { DENSITIES, TEXT_SIZES, getHideSponsored, getTextSize, setDensity, setHideSponsored, setTextSize, type TextSize } from '../prefs';
+import { useDensity } from '../components/DensityToggle';
 
 export function SettingsPage({ me }: { me: Me }) {
   const [sources, setSources] = useState<Source[]>([]);
@@ -256,6 +257,7 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
 function ReadingSection() {
   const [size, setSize] = useState<TextSize>(getTextSize());
   const [hideSponsored, setHide] = useState(getHideSponsored());
+  const density = useDensity();
 
   function pick(next: TextSize) {
     setTextSize(next);
@@ -276,6 +278,17 @@ function ReadingSection() {
             ))}
           </div>
           <span className="hint">Applies to newsletter text in the reader on this device.</span>
+        </div>
+        <div className="field">
+          <label>Inbox view</label>
+          <div className="segmented" role="group" aria-label="Inbox view">
+            {DENSITIES.map((d) => (
+              <button key={d.id} aria-pressed={density === d.id} onClick={() => setDensity(d.id)}>
+                {d.label}
+              </button>
+            ))}
+          </div>
+          <span className="hint">{DENSITIES.find((d) => d.id === density)?.hint}. The icon at the top of the inbox switches too.</span>
         </div>
         <label className="switchrow">
           <span style={{ fontSize: 15 }}>Hide sponsored sections</span>

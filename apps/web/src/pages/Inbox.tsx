@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { rememberList } from '../readingList';
 import { api } from '../api';
 import type { Counts } from '../App';
+import { DensityToggle } from '../components/DensityToggle';
 import { FilterBar, type Filters } from '../components/FilterBar';
 import { ItemRow } from '../components/ItemRow';
 import { todayLabel } from '../format';
@@ -179,6 +180,7 @@ export function InboxPage({
           <h1>{mode === 'saved' ? 'Saved' : 'Inbox'}</h1>
         </div>
         <div className="topbar__actions">
+          <DensityToggle />
           <button className="iconbtn" aria-label="Refresh" onClick={() => void load(false)}>
             <IconRefresh />
           </button>

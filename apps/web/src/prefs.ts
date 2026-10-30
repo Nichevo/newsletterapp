@@ -58,3 +58,30 @@ export function imagesAllowed(sourceId: string | null): boolean {
 export function setImagesAllowed(sourceId: string, on: boolean) {
   write(`images:${sourceId}`, on ? '1' : null);
 }
+
+// ---------- Inbox density: compact rows, cards (default) or expanded summaries ----------
+
+export type Density = 'compact' | 'card' | 'expanded';
+
+export const DENSITIES: { id: Density; label: string; hint: string }[] = [
+  { id: 'compact', label: 'Compact', hint: 'One line per issue' },
+  { id: 'card', label: 'Card', hint: 'Subject and a two-line preview' },
+  { id: 'expanded', label: 'Expanded', hint: 'Full summary and key points in the list' },
+];
+
+const densityListeners = new Set<() => void>();
+
+export function getDensity(): Density {
+  const v = read('inbox:density');
+  return DENSITIES.some((d) => d.id === v) ? (v as Density) : 'card';
+}
+
+export function setDensity(d: Density) {
+  write('inbox:density', d);
+  densityListeners.forEach((fn) => fn());
+}
+
+export function subscribeDensity(fn: () => void): () => void {
+  densityListeners.add(fn);
+  return () => densityListeners.delete(fn);
+}

@@ -114,3 +114,22 @@ export const IconDigest = (p: Props) => (
     <path d="M8 8h5M8 12h8M8 16h8" />
   </svg>
 );
+
+/** Three bars for compact, two cards for card, one tall card for expanded. */
+export const IconDensity = ({ density, ...p }: Props & { density: 'compact' | 'card' | 'expanded' }) => (
+  <svg {...base(p)}>
+    {density === 'compact' && <path d="M4 6h16M4 12h16M4 18h16" />}
+    {density === 'card' && (
+      <>
+        <rect x="4" y="4" width="16" height="7" rx="1.5" />
+        <rect x="4" y="13" width="16" height="7" rx="1.5" />
+      </>
+    )}
+    {density === 'expanded' && (
+      <>
+        <rect x="4" y="4" width="16" height="16" rx="1.5" />
+        <path d="M8 9h8M8 12.5h8M8 16h5" />
+      </>
+    )}
+  </svg>
+);
