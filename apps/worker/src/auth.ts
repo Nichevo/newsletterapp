@@ -3,13 +3,25 @@ import type { Env } from './env';
 
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
-function jwksFor(teamDomain: string) {
-  let jwks = jwksCache.get(teamDomain);
+/**
+ * Accepts the team name (`acme`), the team domain
+ * (`acme.cloudflareaccess.com`) or a full URL, and returns the issuer URL
+ * Access signs its tokens with.
+ */
+export function accessIssuer(teamDomain: string): string {
+  const name = teamDomain
+    .trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/.*$/, '')
+    .replace(/\.cloudflareaccess\.com$/i, '');
+  return `https://${name}.cloudflareaccess.com`;
+}
+
+function jwksFor(issuer: string) {
+  let jwks = jwksCache.get(issuer);
   if (!jwks) {
-    jwks = createRemoteJWKSet(
-      new URL(`https://${teamDomain}.cloudflareaccess.com/cdn-cgi/access/certs`),
-    );
-    jwksCache.set(teamDomain, jwks);
+    jwks = createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`));
+    jwksCache.set(issuer, jwks);
   }
   return jwks;
 }
@@ -49,11 +61,12 @@ export async function authenticate(request: Request, env: Env): Promise<string> 
   const token = tokenFrom(request);
   if (!token) throw new AuthError('Missing Access token', 401);
 
+  const issuer = accessIssuer(env.ACCESS_TEAM_DOMAIN);
   let email: string | undefined;
   try {
-    const { payload } = await jwtVerify(token, jwksFor(env.ACCESS_TEAM_DOMAIN), {
-      issuer: `https://${env.ACCESS_TEAM_DOMAIN}.cloudflareaccess.com`,
-      audience: env.ACCESS_AUD,
+    const { payload } = await jwtVerify(token, jwksFor(issuer), {
+      issuer,
+      audience: env.ACCESS_AUD.trim(),
     });
     email = typeof payload.email === 'string' ? payload.email.toLowerCase() : undefined;
   } catch {
