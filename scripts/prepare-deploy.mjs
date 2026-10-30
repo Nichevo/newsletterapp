@@ -15,12 +15,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const CONFIG = 'wrangler.jsonc';
 const config = JSON.parse(readFileSync(CONFIG, 'utf8'));
 
-function wrangler(args, { json = false, allowFail = false } = {}) {
+function wrangler(args, { json = false } = {}) {
   try {
     const out = execFileSync('pnpm', ['exec', 'wrangler', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     return json ? JSON.parse(out) : out;
   } catch (err) {
-    if (allowFail) return null;
     console.error(err.stdout ?? '', err.stderr ?? '');
     throw err;
   }
@@ -41,9 +40,27 @@ d1.database_id = db.uuid;
 console.log(`D1 ${d1.database_name} = ${db.uuid}`);
 
 // --- R2 -------------------------------------------------------------------
+// `wrangler r2 bucket list` fails outright when R2 has never been enabled on
+// the account (a one-time click in the dashboard, free tier), so explain that
+// instead of letting `wrangler deploy` fail later with "bucket not found".
 const bucket = config.r2_buckets[0].bucket_name;
-const created = wrangler(['r2', 'bucket', 'create', bucket], { allowFail: true });
-console.log(created ? `Created R2 bucket ${bucket}` : `R2 bucket ${bucket} already exists`);
+let buckets;
+try {
+  buckets = wrangler(['r2', 'bucket', 'list'], { json: false });
+} catch {
+  console.error(
+    `\nCould not list R2 buckets. Either R2 is not enabled on this Cloudflare account yet\n` +
+      `(dashboard -> R2 Object Storage -> Get started; the free tier costs nothing) or the\n` +
+      `API token is missing the "Workers R2 Storage: Edit" permission.\n`,
+  );
+  process.exit(1);
+}
+if (new RegExp(`^name:\\s+${bucket}$`, 'm').test(buckets)) {
+  console.log(`R2 bucket ${bucket} already exists`);
+} else {
+  console.log(`Creating R2 bucket ${bucket}`);
+  wrangler(['r2', 'bucket', 'create', bucket]);
+}
 
 // --- Hostname and settings ------------------------------------------------
 const hostname = process.env.APP_HOSTNAME?.trim();
