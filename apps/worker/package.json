@@ -1,0 +1,25 @@
+{
+  "name": "@newsletterapp/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "echo 'built by wrangler at deploy time'",
+    "migrate:local": "wrangler d1 migrations apply newsletterapp --local",
+    "migrate:remote": "wrangler d1 migrations apply newsletterapp --remote"
+  },
+  "dependencies": {
+    "@newsletterapp/shared": "workspace:*",
+    "hono": "^4.13.0",
+    "jose": "^6.2.0",
+    "postal-mime": "^4.2.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.0.0",
+    "typescript": "^5.9.0",
+    "wrangler": "^4.156.0"
+  }
+}

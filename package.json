@@ -1,0 +1,17 @@
+{
+  "name": "newsletterapp",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @newsletterapp/web dev",
+    "dev:worker": "pnpm --filter @newsletterapp/worker dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "deploy": "pnpm --filter @newsletterapp/worker deploy",
+    "migrate:local": "pnpm --filter @newsletterapp/worker migrate:local",
+    "migrate:remote": "pnpm --filter @newsletterapp/worker migrate:remote"
+  }
+}
