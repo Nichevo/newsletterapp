@@ -24,6 +24,8 @@
   --radius: 14px;
   --tab-height: 64px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Set by viewport.ts when the browser's hidden toolbar leaves a strip below the layout viewport. */
+  --vv-gap: 0px;
   color-scheme: light dark;
 }
 
@@ -537,7 +539,7 @@ select {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: calc(-1 * var(--vv-gap));
   height: calc(var(--tab-height) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   border-top: 1px solid var(--border);
@@ -700,7 +702,7 @@ select {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: calc(-1 * var(--vv-gap));
   height: calc(76px + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   border-top: 1px solid var(--border);
