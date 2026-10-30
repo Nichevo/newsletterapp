@@ -1,0 +1,45 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Create Cloudflare resources if missing and fill in wrangler config
+        working-directory: apps/worker
+        env:
+          APP_HOSTNAME: ${{ vars.APP_HOSTNAME }}
+          MAIL_DOMAIN: ${{ vars.MAIL_DOMAIN }}
+          ACCESS_TEAM_DOMAIN: ${{ vars.ACCESS_TEAM_DOMAIN }}
+          ACCESS_AUD: ${{ vars.ACCESS_AUD }}
+          ALLOWED_EMAILS: ${{ vars.ALLOWED_EMAILS }}
+        run: node ../../scripts/prepare-deploy.mjs
+
+      - name: Apply database migrations
+        working-directory: apps/worker
+        run: pnpm wrangler d1 migrations apply newsletterapp --remote
+
+      - name: Deploy Worker
+        working-directory: apps/worker
+        run: pnpm wrangler deploy

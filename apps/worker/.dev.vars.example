@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local development with `pnpm dev:worker`.
+# Skips Cloudflare Access checks and signs you in as DEV_EMAIL.
+DEV_BYPASS_AUTH=1
+DEV_EMAIL=you@example.com
