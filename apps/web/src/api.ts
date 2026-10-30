@@ -1,6 +1,11 @@
 import type {
   Address,
   Digest,
+  DiscoverResult,
+  ItemKind,
+  NewSourceInput,
+  NewSourceResult,
+  OpmlImportResult,
   RelatedItem,
   UnsubscribeResult,
   AiStatsRow,
@@ -67,9 +72,11 @@ export const api = {
     sort: ItemSort;
     source?: string | null;
     category?: string | null;
+    kind?: ItemKind | null;
     cursor?: string | null;
   }) => {
     const q = new URLSearchParams({ view: params.view, sort: params.sort });
+    if (params.kind) q.set('kind', params.kind);
     if (params.source) q.set('source', params.source);
     if (params.category) q.set('category', params.category);
     if (params.cursor) q.set('cursor', params.cursor);
@@ -103,6 +110,10 @@ export const api = {
   sources: () => get<Source[]>('/api/sources'),
   updateSource: (id: string, update: SourceUpdate) => post<Source>(`/api/sources/${id}`, update),
   sourceBulk: (id: string, action: 'read-all' | 'archive-all') => post<{ changed: number }>(`/api/sources/${id}/${action}`),
+  discoverSource: (url: string) => post<DiscoverResult>('/api/sources/discover', { url }),
+  addSource: (input: NewSourceInput) => post<NewSourceResult>('/api/sources', input),
+  importOpml: (opml: string) => post<OpmlImportResult>('/api/sources/opml', { opml }),
+  checkSource: (id: string) => post<{ added: number; waitingForPc: boolean; source: Source }>(`/api/sources/${id}/check`),
 
   digests: () => get<Digest[]>('/api/digests'),
   buildDigest: () => post<Digest | { empty: true }>('/api/digests/build'),

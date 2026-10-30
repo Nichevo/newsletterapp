@@ -21,6 +21,7 @@ import {
 import type { Hono } from 'hono';
 import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
+import { fetchJobsWaiting } from './feeds';
 import { loadSettings } from './settings';
 import { jobsThatFit, limitState } from './usage';
 
@@ -219,10 +220,11 @@ export function registerAi(app: App) {
     }
     if (stmts.length) await c.env.DB.batch(stmts);
 
-    const [state, models, trial, usage] = await Promise.all([
+    const [state, models, trial, fetchWaiting, usage] = await Promise.all([
       loadState(c.env),
       c.env.DB.prepare('SELECT provider, name FROM models WHERE enabled = 1 AND installed = 1 ORDER BY position').all<ModelRef>(),
       c.env.DB.prepare("SELECT id FROM trials WHERE status != 'done' ORDER BY created_at LIMIT 1").first<{ id: string }>(),
+      fetchJobsWaiting(c.env),
       limitState(c.env),
     ]);
     const config: HelperConfig = {
@@ -232,6 +234,7 @@ export function registerAi(app: App) {
       pollSeconds: POLL_SECONDS,
       batchSize: BATCH_SIZE,
       trialId: trial?.id ?? null,
+      fetchWaiting,
       limited: usage.limited,
     };
     return c.json(config);
@@ -444,14 +447,16 @@ export function registerAi(app: App) {
 
   app.get('/api/ai/status', async (c) => {
     const day = now() - 86_400_000;
+    const settings = await loadSettings(c.env);
     const [helper, state, queue, runs] = await Promise.all([
       readJson<HelperHeartbeat & { lastSeenAt: number; load: HelperLoad }>(c.env, 'helper'),
       loadState(c.env),
+      // Only items the AI switches let through count as waiting (feeds are off by default).
       c.env.DB.prepare(
         `SELECT
-           SUM(ai_status = 'pending') AS waiting, SUM(ai_status = 'working') AS working,
-           SUM(ai_status = 'failed') AS failed, SUM(ai_status = 'done') AS done
-         FROM items WHERE status = 'inbox' OR ai_status = 'done'`,
+           SUM(items.ai_status = 'pending' AND ${eligibleSql(settings.aiByKind)}) AS waiting, SUM(items.ai_status = 'working') AS working,
+           SUM(items.ai_status = 'failed') AS failed, SUM(items.ai_status = 'done') AS done
+         FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE items.status = 'inbox' OR items.ai_status = 'done'`,
       ).first<{ waiting: number | null; working: number | null; failed: number | null; done: number | null }>(),
       c.env.DB.prepare('SELECT COUNT(*) AS runs, SUM(ok = 0) AS failures, AVG(CASE WHEN ok = 1 THEN seconds END) AS avg FROM ai_runs WHERE at > ?')
         .bind(day)

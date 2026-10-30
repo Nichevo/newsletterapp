@@ -9,6 +9,8 @@ import { getHideSponsored, getTextSize, imagesAllowed, setImagesAllowed, textSiz
 import { outlineOf } from '../quick';
 import { neighbours } from '../readingList';
 
+const KIND_NAME: Record<ItemSummary['kind'], string> = { newsletter: 'Newsletter', feed: 'Feed', site: 'Website' };
+
 export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const { id = '' } = useParams();
   const navigate = useNavigate();
@@ -57,7 +59,8 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
         if (cancelled) return;
         setItem(i);
         setBody(b);
-        setLoadImages(imagesAllowed(i.sourceId));
+        // Images in feed posts and web articles can't tell anyone you opened an email, so they just load.
+        setLoadImages(i.kind !== 'newsletter' || imagesAllowed(i.sourceId));
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load');
@@ -117,7 +120,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
         <div className="reader__who">
           <strong>{item?.sourceName ?? item?.fromName ?? item?.fromEmail ?? ''}</strong>
           <span>
-            {item ? `${item.kind === 'newsletter' ? 'Newsletter' : item.kind} · ${readingMinutes(item.wordCount ?? body?.text)} min read` : ''}
+            {item ? `${KIND_NAME[item.kind]} · ${readingMinutes(item.wordCount ?? body?.text)} min read` : ''}
           </span>
         </div>
         {nav.position !== null && (
@@ -206,7 +209,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             {body.text}
           </div>
         ) : item ? (
-          <p className="muted">This email has no readable body.</p>
+          <p className="muted">{item.kind === 'newsletter' ? 'This email has no readable body.' : 'No saved copy of this post; open the live page.'}</p>
         ) : (
           !error && <div className="spinner">Loading…</div>
         )}
@@ -226,7 +229,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
         {item?.webUrl ? (
           <a href={item.webUrl} target="_blank" rel="noopener noreferrer" onClick={() => api.event(id, { type: 'open_original', device: isPhone() })}>
             <IconExternal />
-            Web version
+            {item.kind === 'newsletter' ? 'Web version' : 'Live page'}
           </a>
         ) : (
           <a href={api.rawUrl(id)} download onClick={() => api.event(id, { type: 'open_original', device: isPhone() })}>

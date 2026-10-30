@@ -5,14 +5,16 @@ import { fileURLToPath } from 'node:url';
 import { AppClient } from './app';
 import { UPDATED_EXIT_CODE } from './constants';
 import { loadConfig, type LocalConfig } from './config';
+import { runFetchJob } from './fetch';
 import { log } from './log';
 import { findProvider, providersFrom, type Provider } from './providers';
 import { currentLoad, powerMeter } from './system';
 import { itemText, parseOutput } from './text';
 
-// The PC helper: every minute it checks in with the app, then summarises a
-// few waiting items with the first switched-on model and posts the results.
-// It only ever makes outbound requests.
+// The PC helper: every minute it checks in with the app, does any feed,
+// website or full-article fetches the app has queued for the PC, then
+// summarises a few waiting items with the first switched-on model and posts
+// the results. It only ever makes outbound requests.
 
 const cfg = loadConfig();
 const app = new AppClient(cfg);
@@ -103,6 +105,20 @@ async function summariseQueue(config: HelperConfig) {
   }
 }
 
+/** Feeds and websites Cloudflare can't fetch, website watches and full articles. A few rounds per minute at most. */
+async function fetchQueue(config: HelperConfig) {
+  if (!config.fetchWaiting) return;
+  for (let round = 0; round < 4; round++) {
+    const { jobs } = await app.fetchClaim(5);
+    if (jobs.length === 0) return;
+    for (const job of jobs) {
+      const result = await runFetchJob(job, cfg);
+      const res = await app.fetchResult(result);
+      log(`${job.kind} ${job.url.slice(0, 80)}: ${result.ok ? (job.kind === 'article' ? 'article saved' : `${res.added ?? 0} new`) : result.error}`);
+    }
+  }
+}
+
 /** Test mode: every chosen model on every chosen item, results side by side in the app. */
 async function runTrial(trialId: string) {
   const trial = await app.trial(trialId);
@@ -143,6 +159,8 @@ async function tick(): Promise<number> {
     await selfUpdate(config.latestHelperVersion).catch((err: unknown) => log('update failed, carrying on:', err));
   }
   if (config.trialId) await runTrial(config.trialId);
+  // Fetch problems must not hold up the summaries.
+  await fetchQueue(config).catch((err: unknown) => log('fetch jobs failed:', err));
   await summariseQueue(config);
   return config.pollSeconds;
 }

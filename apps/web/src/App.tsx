@@ -12,6 +12,7 @@ import { ReaderPage } from './pages/Reader';
 import { SendersPage } from './pages/Senders';
 import { SettingsPage } from './pages/Settings';
 import { SourcePage } from './pages/Source';
+import { SourcesPage } from './pages/Sources';
 import { StatsPage } from './pages/Stats';
 
 export interface Counts {
@@ -65,6 +66,7 @@ export default function App() {
         <Route path="/source/:id" element={<SourcePage />} />
         <Route path="/settings/ai" element={<AiSettingsPage />} />
         <Route path="/settings/ai/usage" element={<AiUsagePage />} />
+        <Route path="/settings/sources" element={<SourcesPage />} />
         <Route path="/stats" element={<StatsPage />} />
         <Route path="*" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
       </Routes>

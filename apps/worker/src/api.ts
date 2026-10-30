@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type {
   AiMode,
   Address,
+  FullTextMode,
   AppSettings,
   Digest,
   ItemBody,
@@ -33,6 +34,7 @@ import {
   type SourceRow,
 } from './db';
 import { buildDigestIfDue, topicsOf } from './digest';
+import { registerFeeds } from './feeds';
 import type { AppVariables, Env } from './env';
 import { newId, now, slugify } from './ids';
 import { categoryFromRules, quickSummary } from './quick';
@@ -65,11 +67,13 @@ app.get('/api/me', (c) => {
 // AI queue, helper endpoints and AI settings. Registered before the generic
 // item action route so /api/items/:id/rate and friends match first.
 registerAi(app);
+// Feeds and websites: discovery, following, the Feedly import and the PC's fetch jobs.
+registerFeeds(app);
 registerUsage(app);
 
 // ---------- Items ----------
 
-const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category,
+const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category, sources.ai_mode AS source_ai_mode,
     ai_runs.provider AS run_provider, ai_runs.model AS run_model, ai_runs.prompt_version AS run_prompt_version,
     ai_runs.seconds AS run_seconds, ai_runs.rating AS run_rating
   FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN ai_runs ON ai_runs.id = items.ai_run_id`;
@@ -86,7 +90,7 @@ async function loadItem(env: Env, id: string): Promise<ItemSummary | null> {
   const row = await env.DB.prepare(`${ITEM_SELECT} WHERE items.id = ?`)
     .bind(id)
     .first<ItemSelectRow>();
-  return row ? toItemSummary(row) : null;
+  return row ? toItemSummary(row, (await loadSettings(env)).aiByKind) : null;
 }
 
 app.get('/api/items', async (c) => {
@@ -94,6 +98,7 @@ app.get('/api/items', async (c) => {
   const sort = (c.req.query('sort') ?? 'newest') as ItemSort;
   const sourceId = c.req.query('source');
   const category = c.req.query('category');
+  const kind = c.req.query('kind');
   const limit = Math.min(Number(c.req.query('limit') ?? 50) || 50, 200);
   const cursor = c.req.query('cursor');
   if (!(view in VIEW_WHERE)) return c.json({ error: 'bad view' }, 400);
@@ -103,6 +108,10 @@ app.get('/api/items', async (c) => {
   if (sourceId) {
     where.push('items.source_id = ?');
     binds.push(sourceId);
+  }
+  if (kind === 'newsletter' || kind === 'feed' || kind === 'site') {
+    where.push('items.kind = ?');
+    binds.push(kind);
   }
   if (category) {
     where.push("COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]')) = ?");
@@ -135,14 +144,17 @@ app.get('/api/items', async (c) => {
     sort === 'top'
       ? 'COALESCE(items.score, 0) DESC, items.received_at DESC, items.id DESC'
       : `items.received_at ${order}, items.id ${order}`;
-  const rows = await c.env.DB.prepare(`${ITEM_SELECT} WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ?`)
-    .bind(...binds, limit + 1)
-    .all<ItemSelectRow>();
+  const [rows, settings] = await Promise.all([
+    c.env.DB.prepare(`${ITEM_SELECT} WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ?`)
+      .bind(...binds, limit + 1)
+      .all<ItemSelectRow>(),
+    loadSettings(c.env),
+  ]);
 
   const page = rows.results.slice(0, limit);
   const last = page[page.length - 1];
   const body: ItemListResponse = {
-    items: page.map(toItemSummary),
+    items: page.map((r) => toItemSummary(r, settings.aiByKind)),
     nextCursor:
       rows.results.length > limit && last
         ? sort === 'top'
@@ -412,7 +424,7 @@ app.get('/api/sources', async (c) => {
          (SELECT COUNT(*) FROM items WHERE items.source_id = sources.id AND items.status IN ('inbox', 'archived')) AS item_count,
          (SELECT MAX(received_at) FROM items WHERE items.source_id = sources.id AND items.status IN ('inbox', 'archived')) AS last_received_at
        FROM sources
-     ) WHERE item_count > 0 ORDER BY last_received_at DESC`,
+     ) WHERE item_count > 0 OR kind != 'newsletter' ORDER BY kind = 'newsletter' DESC, COALESCE(last_received_at, created_at) DESC`,
   ).all<SourceRow & { item_count: number; last_received_at: number | null }>();
   return c.json(rows.results.map(toSource));
 });
@@ -436,6 +448,7 @@ app.post('/api/sources/:id/archive-all', async (c) => {
 });
 
 const AI_MODES: AiMode[] = ['default', 'on', 'off'];
+const FULL_TEXT: FullTextMode[] = ['auto', 'always', 'never'];
 
 app.post('/api/sources/:id', async (c) => {
   const id = c.req.param('id');
@@ -443,14 +456,33 @@ app.post('/api/sources/:id', async (c) => {
   if (!input) return c.json({ error: 'body required' }, 400);
   const sets: string[] = [];
   const binds: unknown[] = [];
+  const set = (sql: string, value: unknown) => {
+    sets.push(sql);
+    binds.push(value);
+  };
   if (input.category !== undefined) {
-    sets.push('category = ?');
-    binds.push(typeof input.category === 'string' && input.category.trim() ? input.category.trim().slice(0, 40) : null);
+    set('category = ?', typeof input.category === 'string' && input.category.trim() ? input.category.trim().slice(0, 40) : null);
   }
   if (input.aiMode !== undefined) {
     if (!AI_MODES.includes(input.aiMode)) return c.json({ error: 'bad aiMode' }, 400);
-    sets.push('ai_mode = ?');
-    binds.push(input.aiMode);
+    set('ai_mode = ?', input.aiMode);
+  }
+  if (typeof input.name === 'string' && input.name.trim()) set('name = ?', input.name.trim().slice(0, 200));
+  // The rest only mean something for feeds and websites.
+  if (input.fetchVia === 'cloud' || input.fetchVia === 'pc') set("fetch_via = CASE WHEN kind = 'feed' THEN ? ELSE 'pc' END", input.fetchVia);
+  if (typeof input.render === 'boolean') set('render = ?', input.render ? 1 : 0);
+  if (input.fullText !== undefined) {
+    if (!FULL_TEXT.includes(input.fullText)) return c.json({ error: 'bad fullText' }, 400);
+    set('full_text = ?', input.fullText);
+  }
+  if (input.linkHint !== undefined) set('link_hint = ?', input.linkHint?.trim().slice(0, 200) || null);
+  if (typeof input.checkMinutes === 'number' && input.checkMinutes >= 15 && input.checkMinutes <= 10_080) {
+    set('check_minutes = ?', Math.round(input.checkMinutes));
+  }
+  if (typeof input.paused === 'boolean') {
+    // Resuming makes it due straight away.
+    if (input.paused) set('paused_at = COALESCE(paused_at, ?)', now());
+    else set("paused_at = NULL, next_check_at = CASE WHEN kind = 'newsletter' THEN NULL ELSE ? END", now());
   }
   if (sets.length > 0) {
     await c.env.DB.prepare(`UPDATE sources SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, id).run();
