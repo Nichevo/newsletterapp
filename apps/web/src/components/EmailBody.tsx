@@ -2,7 +2,9 @@ import DOMPurify from 'dompurify';
 import { useEffect, useRef } from 'react';
 
 const BASE_CSS = `
-  :host { display: block; color: inherit; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
+  :host { display: block; color: inherit; line-height: 1.5; overflow-wrap: anywhere; }
+  [data-sponsored] { display: none !important; }
+  :host([data-show-sponsored]) [data-sponsored] { display: revert !important; outline: 2px dashed rgba(217,119,6,0.5); outline-offset: 2px; }
   img { max-width: 100% !important; height: auto !important; }
   img[data-blocked-src] { display: inline-block; min-width: 24px; min-height: 24px; background: rgba(127,127,127,0.15); border-radius: 4px; }
   table { max-width: 100% !important; border-collapse: collapse; }
@@ -15,6 +17,39 @@ const BASE_CSS = `
 
 const REMOTE = /^(https?:)?\/\//i;
 
+// Words that open a sponsored block. Matched against a block's own text,
+// so a long article that merely mentions "sponsored" is left alone.
+const SPONSOR_MARK =
+  /^\s*(sponsored(\s+(by|content|post|message|section))?|presented by|brought to you by|in partnership with|together with|paid partnership|advertisement|a message from( our)? (sponsor|partner)|from our (sponsor|partner)s?|partner content|promoted)\b/i;
+const MAX_SPONSOR_CHARS = 1500; // a sponsored block is a few paragraphs, not the whole issue
+
+/**
+ * Marks sponsored blocks so the stylesheet can hide them. A block is the
+ * nearest table/row/cell/div ancestor of a sponsor label that is still short
+ * enough to be an ad, not the whole newsletter.
+ */
+function markSponsored(fragment: DocumentFragment): number {
+  let count = 0;
+  const marked: Element[] = [];
+  for (const el of fragment.querySelectorAll('p, td, div, span, h1, h2, h3, h4, h5, h6, strong, b, em')) {
+    const own = (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (own.length === 0 || own.length > 80 || !SPONSOR_MARK.test(own)) continue;
+    if (marked.some((m) => m.contains(el))) continue;
+    // Climb to the biggest block that is still short enough to be the ad itself.
+    let block: Element = el;
+    for (let up = el.parentElement; up && !(up instanceof DocumentFragment); up = up.parentElement) {
+      if (!/^(table|tr|td|div|section|article|li|blockquote)$/i.test(up.tagName)) continue;
+      if ((up.textContent ?? '').replace(/\s+/g, ' ').trim().length > MAX_SPONSOR_CHARS) break;
+      block = up;
+    }
+    if (block === el && /^(span|strong|b|em)$/i.test(el.tagName)) continue; // just a word in running text
+    block.setAttribute('data-sponsored', '');
+    marked.push(block);
+    count++;
+  }
+  return count;
+}
+
 /**
  * Renders newsletter HTML safely: DOMPurify strips scripts and friends, and a
  * shadow root keeps the email's own styles from leaking into the app.
@@ -24,10 +59,19 @@ const REMOTE = /^(https?:)?\/\//i;
 export function EmailBody({
   html,
   loadImages,
+  fontSize = 16,
+  hideSponsored = false,
+  onSponsored,
   onLinkClick,
 }: {
   html: string;
   loadImages: boolean;
+  /** Base font size inside the email, in px. */
+  fontSize?: number;
+  /** Hide blocks that look like sponsored sections. */
+  hideSponsored?: boolean;
+  /** How many sponsored blocks were found, hidden or not. */
+  onSponsored?: (count: number) => void;
   onLinkClick?: (href: string) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -67,10 +111,16 @@ export function EmailBody({
       a.setAttribute('rel', 'noopener noreferrer nofollow');
     }
 
+    const found = markSponsored(fragment);
+    onSponsored?.(found);
+    if (hideSponsored) host.removeAttribute('data-show-sponsored');
+    else host.setAttribute('data-show-sponsored', '');
+
     const style = document.createElement('style');
-    style.textContent = BASE_CSS;
+    style.textContent = `${BASE_CSS}\n:host { font-size: ${fontSize}px; }`;
     root.replaceChildren(style, fragment);
-  }, [html, loadImages]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [html, loadImages, fontSize, hideSponsored]);
 
   useEffect(() => {
     const host = hostRef.current;

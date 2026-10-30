@@ -46,6 +46,7 @@ export interface SourceRow {
   folder: string | null;
   category: string | null;
   ai_mode: AiMode;
+  unsubscribed_at: number | null;
   created_at: number;
 }
 
@@ -69,6 +70,7 @@ export interface ItemRow {
   raw_size: number | null;
   has_html: number;
   list_unsubscribe: string | null;
+  list_unsubscribe_post: string | null;
   auth_spf: AuthResult;
   auth_dkim: AuthResult;
   auth_dmarc: AuthResult;
@@ -116,6 +118,25 @@ export function parseList(raw: string | null): string[] {
   }
 }
 
+/** Picks the https link out of a List-Unsubscribe header, if there is one. */
+export function unsubscribeHttpUrl(header: string | null): string | null {
+  if (!header) return null;
+  const m = /<(https?:\/\/[^>\s]+)>/i.exec(header);
+  return m?.[1] ?? null;
+}
+
+/** Picks the mailto target out of a List-Unsubscribe header, if there is one. */
+export function unsubscribeMailto(header: string | null): string | null {
+  if (!header) return null;
+  const m = /<(mailto:[^>\s]+)>/i.exec(header);
+  return m?.[1] ?? null;
+}
+
+/** RFC 8058: an https link plus "List-Unsubscribe=One-Click" in List-Unsubscribe-Post. */
+export function isOneClick(header: string | null, post: string | null): boolean {
+  return unsubscribeHttpUrl(header) !== null && /one-click/i.test(post ?? '');
+}
+
 export function toItemSummary(row: ItemRow & ItemJoined): ItemSummary {
   const aiCategory = parseList(row.ai_category)[0] ?? null;
   return {
@@ -135,6 +156,7 @@ export function toItemSummary(row: ItemRow & ItemJoined): ItemSummary {
     archivedAt: row.archived_at,
     hasHtml: row.has_html === 1,
     listUnsubscribe: row.list_unsubscribe,
+    oneClickUnsubscribe: isOneClick(row.list_unsubscribe, row.list_unsubscribe_post),
     webUrl: row.web_url,
     authSpf: row.auth_spf,
     authDkim: row.auth_dkim,
@@ -218,6 +240,7 @@ export function toSource(
     folder: row.folder,
     category: row.category,
     aiMode: row.ai_mode,
+    unsubscribedAt: row.unsubscribed_at ?? null,
     createdAt: row.created_at,
     itemCount: row.item_count ?? 0,
     lastReceivedAt: row.last_received_at ?? null,

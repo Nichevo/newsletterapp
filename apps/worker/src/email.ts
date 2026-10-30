@@ -84,9 +84,9 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
     `INSERT INTO items (
        id, source_id, sender_id, address_id, kind, status, subject, from_name, from_email, to_address,
        snippet, received_at, message_id, raw_key, html_key, text_key, raw_size, has_html,
-       list_unsubscribe, auth_spf, auth_dkim, auth_dmarc, web_url, created_at,
+       list_unsubscribe, list_unsubscribe_post, auth_spf, auth_dkim, auth_dmarc, web_url, created_at,
        preheader, word_count, category, sponsored, ai_status
-     ) VALUES (?, ?, ?, ?, 'newsletter', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, 'newsletter', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
@@ -107,6 +107,7 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
       message.rawSize,
       html ? 1 : 0,
       message.headers.get('list-unsubscribe'),
+      message.headers.get('list-unsubscribe-post'),
       auth.spf,
       auth.dkim,
       auth.dmarc,

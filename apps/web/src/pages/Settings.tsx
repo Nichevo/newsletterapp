@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { shortTime } from '../format';
+import { TEXT_SIZES, getHideSponsored, getTextSize, setHideSponsored, setTextSize, type TextSize } from '../prefs';
 
 export function SettingsPage({ me }: { me: Me }) {
   const [sources, setSources] = useState<Source[]>([]);
@@ -57,6 +58,8 @@ export function SettingsPage({ me }: { me: Me }) {
 
       {error && <div className="error">{error}</div>}
 
+      <ReadingSection />
+      {settings && <DigestSection settings={settings} onSave={save} />}
       {settings && <CategoriesSection settings={settings} onSave={save} />}
       {settings && <AiSection settings={settings} onSave={save} />}
 
@@ -101,7 +104,7 @@ export function SettingsPage({ me }: { me: Me }) {
       </div>
 
       <p className="hint" style={{ padding: '0 16px' }}>
-        Quick summaries are on. AI summaries come from the PC helper once it is set up. The digest, feeds and websites come later.
+        Quick summaries are on. AI summaries come from the PC helper once it is set up. Feeds and websites come later.
       </p>
     </div>
   );
@@ -245,6 +248,128 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
           </div>
         </Link>
       </div>
+    </div>
+  );
+}
+
+/** Text size and sponsored-section hiding, remembered on this device only. */
+function ReadingSection() {
+  const [size, setSize] = useState<TextSize>(getTextSize());
+  const [hideSponsored, setHide] = useState(getHideSponsored());
+
+  function pick(next: TextSize) {
+    setTextSize(next);
+    setSize(next);
+  }
+
+  return (
+    <div className="section">
+      <span className="label">Reading</span>
+      <section className="card">
+        <div className="field">
+          <label>Text size</label>
+          <div className="segmented" role="group" aria-label="Text size">
+            {TEXT_SIZES.map((t) => (
+              <button key={t.id} aria-pressed={size === t.id} onClick={() => pick(t.id)} style={{ fontSize: t.px - 3 }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <span className="hint">Applies to newsletter text in the reader on this device.</span>
+        </div>
+        <label className="switchrow">
+          <span style={{ fontSize: 15 }}>Hide sponsored sections</span>
+          <input
+            type="checkbox"
+            checked={hideSponsored}
+            onChange={(e) => {
+              setHideSponsored(e.target.checked);
+              setHide(e.target.checked);
+            }}
+          />
+        </label>
+        <span className="hint">
+          Sponsor blocks are collapsed in the reader; a note shows how many, with a tap to reveal them. Images are off until
+          you tap “Load images”, or “Always” for that newsletter.
+        </span>
+      </section>
+    </div>
+  );
+}
+
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+const hourLabel = (h: number) => `${((h + 11) % 12) + 1}:00 ${h < 12 ? 'am' : 'pm'}`;
+
+/** When the daily digest is built, in which time zone, plus a build-now button. */
+function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
+  const [building, setBuilding] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zones = [...new Set([settings.timezone, deviceZone, 'UTC'])];
+
+  async function buildNow() {
+    setBuilding(true);
+    setNote(null);
+    try {
+      const d = await api.buildDigest();
+      setNote('empty' in d ? 'Nothing to digest yet: no issues arrived in the window.' : `Built today's digest from ${d.itemCount} issue${d.itemCount === 1 ? '' : 's'}.`);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : 'Could not build the digest');
+    } finally {
+      setBuilding(false);
+    }
+  }
+
+  return (
+    <div className="section">
+      <span className="label">Daily digest</span>
+      <section className="card">
+        <div className="inline">
+          <div className="field" style={{ flex: 1 }}>
+            <label htmlFor="digest-hour">Build at</label>
+            <select
+              id="digest-hour"
+              className="input"
+              value={settings.digestHour}
+              onChange={(e) => void onSave({ digestHour: Number(e.target.value) })}
+            >
+              {HOURS.map((h) => (
+                <option key={h} value={h}>
+                  {hourLabel(h)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field" style={{ flex: 2 }}>
+            <label htmlFor="digest-zone">Time zone</label>
+            <select
+              id="digest-zone"
+              className="input"
+              value={settings.timezone}
+              onChange={(e) => void onSave({ timezone: e.target.value })}
+            >
+              {zones.map((z) => (
+                <option key={z} value={z}>
+                  {z === deviceZone ? `${z} (this device)` : z}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <span className="hint">
+          Once a day the top stories from the last 24 hours are grouped by topic, Techmeme style, using the summaries and
+          your reading habits. Nothing extra is sent to the AI.
+        </span>
+        <div className="inline">
+          <button className="btn btn--small" disabled={building} onClick={() => void buildNow()}>
+            {building ? 'Building…' : 'Build now'}
+          </button>
+          <Link to="/digest" className="btn btn--ghost btn--small">
+            Open digest
+          </Link>
+        </div>
+        {note && <span className="hint">{note}</span>}
+      </section>
     </div>
   );
 }

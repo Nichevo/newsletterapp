@@ -23,6 +23,15 @@ export async function saveSettings(env: Env, settings: AppSettings): Promise<voi
     .run();
 }
 
+function isTimezone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: tz });
+    return tz.length <= 64;
+  } catch {
+    return false;
+  }
+}
+
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 /** Validates untrusted input (a PUT body or a stored value) into a full settings object. */
@@ -44,5 +53,10 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     }
   }
   const interests = typeof input.interests === 'string' ? str(input.interests, 300) : base.interests;
-  return { categories, keywordRules, aiByKind, interests };
+  const digestHour =
+    typeof input.digestHour === 'number' && Number.isInteger(input.digestHour) && input.digestHour >= 0 && input.digestHour <= 23
+      ? input.digestHour
+      : base.digestHour;
+  const timezone = typeof input.timezone === 'string' && isTimezone(input.timezone) ? input.timezone : base.timezone;
+  return { categories, keywordRules, aiByKind, interests, digestHour, timezone };
 }

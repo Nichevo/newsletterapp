@@ -3,6 +3,7 @@ import type {
   AiMode,
   Address,
   AppSettings,
+  Digest,
   ItemBody,
   ItemListResponse,
   ItemSort,
@@ -11,24 +12,31 @@ import type {
   Me,
   ReadingEventInput,
   ReadingEventType,
+  RelatedItem,
   SourceUpdate,
+  UnsubscribeResult,
 } from '@newsletterapp/shared';
 import { registerAi } from './ai';
 import { AuthError, authenticate } from './auth';
 import {
+  isOneClick,
   toAddress,
   toItemSummary,
   toSender,
   toSource,
+  unsubscribeHttpUrl,
+  unsubscribeMailto,
   type AddressRow,
   type ItemJoined,
   type ItemRow,
   type SenderRow,
   type SourceRow,
 } from './db';
+import { buildDigestIfDue, topicsOf } from './digest';
 import type { AppVariables, Env } from './env';
 import { newId, now, slugify } from './ids';
 import { categoryFromRules, quickSummary } from './quick';
+import { scoreRecentItems } from './scoring';
 import { loadSettings, normalizeSettings, saveSettings } from './settings';
 
 export const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -98,23 +106,34 @@ app.get('/api/items', async (c) => {
     where.push("COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]')) = ?");
     binds.push(category);
   }
+  // Cursors are "<received_at>:<id>", or "<score>:<received_at>:<id>" for the Top sort.
   if (cursor) {
-    const sep = cursor.lastIndexOf(':');
-    const at = Number(cursor.slice(0, sep));
-    const id = cursor.slice(sep + 1);
+    const parts = cursor.split(':');
+    const id = parts.pop() ?? '';
+    const at = Number(parts.pop());
+    const score = Number(parts.pop());
     if (Number.isFinite(at) && id) {
-      where.push(
-        sort === 'oldest'
-          ? '(items.received_at > ? OR (items.received_at = ? AND items.id > ?))'
-          : '(items.received_at < ? OR (items.received_at = ? AND items.id < ?))',
-      );
-      binds.push(at, at, id);
+      if (sort === 'top' && Number.isFinite(score)) {
+        where.push(
+          '(COALESCE(items.score, 0) < ? OR (COALESCE(items.score, 0) = ? AND (items.received_at < ? OR (items.received_at = ? AND items.id < ?))))',
+        );
+        binds.push(score, score, at, at, id);
+      } else {
+        where.push(
+          sort === 'oldest'
+            ? '(items.received_at > ? OR (items.received_at = ? AND items.id > ?))'
+            : '(items.received_at < ? OR (items.received_at = ? AND items.id < ?))',
+        );
+        binds.push(at, at, id);
+      }
     }
   }
   const order = sort === 'oldest' ? 'ASC' : 'DESC';
-  const rows = await c.env.DB.prepare(
-    `${ITEM_SELECT} WHERE ${where.join(' AND ')} ORDER BY items.received_at ${order}, items.id ${order} LIMIT ?`,
-  )
+  const orderBy =
+    sort === 'top'
+      ? 'COALESCE(items.score, 0) DESC, items.received_at DESC, items.id DESC'
+      : `items.received_at ${order}, items.id ${order}`;
+  const rows = await c.env.DB.prepare(`${ITEM_SELECT} WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ?`)
     .bind(...binds, limit + 1)
     .all<ItemSelectRow>();
 
@@ -122,7 +141,12 @@ app.get('/api/items', async (c) => {
   const last = page[page.length - 1];
   const body: ItemListResponse = {
     items: page.map(toItemSummary),
-    nextCursor: rows.results.length > limit && last ? `${last.received_at}:${last.id}` : null,
+    nextCursor:
+      rows.results.length > limit && last
+        ? sort === 'top'
+          ? `${last.score ?? 0}:${last.received_at}:${last.id}`
+          : `${last.received_at}:${last.id}`
+        : null,
   };
   return c.json(body);
 });
@@ -161,6 +185,82 @@ async function logEvent(env: Env, itemId: string, type: ReadingEventType, value?
     .bind(itemId, type, value ?? null, device ?? null, now())
     .run();
 }
+
+// ---------- "You've read about this before" ----------
+
+const RELATED_LIMIT = 5;
+
+/** Older items sharing topic tags (or distinctive subject words) with this one, the ones you read first. */
+app.get('/api/items/:id/related', async (c) => {
+  const id = c.req.param('id');
+  const row = await c.env.DB.prepare('SELECT id, subject, tags, received_at FROM items WHERE id = ?')
+    .bind(id)
+    .first<{ id: string; subject: string; tags: string | null; received_at: number }>();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  const topics = topicsOf(row);
+  if (topics.length === 0) return c.json([] satisfies RelatedItem[]);
+
+  // Candidates: anything older that mentions one of the topics in its tags or subject.
+  const likes = topics.map(() => "(LOWER(items.subject) LIKE ? OR LOWER(COALESCE(items.tags, '')) LIKE ?)").join(' OR ');
+  const binds = topics.flatMap((t) => [`%${t}%`, `%${t}%`]);
+  const rows = await c.env.DB.prepare(
+    `SELECT items.id, items.subject, items.tags, items.received_at, items.read_at, items.saved_at, sources.name AS source_name
+     FROM items LEFT JOIN sources ON sources.id = items.source_id
+     WHERE items.id != ? AND items.received_at < ? AND items.status IN ('inbox', 'archived') AND (${likes})
+     ORDER BY items.received_at DESC LIMIT 60`,
+  )
+    .bind(id, row.received_at, ...binds)
+    .all<{ id: string; subject: string; tags: string | null; received_at: number; read_at: number | null; saved_at: number | null; source_name: string | null }>();
+
+  const related: RelatedItem[] = rows.results
+    .map((r) => {
+      const theirs = new Set([...topicsOf(r), ...r.subject.toLowerCase().split(/[^a-z0-9]+/)]);
+      const shared = topics.filter((t) => theirs.has(t) || r.subject.toLowerCase().includes(t));
+      return { id: r.id, subject: r.subject, sourceName: r.source_name, receivedAt: r.received_at, readAt: r.read_at, savedAt: r.saved_at, shared };
+    })
+    .filter((r) => r.shared.length > 0)
+    // Things you actually read come first, then the most topic overlap, then the most recent.
+    .sort((a, b) => Number(Boolean(b.readAt)) - Number(Boolean(a.readAt)) || b.shared.length - a.shared.length || b.receivedAt - a.receivedAt)
+    .slice(0, RELATED_LIMIT);
+  return c.json(related);
+});
+
+// ---------- One-tap unsubscribe ----------
+
+/**
+ * Unsubscribes from the item's newsletter. With RFC 8058 one-click support the
+ * Worker posts the request itself; otherwise the app gets the link or mailto to
+ * open. Either way the source is marked so the app can say so.
+ */
+app.post('/api/items/:id/unsubscribe', async (c) => {
+  const id = c.req.param('id');
+  const row = await c.env.DB.prepare('SELECT source_id, list_unsubscribe, list_unsubscribe_post FROM items WHERE id = ?')
+    .bind(id)
+    .first<{ source_id: string | null; list_unsubscribe: string | null; list_unsubscribe_post: string | null }>();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  const url = unsubscribeHttpUrl(row.list_unsubscribe);
+  const mailto = unsubscribeMailto(row.list_unsubscribe);
+  const result: UnsubscribeResult = { done: false, url, mailto, error: null };
+  if (url && isOneClick(row.list_unsubscribe, row.list_unsubscribe_post)) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'newsletterapp (one-click unsubscribe)' },
+        body: 'List-Unsubscribe=One-Click',
+        redirect: 'follow',
+        signal: AbortSignal.timeout(10_000),
+      });
+      result.done = res.ok;
+      if (!res.ok) result.error = `The sender answered ${res.status}`;
+    } catch (err) {
+      result.error = err instanceof Error ? err.message : 'Request failed';
+    }
+  }
+  if (row.source_id && (result.done || url || mailto)) {
+    await c.env.DB.prepare('UPDATE sources SET unsubscribed_at = COALESCE(unsubscribed_at, ?) WHERE id = ?').bind(now(), row.source_id).run();
+  }
+  return c.json(result);
+});
 
 type ItemAction = 'read' | 'unread' | 'save' | 'unsave' | 'archive' | 'unarchive';
 // ?1 is the current time, ?2 the item id.
@@ -315,6 +415,24 @@ app.get('/api/sources', async (c) => {
   return c.json(rows.results.map(toSource));
 });
 
+// Mark all read / archive all for one newsletter.
+app.post('/api/sources/:id/read-all', async (c) => {
+  const r = await c.env.DB.prepare("UPDATE items SET read_at = ? WHERE source_id = ? AND status = 'inbox' AND read_at IS NULL")
+    .bind(now(), c.req.param('id'))
+    .run();
+  return c.json({ changed: r.meta.changes ?? 0 });
+});
+
+app.post('/api/sources/:id/archive-all', async (c) => {
+  const t = now();
+  const r = await c.env.DB.prepare(
+    "UPDATE items SET status = 'archived', archived_at = ?, read_at = COALESCE(read_at, ?) WHERE source_id = ? AND status = 'inbox'",
+  )
+    .bind(t, t, c.req.param('id'))
+    .run();
+  return c.json({ changed: r.meta.changes ?? 0 });
+});
+
 const AI_MODES: AiMode[] = ['default', 'on', 'off'];
 
 app.post('/api/sources/:id', async (c) => {
@@ -357,6 +475,28 @@ app.put('/api/settings', async (c) => {
   await saveSettings(c.env, settings);
   return c.json(settings);
 });
+
+// ---------- Daily digest ----------
+
+app.get('/api/digests', async (c) => {
+  const limit = Math.min(Number(c.req.query('limit') ?? 14) || 14, 60);
+  const rows = await c.env.DB.prepare('SELECT body FROM digests ORDER BY day DESC LIMIT ?').bind(limit).all<{ body: string }>();
+  return c.json(rows.results.map((r) => JSON.parse(r.body) as Digest));
+});
+
+app.get('/api/digests/:day', async (c) => {
+  const row = await c.env.DB.prepare('SELECT body FROM digests WHERE day = ?').bind(c.req.param('day')).first<{ body: string }>();
+  return row ? c.json(JSON.parse(row.body) as Digest) : c.json({ error: 'not found' }, 404);
+});
+
+/** Builds (or rebuilds) today's digest now, whatever the scheduled hour says. */
+app.post('/api/digests/build', async (c) => {
+  const digest = await buildDigestIfDue(c.env, true);
+  return c.json(digest ?? { empty: true });
+});
+
+/** Rescores the last week of items; the Top sort and the digest read the result. */
+app.post('/api/maintenance/rescore', async (c) => c.json({ scored: await scoreRecentItems(c.env) }));
 
 // ---------- Quick summaries for items that arrived before they existed ----------
 

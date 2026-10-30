@@ -1,10 +1,11 @@
-import type { ItemBody, ItemSummary } from '@newsletterapp/shared';
+import type { ItemBody, ItemSummary, RelatedItem, UnsubscribeResult } from '@newsletterapp/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
 import { EmailBody } from '../components/EmailBody';
-import { aiAttribution, longDate, readingMinutes } from '../format';
+import { aiAttribution, longDate, readingMinutes, shortTime } from '../format';
 import { IconArchive, IconBack, IconBookmark, IconExternal, IconImage, IconThumbDown, IconThumbUp } from '../icons';
+import { getHideSponsored, getTextSize, imagesAllowed, setImagesAllowed, textSizePx } from '../prefs';
 import { outlineOf } from '../quick';
 
 export function ReaderPage({ onChanged }: { onChanged: () => void }) {
@@ -14,6 +15,11 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const [body, setBody] = useState<ItemBody | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadImages, setLoadImages] = useState(false);
+  const [related, setRelated] = useState<RelatedItem[]>([]);
+  const [sponsoredCount, setSponsoredCount] = useState(0);
+  const [showSponsored, setShowSponsored] = useState(false);
+  const fontSize = textSizePx(getTextSize());
+  const hideSponsored = getHideSponsored() && !showSponsored;
 
   useEffect(() => {
     let cancelled = false;
@@ -21,11 +27,15 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
     setBody(null);
     setError(null);
     setLoadImages(false);
+    setRelated([]);
+    setSponsoredCount(0);
+    setShowSponsored(false);
     Promise.all([api.item(id), api.itemBody(id)])
       .then(([i, b]) => {
         if (cancelled) return;
         setItem(i);
         setBody(b);
+        setLoadImages(imagesAllowed(i.sourceId));
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load');
@@ -36,6 +46,18 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   }, [id]);
 
   useReadingTracker(id, item !== null);
+
+  useEffect(() => {
+    if (!item) return;
+    let cancelled = false;
+    api
+      .related(item.id)
+      .then((r) => !cancelled && setRelated(r))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [item]);
 
   const onLinkClick = useCallback(
     (href: string) => {
@@ -57,8 +79,12 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
     }
   }
 
-  const unsubscribeUrl = item ? httpUnsubscribeLink(item.listUnsubscribe) : null;
   const hasRemoteImages = body?.html ? /<img[^>]+src=["']?https?:/i.test(body.html) : false;
+
+  function allowImagesForSource() {
+    if (item?.sourceId) setImagesAllowed(item.sourceId, true);
+    setLoadImages(true);
+  }
 
   return (
     <div className="reader">
@@ -105,8 +131,25 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
                 <IconImage size={16} style={{ verticalAlign: '-3px', marginRight: 6 }} />
                 Images are blocked so the sender can't see you opened this.
               </span>
-              <button className="btn btn--small" onClick={() => setLoadImages(true)}>
-                Load
+              <span className="inline">
+                <button className="btn btn--small" onClick={() => setLoadImages(true)}>
+                  Load
+                </button>
+                {item.sourceId && (
+                  <button className="btn btn--ghost btn--small" onClick={allowImagesForSource}>
+                    Always
+                  </button>
+                )}
+              </span>
+            </div>
+          )}
+          {sponsoredCount > 0 && getHideSponsored() && (
+            <div className="reader__images">
+              <span>
+                {sponsoredCount} sponsored section{sponsoredCount === 1 ? '' : 's'} {showSponsored ? 'shown' : 'hidden'}.
+              </span>
+              <button className="btn btn--small" onClick={() => setShowSponsored((v) => !v)}>
+                {showSponsored ? 'Hide' : 'Show'}
               </button>
             </div>
           )}
@@ -115,25 +158,25 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
 
       <div className="reader__body">
         {body?.html ? (
-          <EmailBody html={body.html} loadImages={loadImages} onLinkClick={onLinkClick} />
+          <EmailBody
+            html={body.html}
+            loadImages={loadImages}
+            fontSize={fontSize}
+            hideSponsored={hideSponsored}
+            onSponsored={setSponsoredCount}
+            onLinkClick={onLinkClick}
+          />
         ) : body?.text ? (
-          <div className="reader__text">{body.text}</div>
+          <div className="reader__text" style={{ fontSize: fontSize + 1 }}>
+            {body.text}
+          </div>
         ) : item ? (
           <p className="muted">This email has no readable body.</p>
         ) : (
           !error && <div className="spinner">Loading…</div>
         )}
-        {item && (unsubscribeUrl || item.listUnsubscribe) && (
-          <p className="hint" style={{ marginTop: 32 }}>
-            {unsubscribeUrl ? (
-              <a href={unsubscribeUrl} target="_blank" rel="noopener noreferrer">
-                Unsubscribe from this newsletter
-              </a>
-            ) : (
-              'This newsletter offers unsubscribe by email only; one-tap unsubscribe comes in Phase 2.'
-            )}
-          </p>
-        )}
+        {item && related.length > 0 && <RelatedList related={related} />}
+        {item && item.listUnsubscribe && <Unsubscribe item={item} onChanged={onChanged} />}
       </div>
 
       <div className="reader__actions">
@@ -334,11 +377,89 @@ function writeFlag(key: string, value: boolean) {
   }
 }
 
-/** Picks the https link out of a List-Unsubscribe header, if there is one. */
-function httpUnsubscribeLink(header: string | null): string | null {
-  if (!header) return null;
-  const m = /<(https?:\/\/[^>]+)>/i.exec(header);
-  return m?.[1] ?? null;
+/** "You've read about this before": older issues on the same topics. */
+function RelatedList({ related }: { related: RelatedItem[] }) {
+  return (
+    <section className="card related" aria-label="Related reading">
+      <span className="label" style={{ color: 'var(--teal-ink)' }}>
+        You've read about this before
+      </span>
+      <ul className="related__list">
+        {related.map((r) => (
+          <li key={r.id}>
+            <Link to={`/item/${r.id}`}>{r.subject}</Link>
+            <span className="related__meta">
+              {r.sourceName ?? ''}
+              {r.sourceName ? ' · ' : ''}
+              {r.readAt ? `read ${shortTime(r.readAt)}` : `arrived ${shortTime(r.receivedAt)}, unread`}
+              {r.shared.length > 0 ? ` · ${r.shared.slice(0, 3).join(', ')}` : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * One-tap unsubscribe. With one-click support the Worker does it in place;
+ * otherwise the sender's link (or mailto) opens and the source is still marked.
+ */
+function Unsubscribe({ item, onChanged }: { item: ItemSummary; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<UnsubscribeResult | null>(null);
+  const [archived, setArchived] = useState<number | null>(null);
+
+  async function run() {
+    if (!window.confirm(`Unsubscribe from ${item.sourceName ?? item.fromEmail ?? 'this newsletter'}?`)) return;
+    setBusy(true);
+    try {
+      const r = await api.unsubscribe(item.id);
+      setResult(r);
+      if (!r.done) {
+        const target = r.url ?? r.mailto;
+        if (target) window.open(target, '_blank', 'noopener');
+      }
+    } catch (err) {
+      setResult({ done: false, url: null, mailto: null, error: err instanceof Error ? err.message : 'Failed' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function archiveAll() {
+    if (!item.sourceId) return;
+    const r = await api.sourceBulk(item.sourceId, 'archive-all').catch(() => null);
+    setArchived(r?.changed ?? 0);
+    onChanged();
+  }
+
+  return (
+    <div className="unsub">
+      {!result ? (
+        <button className="btn btn--ghost btn--small" disabled={busy} onClick={() => void run()}>
+          {busy ? 'Unsubscribing…' : item.oneClickUnsubscribe ? 'Unsubscribe (one tap)' : 'Unsubscribe'}
+        </button>
+      ) : (
+        <p className="hint" style={{ margin: 0 }}>
+          {result.done
+            ? 'Unsubscribed. The sender confirmed it; a last issue or two may still arrive.'
+            : result.url || result.mailto
+              ? "The sender's unsubscribe page opened in a new tab; finish it there."
+              : `Could not unsubscribe: ${result.error ?? 'no link in the email'}.`}
+          {item.sourceId && archived === null && (
+            <>
+              {' '}
+              <button className="quick__toggle" onClick={() => void archiveAll()}>
+                Archive all its issues
+              </button>
+            </>
+          )}
+          {archived !== null && ` Archived ${archived} issue${archived === 1 ? '' : 's'}.`}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /**

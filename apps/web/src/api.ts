@@ -1,5 +1,8 @@
 import type {
   Address,
+  Digest,
+  RelatedItem,
+  UnsubscribeResult,
   AiStatsRow,
   AiStatusView,
   AppSettings,
@@ -75,6 +78,8 @@ export const api = {
   itemAction: (id: string, action: 'read' | 'unread' | 'save' | 'unsave' | 'archive' | 'unarchive') =>
     post<ItemSummary>(`/api/items/${id}/${action}`),
   rawUrl: (id: string) => `/api/items/${id}/raw`,
+  related: (id: string) => get<RelatedItem[]>(`/api/items/${id}/related`),
+  unsubscribe: (id: string) => post<UnsubscribeResult>(`/api/items/${id}/unsubscribe`),
 
   /** Fire-and-forget reading event; uses keepalive so it survives page unloads. */
   event: (id: string, input: ReadingEventInput) => {
@@ -95,6 +100,10 @@ export const api = {
 
   sources: () => get<Source[]>('/api/sources'),
   updateSource: (id: string, update: SourceUpdate) => post<Source>(`/api/sources/${id}`, update),
+  sourceBulk: (id: string, action: 'read-all' | 'archive-all') => post<{ changed: number }>(`/api/sources/${id}/${action}`),
+
+  digests: () => get<Digest[]>('/api/digests'),
+  buildDigest: () => post<Digest | { empty: true }>('/api/digests/build'),
 
   settings: () => get<AppSettings>('/api/settings'),
   saveSettings: (settings: Partial<AppSettings>) => put<AppSettings>('/api/settings', settings),

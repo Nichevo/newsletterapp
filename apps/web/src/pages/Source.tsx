@@ -14,6 +14,18 @@ export function SourcePage() {
   const [source, setSource] = useState<Source | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  async function bulk(action: 'read-all' | 'archive-all') {
+    if (!source) return;
+    if (action === 'archive-all' && !window.confirm(`Archive every inbox issue from ${source.name}?`)) return;
+    try {
+      const r = await api.sourceBulk(source.id, action);
+      setDone(`${r.changed} issue${r.changed === 1 ? '' : 's'} ${action === 'read-all' ? 'marked read' : 'archived'}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Action failed');
+    }
+  }
 
   useEffect(() => {
     Promise.all([api.sources(), api.settings()])
@@ -61,10 +73,20 @@ export function SourcePage() {
               {source.itemCount} issue{source.itemCount === 1 ? '' : 's'}
               {source.lastReceivedAt ? ` · last ${shortTime(source.lastReceivedAt)}` : ''}
               {source.senderEmail ? ` · ${source.senderEmail}` : ''}
+              {source.unsubscribedAt ? ` · unsubscribed ${shortTime(source.unsubscribedAt)}` : ''}
             </span>
-            <Link to={`/?source=${source.id}`} className="btn btn--small" style={{ alignSelf: 'flex-start' }}>
-              Show issues
-            </Link>
+            <div className="inline">
+              <Link to={`/?source=${source.id}`} className="btn btn--small">
+                Show issues
+              </Link>
+              <button className="btn btn--small" onClick={() => void bulk('read-all')}>
+                Mark all read
+              </button>
+              <button className="btn btn--small" onClick={() => void bulk('archive-all')}>
+                Archive all
+              </button>
+            </div>
+            {done && <span className="hint">{done}</span>}
           </div>
 
           <div className="section">
