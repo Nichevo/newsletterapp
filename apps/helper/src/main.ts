@@ -1,9 +1,9 @@
 import { HELPER_VERSION, type HelperConfig, type HelperJob, type ModelRef, type TrialResultInput } from '@newsletterapp/shared';
-import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { AppClient } from './app';
+import { UPDATED_EXIT_CODE } from './constants';
 import { loadConfig, type LocalConfig } from './config';
 import { log } from './log';
 import { findProvider, providersFrom, type Provider } from './providers';
@@ -97,15 +97,14 @@ async function runTrial(trialId: string) {
   await app.trialDone(trialId);
 }
 
-/** Replaces this file with the version the app ships, then restarts. */
+/** Replaces this file with the version the app ships; the supervisor in entry.ts then restarts it. */
 async function selfUpdate(version: string) {
   log(`updating helper ${HELPER_VERSION} -> ${version}`);
   const code = await app.download('/helper/newsletter-helper.mjs');
   if (!code.includes('Newsletter app PC helper')) throw new Error('downloaded file does not look like the helper');
   const self = fileURLToPath(import.meta.url);
   writeFileSync(self, code);
-  spawn(process.execPath, [self, ...process.argv.slice(2)], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-  process.exit(0);
+  process.exit(UPDATED_EXIT_CODE);
 }
 
 async function tick(): Promise<number> {
