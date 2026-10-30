@@ -6,7 +6,8 @@ import { api } from '../api';
 import type { Counts } from '../App';
 import { DensityToggle } from '../components/DensityToggle';
 import { FilterBar, type Filters } from '../components/FilterBar';
-import { ItemRow } from '../components/ItemRow';
+import { ItemRow, type SwipeAction } from '../components/ItemRow';
+import { getSwipeReadSide } from '../prefs';
 import { todayLabel } from '../format';
 import { IconPlus, IconRefresh } from '../icons';
 
@@ -147,6 +148,14 @@ export function InboxPage({
     }
   }
 
+  const readSide = getSwipeReadSide();
+  const readAction: SwipeAction = { run: markRead, label: 'Mark read', kind: 'read' };
+  const saveAction = (item: ItemSummary): SwipeAction => ({
+    run: toggleSave,
+    label: item.savedAt ? 'Remove from saved' : 'Save for later',
+    kind: 'save',
+  });
+
   async function toggleSave(item: ItemSummary) {
     const action = item.savedAt ? 'unsave' : 'save';
     patch({ ...item, savedAt: item.savedAt ? null : Date.now() });
@@ -233,9 +242,8 @@ export function InboxPage({
           <ItemRow
             key={item.id}
             item={item}
-            onSwipeLeft={markRead}
-            onSwipeRight={toggleSave}
-            rightLabel={item.savedAt ? 'Remove from saved' : 'Save for later'}
+            left={readSide === 'left' ? readAction : saveAction(item)}
+            right={readSide === 'right' ? readAction : saveAction(item)}
           />
         ))}
       </div>
@@ -245,7 +253,7 @@ export function InboxPage({
           {mode === 'saved' ? (
             <>
               <h2>Nothing saved yet</h2>
-              <p>Swipe an item right in the inbox, or tap Save in the reader.</p>
+              <p>Swipe an item {readSide === 'right' ? 'left' : 'right'} in the inbox, or tap Save in the reader.</p>
             </>
           ) : filters.view !== 'inbox' || filters.source || filters.category ? (
             <>

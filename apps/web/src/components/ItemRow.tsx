@@ -8,19 +8,14 @@ import { IconBookmark, IconCheck } from '../icons';
 const THRESHOLD = 88; // px of travel before a swipe counts
 const MAX = 120;
 
-export function ItemRow({
-  item,
-  onSwipeLeft,
-  onSwipeRight,
-  leftLabel = 'Mark read',
-  rightLabel = 'Save for later',
-}: {
-  item: ItemSummary;
-  onSwipeLeft: (item: ItemSummary) => void;
-  onSwipeRight: (item: ItemSummary) => void;
-  leftLabel?: string;
-  rightLabel?: string;
-}) {
+/** What a swipe to one side does: the handler, its label and which look it gets. */
+export interface SwipeAction {
+  run: (item: ItemSummary) => void;
+  label: string;
+  kind: 'read' | 'save';
+}
+
+export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeAction; right: SwipeAction }) {
   const navigate = useNavigate();
   const density = useDensity();
   const opts = useViewOptions();
@@ -59,8 +54,8 @@ export function ItemRow({
     if (!s || s.id !== e.pointerId) return;
     start.current = null;
     if (axis.current === 'x') {
-      if (dx <= -THRESHOLD) onSwipeLeft(item);
-      else if (dx >= THRESHOLD) onSwipeRight(item);
+      if (dx <= -THRESHOLD) left.run(item);
+      else if (dx >= THRESHOLD) right.run(item);
     }
     setSnapping(true);
     setDx(0);
@@ -74,7 +69,7 @@ export function ItemRow({
     navigate(`/item/${item.id}`);
   }
 
-  const bg = dx < 0 ? 'var(--swipe-read)' : dx > 0 ? 'var(--swipe-save)' : 'transparent';
+  const bg = dx < 0 ? `var(--swipe-${left.kind})` : dx > 0 ? `var(--swipe-${right.kind})` : 'transparent';
   const kindClass = `chip chip--${item.kind}`;
   const preview = item.summary ?? item.preheader ?? item.snippet;
   const expanded = density === 'expanded';
@@ -87,12 +82,12 @@ export function ItemRow({
     <div className={`row row--${density}${item.readAt ? ' row--read' : ''}`} style={{ background: bg }}>
       <div className="row__under" aria-hidden="true">
         <span style={{ opacity: dx > 20 ? 1 : 0 }}>
-          <IconBookmark />
-          {rightLabel}
+          {right.kind === 'save' ? <IconBookmark /> : <IconCheck />}
+          {right.label}
         </span>
         <span style={{ opacity: dx < -20 ? 1 : 0 }}>
-          <IconCheck />
-          {leftLabel}
+          {left.kind === 'save' ? <IconBookmark /> : <IconCheck />}
+          {left.label}
         </span>
       </div>
       <div
