@@ -7,7 +7,7 @@ import { copyFileSync, mkdirSync } from 'node:fs';
 const out = '../web/public/helper';
 mkdirSync(out, { recursive: true });
 await build({
-  entryPoints: ['src/main.ts'],
+  entryPoints: ['src/entry.ts'],
   bundle: true,
   platform: 'node',
   format: 'esm',
