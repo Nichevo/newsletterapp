@@ -258,6 +258,12 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
             <span className="cardrow__sub">Summary value by model, newsletter and prompt, month by month</span>
           </div>
         </Link>
+        <Link to="/settings/ai/usage" className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">AI usage and cost</span>
+            <span className="cardrow__sub">Limits on PC run time, usage graphs, electricity and wear cost</span>
+          </div>
+        </Link>
       </div>
     </div>
   );

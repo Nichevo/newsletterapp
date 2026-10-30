@@ -14,19 +14,39 @@ function snapshot() {
   return { idle, total };
 }
 
-function nvidiaSmi(): Promise<Pick<HelperLoad, 'gpuPercent' | 'vramUsedMb' | 'vramTotalMb'>> {
+function nvidiaSmi(): Promise<Pick<HelperLoad, 'gpuPercent' | 'vramUsedMb' | 'vramTotalMb' | 'gpuWatts'>> {
   return new Promise((resolve) => {
     execFile(
       'nvidia-smi',
-      ['--query-gpu=utilization.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'],
+      ['--query-gpu=utilization.gpu,memory.used,memory.total,power.draw', '--format=csv,noheader,nounits'],
       { timeout: 5000, windowsHide: true },
       (err, stdout) => {
         if (err) return resolve({});
-        const [gpu, used, total] = stdout.split('\n')[0]!.split(',').map((v) => Number(v.trim()));
-        resolve({ gpuPercent: gpu, vramUsedMb: used, vramTotalMb: total });
+        const [gpu, used, total, watts] = stdout.split('\n')[0]!.split(',').map((v) => Number(v.trim()));
+        resolve({ gpuPercent: gpu, vramUsedMb: used, vramTotalMb: total, gpuWatts: Number.isFinite(watts) ? watts : undefined });
       },
     );
   });
+}
+
+/**
+ * Samples the GPU's power draw every couple of seconds while a model runs.
+ * stop() returns the average in watts, or undefined without nvidia-smi.
+ */
+export function powerMeter(everyMs = 2000): { stop: () => number | undefined } {
+  const samples: number[] = [];
+  const sample = () =>
+    void nvidiaSmi().then(({ gpuWatts }) => {
+      if (gpuWatts !== undefined) samples.push(gpuWatts);
+    });
+  sample();
+  const timer = setInterval(sample, everyMs);
+  return {
+    stop() {
+      clearInterval(timer);
+      return samples.length ? samples.reduce((a, b) => a + b, 0) / samples.length : undefined;
+    },
+  };
 }
 
 /** CPU since the last call, RAM now, and the GPU if nvidia-smi is available. */

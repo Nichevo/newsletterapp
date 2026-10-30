@@ -7,7 +7,7 @@ import { UPDATED_EXIT_CODE } from './constants';
 import { loadConfig, type LocalConfig } from './config';
 import { log } from './log';
 import { findProvider, providersFrom, type Provider } from './providers';
-import { currentLoad } from './system';
+import { currentLoad, powerMeter } from './system';
 import { itemText, parseOutput } from './text';
 
 // The PC helper: every minute it checks in with the app, then summarises a
@@ -41,34 +41,64 @@ function userMessage(job: Pick<HelperJob, 'sourceName' | 'fromName' | 'subject' 
   ].join('\n');
 }
 
+class RunError extends Error {
+  constructor(
+    message: string,
+    public seconds: number,
+    public watts: number | undefined,
+  ) {
+    super(message);
+  }
+}
+
+/** Runs one item, timing it and measuring the GPU's draw; a failure still reports the time it took. */
 async function run(provider: Provider, model: string, prompt: string, user: string) {
   const started = performance.now();
-  const reply = await provider.complete(model, prompt, user);
-  return { output: parseOutput(reply), seconds: (performance.now() - started) / 1000 };
+  const meter = powerMeter();
+  try {
+    const reply = await provider.complete(model, prompt, user);
+    return { output: parseOutput(reply), seconds: (performance.now() - started) / 1000, watts: meter.stop() };
+  } catch (err) {
+    throw new RunError(err instanceof Error ? err.message : String(err), (performance.now() - started) / 1000, meter.stop());
+  }
 }
+
+const failure = (err: unknown) => ({
+  error: err instanceof Error ? err.message : String(err),
+  seconds: err instanceof RunError ? err.seconds : 0,
+  watts: err instanceof RunError ? err.watts : undefined,
+});
+
+const until = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 async function summariseQueue(config: HelperConfig) {
   if (config.paused) return log('AI is paused in the app; not taking work');
+  if (config.limited) return log(`usage limit: ${config.limited.message}; back at ${until(config.limited.until)}`);
   const model = config.models.find((m) => findProvider(providers, m));
   if (!model) return log('No switched-on model is available on this PC');
   const provider = findProvider(providers, model)!;
 
   const { jobs } = await app.claim(config.batchSize);
-  for (const job of jobs) {
+  for (const [i, job] of jobs.entries()) {
     const base = { itemId: job.itemId, provider: model.provider, model: model.name, promptId: job.promptId, promptVersion: job.promptVersion };
+    let res: Awaited<ReturnType<typeof app.result>>;
     try {
-      const { output, seconds } = await run(provider, model.name, job.prompt, userMessage(job, cfg));
-      const res = await app.result({ ...base, ok: true, seconds, output });
-      log(`summarised "${job.subject.slice(0, 60)}" with ${model.name} in ${seconds.toFixed(1)}s`);
-      if (res.paused) break;
+      const { output, seconds, watts } = await run(provider, model.name, job.prompt, userMessage(job, cfg));
+      res = await app.result({ ...base, ok: true, seconds, watts, output });
+      log(`summarised "${job.subject.slice(0, 60)}" with ${model.name} in ${seconds.toFixed(1)}s${watts ? ` at ${Math.round(watts)} W` : ''}`);
     } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
+      const { error, seconds, watts } = failure(err);
       log(`failed "${job.subject.slice(0, 60)}" with ${model.name}: ${error}`);
-      const res = await app.result({ ...base, ok: false, seconds: 0, error });
-      if (res.paused) {
-        log('The app paused AI after repeated failures');
-        break;
-      }
+      res = await app.result({ ...base, ok: false, seconds, watts, error });
+      if (res.paused) log('The app paused AI after repeated failures');
+    }
+    if (res.paused) break;
+    if (res.limited) {
+      // Hand the rest of the batch straight back rather than letting it time out.
+      const rest = jobs.slice(i + 1).map((j) => j.itemId);
+      if (rest.length) await app.release(rest).catch((err: unknown) => log('release failed:', err));
+      log(`usage limit reached: ${res.limited.message}; back at ${until(res.limited.until)}`);
+      break;
     }
   }
 }
@@ -86,10 +116,10 @@ async function runTrial(trialId: string) {
         continue;
       }
       try {
-        const { output, seconds } = await run(provider, ref.name, item.prompt, userMessage(item, cfg));
-        results.push({ itemId: item.itemId, provider: ref.provider, model: ref.name, seconds, output });
+        const { output, seconds, watts } = await run(provider, ref.name, item.prompt, userMessage(item, cfg));
+        results.push({ itemId: item.itemId, provider: ref.provider, model: ref.name, seconds, watts, output });
       } catch (err) {
-        results.push({ itemId: item.itemId, provider: ref.provider, model: ref.name, seconds: 0, error: err instanceof Error ? err.message : String(err) });
+        results.push({ itemId: item.itemId, provider: ref.provider, model: ref.name, ...failure(err) });
       }
     }
     await app.trialResults(trialId, results);

@@ -38,6 +38,7 @@ import { newId, now, slugify } from './ids';
 import { categoryFromRules, quickSummary } from './quick';
 import { scoreRecentItems } from './scoring';
 import { loadSettings, normalizeSettings, saveSettings } from './settings';
+import { registerUsage } from './usage';
 
 export const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -64,6 +65,7 @@ app.get('/api/me', (c) => {
 // AI queue, helper endpoints and AI settings. Registered before the generic
 // item action route so /api/items/:id/rate and friends match first.
 registerAi(app);
+registerUsage(app);
 
 // ---------- Items ----------
 

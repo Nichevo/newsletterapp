@@ -1,6 +1,8 @@
 // Types shared between the Worker API and the web app.
 // Timestamps are Unix milliseconds.
 
+import type { AiLimitHit } from './usage';
+
 export type ItemKind = 'newsletter' | 'feed' | 'site';
 
 /** Where an item sits in the app. */
@@ -289,6 +291,8 @@ export interface HelperLoad {
   vramTotalMb?: number;
   ramUsedMb?: number;
   ramTotalMb?: number;
+  /** GPU power draw right now, from nvidia-smi. */
+  gpuWatts?: number;
 }
 
 /** Sent by the helper every time it checks in. */
@@ -302,7 +306,7 @@ export interface HelperHeartbeat {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.1.2';
+export const HELPER_VERSION = '0.1.3';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -315,6 +319,8 @@ export interface HelperConfig {
   batchSize: number;
   /** A test-mode run waiting to be done, if any. */
   trialId: string | null;
+  /** Set while a usage limit holds summaries back. */
+  limited?: AiLimitHit | null;
 }
 
 export interface HelperJob {
@@ -340,6 +346,8 @@ export interface HelperResult {
   promptId: string;
   promptVersion: number;
   seconds: number;
+  /** Average GPU draw during the run, when nvidia-smi could measure it. */
+  watts?: number;
   output?: AiOutput;
   error?: string;
 }
@@ -355,6 +363,8 @@ export interface TrialResultInput {
   provider: string;
   model: string;
   seconds: number;
+  /** Average GPU draw during the run, when nvidia-smi could measure it. */
+  watts?: number;
   output?: AiOutput;
   error?: string;
 }
@@ -410,3 +420,5 @@ Return only this JSON:
   "topics": ["up to 3 specific names or subjects, e.g. Nvidia, interest rates"],
   "thin_content": true or false
 }`;
+
+export * from './usage';
