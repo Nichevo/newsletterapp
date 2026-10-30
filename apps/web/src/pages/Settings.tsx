@@ -74,26 +74,20 @@ export function SettingsPage({ me }: { me: Me }) {
       {settings && <CategoriesSection settings={settings} onSave={save} />}
       {settings && <AiSection settings={settings} onSave={save} />}
 
-      {sources.length > 0 && (
-        <div className="section">
-          <span className="label">Newsletters you receive</span>
-          <div className="card card--list">
-            {sources.map((s) => (
-              <Link key={s.id} to={`/source/${s.id}`} className="cardrow">
-                <div className="cardrow__main">
-                  <span className="cardrow__title">{s.name}</span>
-                  <span className="cardrow__sub">
-                    {s.itemCount} issue{s.itemCount === 1 ? '' : 's'}
-                    {s.lastReceivedAt ? ` · last ${shortTime(s.lastReceivedAt)}` : ''}
-                    {s.category ? ` · ${s.category}` : ''}
-                    {s.aiMode !== 'default' ? ` · AI ${s.aiMode}` : ''}
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
+      <div className="section">
+        <div className="card card--list">
+          <Link to="/settings/sources" className="cardrow">
+            <div className="cardrow__main">
+              <span className="cardrow__title">Your sources</span>
+              <span className="cardrow__sub">
+                {sources.length === 0
+                  ? 'Newsletters appear here once the first issue arrives'
+                  : `${sources.length} newsletter${sources.length === 1 ? '' : 's'} · category, AI mode and history for each`}
+              </span>
+            </div>
+          </Link>
         </div>
-      )}
+      </div>
 
       <div className="section">
         <span className="label">Account</span>
