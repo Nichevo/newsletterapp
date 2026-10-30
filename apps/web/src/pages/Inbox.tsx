@@ -1,4 +1,4 @@
-import type { ItemSummary, Me, Source } from '@newsletterapp/shared';
+import type { ItemSummary, ItemView, Me, Source } from '@newsletterapp/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
@@ -7,6 +7,36 @@ import { FilterBar, type Filters } from '../components/FilterBar';
 import { ItemRow } from '../components/ItemRow';
 import { todayLabel } from '../format';
 import { IconPlus, IconRefresh } from '../icons';
+
+const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'archived'];
+
+/** The filter bar choices are remembered per screen on this device. */
+function storageKey(mode: 'inbox' | 'saved') {
+  return `filters:${mode}`;
+}
+
+function loadFilters(mode: 'inbox' | 'saved'): Filters {
+  const fallback: Filters = { view: mode === 'saved' ? 'saved' : 'inbox', sort: 'newest', source: null };
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey(mode)) ?? 'null') as Partial<Filters> | null;
+    if (!saved) return fallback;
+    return {
+      view: mode === 'saved' ? 'saved' : VIEWS.includes(saved.view as ItemView) ? (saved.view as ItemView) : fallback.view,
+      sort: saved.sort === 'oldest' ? 'oldest' : 'newest',
+      source: typeof saved.source === 'string' ? saved.source : null,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveFilters(mode: 'inbox' | 'saved', filters: Filters) {
+  try {
+    localStorage.setItem(storageKey(mode), JSON.stringify(filters));
+  } catch {
+    // Storage can be unavailable (private browsing); the filters just won't be remembered.
+  }
+}
 
 export function InboxPage({
   mode,
@@ -19,7 +49,7 @@ export function InboxPage({
   counts: Counts;
   onChanged: () => void;
 }) {
-  const [filters, setFilters] = useState<Filters>({ view: mode === 'saved' ? 'saved' : 'inbox', sort: 'newest', source: null });
+  const [filters, setFilters] = useState<Filters>(() => loadFilters(mode));
   const [items, setItems] = useState<ItemSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,6 +74,7 @@ export function InboxPage({
   );
 
   useEffect(() => {
+    saveFilters(mode, filters);
     void load(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
