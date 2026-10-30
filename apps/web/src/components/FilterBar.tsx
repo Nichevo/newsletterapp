@@ -16,6 +16,8 @@ const VIEW_LABEL: Record<ItemView, string> = {
   archived: 'Archived',
 };
 
+const SORT_LABEL: Record<ItemSort, string> = { newest: 'Newest first', oldest: 'Oldest first', top: 'Top first' };
+
 export function FilterBar({
   filters,
   onChange,
@@ -23,6 +25,7 @@ export function FilterBar({
   categories,
   count,
   fixedView,
+  onBulk,
 }: {
   filters: Filters;
   onChange: (f: Filters) => void;
@@ -31,6 +34,8 @@ export function FilterBar({
   count: number | null;
   /** When set, the view pills are hidden (e.g. the Saved screen). */
   fixedView?: boolean;
+  /** Mark all read / archive all for the selected source, when one is selected. */
+  onBulk?: (sourceId: string, action: 'read-all' | 'archive-all') => void;
 }) {
   const [open, setOpen] = useState(false);
   const sourceName = filters.source ? (sources.find((s) => s.id === filters.source)?.name ?? 'One source') : 'All sources';
@@ -38,7 +43,7 @@ export function FilterBar({
     fixedView ? null : VIEW_LABEL[filters.view],
     filters.category,
     sourceName,
-    filters.sort === 'newest' ? 'Newest first' : 'Oldest first',
+    SORT_LABEL[filters.sort],
   ]
     .filter(Boolean)
     .join(' · ');
@@ -117,8 +122,27 @@ export function FilterBar({
               <button aria-pressed={filters.sort === 'oldest'} onClick={() => onChange({ ...filters, sort: 'oldest' })}>
                 Oldest
               </button>
+              <button aria-pressed={filters.sort === 'top'} onClick={() => onChange({ ...filters, sort: 'top' })}>
+                Top
+              </button>
             </div>
+            {filters.sort === 'top' && (
+              <span className="hint">Top: newsletters you usually read, issues with substance, and the freshest first.</span>
+            )}
           </div>
+          {onBulk && filters.source && !fixedView && (
+            <div className="filterbar__group">
+              <span className="label">{sourceName}</span>
+              <div className="inline">
+                <button className="btn btn--small" onClick={() => onBulk(filters.source!, 'read-all')}>
+                  Mark all read
+                </button>
+                <button className="btn btn--small" onClick={() => onBulk(filters.source!, 'archive-all')}>
+                  Archive all
+                </button>
+              </div>
+            </div>
+          )}
           <div className="inline" style={{ justifyContent: 'space-between' }}>
             <button
               className="btn btn--ghost btn--small"

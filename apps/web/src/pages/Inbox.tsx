@@ -22,7 +22,7 @@ function loadFilters(mode: 'inbox' | 'saved'): Filters {
     if (!saved) return fallback;
     return {
       view: mode === 'saved' ? 'saved' : VIEWS.includes(saved.view as ItemView) ? (saved.view as ItemView) : fallback.view,
-      sort: saved.sort === 'oldest' ? 'oldest' : 'newest',
+      sort: saved.sort === 'oldest' || saved.sort === 'top' ? saved.sort : 'newest',
       source: typeof saved.source === 'string' ? saved.source : null,
       category: typeof saved.category === 'string' ? saved.category : null,
     };
@@ -152,6 +152,18 @@ export function InboxPage({
     }
   }
 
+  async function bulk(sourceId: string, action: 'read-all' | 'archive-all') {
+    const name = sources.find((s) => s.id === sourceId)?.name ?? 'this newsletter';
+    if (action === 'archive-all' && !window.confirm(`Archive every inbox issue from ${name}?`)) return;
+    try {
+      await api.sourceBulk(sourceId, action);
+      onChanged();
+      void load(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Action failed');
+    }
+  }
+
   const total = mode === 'saved' ? counts.saved : filters.view === 'unread' ? counts.unread : filters.view === 'inbox' ? counts.inbox : null;
 
   return (
@@ -178,6 +190,7 @@ export function InboxPage({
         categories={categories}
         count={total}
         fixedView={mode === 'saved'}
+        onBulk={bulk}
       />
 
       {mode === 'inbox' && counts.pendingSenders > 0 && (

@@ -5,6 +5,7 @@ import { ApiError, api } from './api';
 import { TabBar } from './components/TabBar';
 import { AddPage } from './pages/Add';
 import { AiSettingsPage } from './pages/AiSettings';
+import { DigestPage } from './pages/Digest';
 import { InboxPage } from './pages/Inbox';
 import { ReaderPage } from './pages/Reader';
 import { SendersPage } from './pages/Senders';
@@ -54,6 +55,7 @@ export default function App() {
     <div className="app">
       <Routes>
         <Route path="/" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
+        <Route path="/digest" element={<DigestPage />} />
         <Route path="/saved" element={<InboxPage key="saved" mode="saved" me={me} counts={counts} onChanged={refreshCounts} />} />
         <Route path="/item/:id" element={<ReaderPage onChanged={refreshCounts} />} />
         <Route path="/senders" element={<SendersPage onChanged={refreshCounts} />} />

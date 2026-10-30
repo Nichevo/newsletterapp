@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { IconBookmark, IconInbox, IconSettings, IconShield } from '../icons';
+import { IconBookmark, IconDigest, IconInbox, IconSettings, IconShield } from '../icons';
 
 export function TabBar({ pendingSenders }: { pendingSenders: number }) {
   return (
@@ -7,6 +7,10 @@ export function TabBar({ pendingSenders }: { pendingSenders: number }) {
       <NavLink to="/" end>
         <IconInbox />
         Inbox
+      </NavLink>
+      <NavLink to="/digest">
+        <IconDigest />
+        Digest
       </NavLink>
       <NavLink to="/saved">
         <IconBookmark />

@@ -29,6 +29,8 @@ export interface ItemSummary {
   archivedAt: number | null;
   hasHtml: boolean;
   listUnsubscribe: string | null;
+  /** The sender supports RFC 8058 one-click unsubscribe (a POST to the https link). */
+  oneClickUnsubscribe: boolean;
   webUrl: string | null;
   authSpf: AuthResult;
   authDkim: AuthResult;
@@ -50,7 +52,30 @@ export interface ItemSummary {
   thinContent: boolean;
   /** Who wrote the AI summary, for the italic attribution line. */
   ai: AiAttribution | null;
+  /** 0-100, how worth your time this item looks; see scoring.ts. */
   score: number | null;
+}
+
+/** An older item that shares topics with the one being read. */
+export interface RelatedItem {
+  id: string;
+  subject: string;
+  sourceName: string | null;
+  receivedAt: number;
+  readAt: number | null;
+  savedAt: number | null;
+  /** The topics or words the two items share, for the "because" line. */
+  shared: string[];
+}
+
+export interface UnsubscribeResult {
+  /** The Worker sent the one-click request and the sender accepted it. */
+  done: boolean;
+  /** Open this link to finish unsubscribing (no one-click support, or it failed). */
+  url: string | null;
+  /** Or send an email here. */
+  mailto: string | null;
+  error: string | null;
 }
 
 export type AiStatus = 'pending' | 'working' | 'done' | 'failed';
@@ -78,7 +103,7 @@ export type ItemView = 'inbox' | 'unread' | 'saved' | 'archived';
 
 /** Per-source AI switch. "default" follows the setting for the source's kind. */
 export type AiMode = 'default' | 'on' | 'off';
-export type ItemSort = 'newest' | 'oldest';
+export type ItemSort = 'newest' | 'oldest' | 'top';
 
 export interface Source {
   id: string;
@@ -90,6 +115,8 @@ export interface Source {
   /** Default category for this source's items. */
   category: string | null;
   aiMode: AiMode;
+  /** When you unsubscribed through the app; the source keeps its issues. */
+  unsubscribedAt: number | null;
   createdAt: number;
   itemCount: number;
   lastReceivedAt: number | null;
@@ -164,6 +191,10 @@ export interface AppSettings {
   aiByKind: Record<ItemKind, boolean>;
   /** A short line about the reader's interests, used by the summary prompt. */
   interests: string;
+  /** Local hour (0-23) at which the daily digest is put together. */
+  digestHour: number;
+  /** IANA time zone the digest day and hour are measured in, e.g. "Australia/Sydney". */
+  timezone: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -171,7 +202,41 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keywordRules: [],
   aiByKind: { newsletter: true, feed: false, site: false },
   interests: '',
+  digestHour: 7,
+  timezone: 'UTC',
 };
+
+// ---------- Daily digest ----------
+
+/** One story in the digest: the lead item plus "More:" links to related issues. */
+export interface DigestStory {
+  itemId: string;
+  subject: string;
+  sourceName: string | null;
+  summary: string | null;
+  whyItMatters: string | null;
+  score: number | null;
+  receivedAt: number;
+  readAt: number | null;
+  more: { itemId: string; subject: string; sourceName: string | null }[];
+}
+
+export interface DigestSection {
+  title: string;
+  stories: DigestStory[];
+}
+
+export interface Digest {
+  id: string;
+  /** YYYY-MM-DD in the reader's time zone. */
+  day: string;
+  createdAt: number;
+  fromAt: number;
+  toAt: number;
+  /** How many items the digest was built from. */
+  itemCount: number;
+  sections: DigestSection[];
+}
 
 export interface SourceUpdate {
   category?: string | null;

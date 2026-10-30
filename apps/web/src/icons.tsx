@@ -107,3 +107,10 @@ export const IconThumbDown = (p: Props) => (
     <path d="M7 13l4 8c1.5 0 2.5-1 2.5-2.5V15h5a2 2 0 0 0 2-2.3l-1.2-7A2 2 0 0 0 17.3 4H7" />
   </svg>
 );
+
+export const IconDigest = (p: Props) => (
+  <svg {...base(p)}>
+    <path d="M4 4h13a3 3 0 0 1 3 3v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+    <path d="M8 8h5M8 12h8M8 16h8" />
+  </svg>
+);
