@@ -1,10 +1,15 @@
 import { useSyncExternalStore } from 'react';
-import { DENSITIES, getDensity, setDensity, subscribeDensity, type Density } from '../prefs';
+import { DENSITIES, getDensity, getViewOptions, setDensity, subscribeDensity, type Density, type ViewOptions } from '../prefs';
 import { IconDensity } from '../icons';
 
 /** The current inbox density, re-rendering when it changes anywhere in the app. */
 export function useDensity(): Density {
   return useSyncExternalStore(subscribeDensity, getDensity, () => 'card');
+}
+
+/** What the current view shows (preview lines, key points…), live-updated from Settings. */
+export function useViewOptions(): ViewOptions {
+  return useSyncExternalStore(subscribeDensity, getViewOptions, getViewOptions);
 }
 
 /** Cycles compact → card → expanded. Lives in the inbox top bar. */

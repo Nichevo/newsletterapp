@@ -572,8 +572,6 @@ select {
 }
 
 .row--expanded .row__snippet {
-  display: block;
-  -webkit-line-clamp: unset;
   color: var(--ink);
 }
 
