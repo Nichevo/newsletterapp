@@ -585,6 +585,43 @@ export interface AiStatusView {
   last24h: { runs: number; failures: number; avgSeconds: number | null };
 }
 
+/** Reading habits: what arrives, what gets read, by newsletter and category. GET /api/reading/stats */
+export interface ReadingStats {
+  /** How many days the per-source and per-category tables cover. */
+  days: number;
+  /** The last 7 days at a glance. */
+  glance: {
+    received: number;
+    read: number;
+    /** Minutes spent in the reader. */
+    minutes: number;
+    /** Items opened in the reader, and how many of those were scrolled at least 70% through. */
+    opened: number;
+    finished: number;
+    /** Consecutive days (ending today or yesterday) with at least one item read. */
+    streak: number;
+  };
+  /** Received vs read, one row per local day, oldest first. */
+  daily: { day: string; at: number; received: number; read: number }[];
+  sources: ReadingSourceRow[];
+  categories: { category: string; issues: number; read: number; opened: number; finished: number }[];
+  how: { via: Record<ReadVia, number>; device: Record<ReadDevice, number> };
+  /** Unread items still in the inbox, by age. */
+  backlog: { today: number; week: number; older: number };
+}
+
+export interface ReadingSourceRow {
+  id: string;
+  name: string;
+  kind: ItemKind;
+  issues: number;
+  read: number;
+  opened: number;
+  finished: number;
+  avgMinutes: number | null;
+  lastReadAt: number | null;
+}
+
 export interface AiStatsRow {
   month: string; // YYYY-MM
   key: string; // model, source name or prompt version, depending on the grouping

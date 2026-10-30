@@ -39,6 +39,7 @@ import {
 } from './db';
 import { buildDigestIfDue, topicsOf } from './digest';
 import { registerFeeds } from './feeds';
+import { registerReading } from './reading';
 import type { AppVariables, Env } from './env';
 import { newId, now, slugify } from './ids';
 import { categoryFromRules, quickSummary } from './quick';
@@ -75,6 +76,7 @@ registerAi(app);
 registerFeeds(app);
 registerUsage(app);
 registerBacklog(app);
+registerReading(app);
 
 // ---------- Items ----------
 

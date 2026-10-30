@@ -246,6 +246,12 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
             <span className="cardrow__sub">Status, which models to use, the summary prompt, test runs, setup</span>
           </div>
         </Link>
+        <Link to="/stats/reading" className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">Reading statistics</span>
+            <span className="cardrow__sub">What arrives, what you read, streak, backlog, by newsletter and category</span>
+          </div>
+        </Link>
         <Link to="/stats" className="cardrow">
           <div className="cardrow__main">
             <span className="cardrow__title">AI statistics</span>

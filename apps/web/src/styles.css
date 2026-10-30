@@ -1409,6 +1409,14 @@ select {
   fill: var(--amber-ink);
 }
 
+.chart__bar--pale {
+  fill: var(--border-strong);
+}
+
+.table tr.quiet td {
+  color: var(--quiet);
+}
+
 .chart__bar--active {
   opacity: 0.7;
 }
