@@ -3,7 +3,18 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { shortTime } from '../format';
-import { TEXT_SIZES, getHideSponsored, getTextSize, setHideSponsored, setTextSize, type TextSize } from '../prefs';
+import {
+  DENSITIES,
+  TEXT_SIZES,
+  getHideSponsored,
+  getTextSize,
+  setDensity,
+  setHideSponsored,
+  setTextSize,
+  setViewOptions,
+  type TextSize,
+} from '../prefs';
+import { useDensity, useViewOptions } from '../components/DensityToggle';
 
 export function SettingsPage({ me }: { me: Me }) {
   const [sources, setSources] = useState<Source[]>([]);
@@ -256,6 +267,8 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
 function ReadingSection() {
   const [size, setSize] = useState<TextSize>(getTextSize());
   const [hideSponsored, setHide] = useState(getHideSponsored());
+  const density = useDensity();
+  const opts = useViewOptions();
 
   function pick(next: TextSize) {
     setTextSize(next);
@@ -276,6 +289,52 @@ function ReadingSection() {
             ))}
           </div>
           <span className="hint">Applies to newsletter text in the reader on this device.</span>
+        </div>
+        <div className="field">
+          <label>Inbox view</label>
+          <div className="segmented" role="group" aria-label="Inbox view">
+            {DENSITIES.map((d) => (
+              <button key={d.id} aria-pressed={density === d.id} onClick={() => setDensity(d.id)}>
+                {d.label}
+              </button>
+            ))}
+          </div>
+          <span className="hint">{DENSITIES.find((d) => d.id === density)?.hint}. The icon at the top of the inbox switches too.</span>
+        </div>
+        <div className="field">
+          <label>Card view</label>
+          <div className="switchrow">
+            <span style={{ fontSize: 14 }}>Preview lines</span>
+            <div className="segmented" role="group" aria-label="Preview lines" style={{ width: 200 }}>
+              {([0, 1, 2, 3] as const).map((n) => (
+                <button key={n} aria-pressed={opts.cardLines === n} onClick={() => setViewOptions({ cardLines: n })}>
+                  {n === 0 ? 'None' : n}
+                </button>
+              ))}
+            </div>
+          </div>
+          <OptionSwitch label="Show tags and category" value={opts.cardTags} onChange={(v) => setViewOptions({ cardTags: v })} />
+        </div>
+        <div className="field">
+          <label>Expanded view</label>
+          <OptionSwitch
+            label="Whole summary (off: first 4 lines)"
+            value={opts.expandedFullSummary}
+            onChange={(v) => setViewOptions({ expandedFullSummary: v })}
+          />
+          <div className="switchrow">
+            <span style={{ fontSize: 14 }}>Key points</span>
+            <div className="segmented" role="group" aria-label="Key points" style={{ width: 200 }}>
+              {([0, 3, 5, 99] as const).map((n) => (
+                <button key={n} aria-pressed={opts.expandedPoints === n} onClick={() => setViewOptions({ expandedPoints: n })}>
+                  {n === 0 ? 'None' : n === 99 ? 'All' : n}
+                </button>
+              ))}
+            </div>
+          </div>
+          <OptionSwitch label="Why it matters" value={opts.expandedWhy} onChange={(v) => setViewOptions({ expandedWhy: v })} />
+          <OptionSwitch label="Show tags and category" value={opts.expandedTags} onChange={(v) => setViewOptions({ expandedTags: v })} />
+          <span className="hint">Key points and “why it matters” come from the AI summary, so they show once the PC helper has done an issue.</span>
         </div>
         <label className="switchrow">
           <span style={{ fontSize: 15 }}>Hide sponsored sections</span>
@@ -371,5 +430,14 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
         {note && <span className="hint">{note}</span>}
       </section>
     </div>
+  );
+}
+
+function OptionSwitch({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="switchrow">
+      <span style={{ fontSize: 14 }}>{label}</span>
+      <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
+    </label>
   );
 }
