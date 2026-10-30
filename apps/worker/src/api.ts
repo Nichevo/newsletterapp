@@ -6,6 +6,7 @@ import type {
   AppSettings,
   Digest,
   ItemBody,
+  ItemKind,
   ItemListResponse,
   ItemSort,
   ItemSummary,
@@ -18,6 +19,7 @@ import type {
   UnsubscribeResult,
 } from '@newsletterapp/shared';
 import { registerAi } from './ai';
+import { registerBacklog } from './backlog';
 import { AuthError, authenticate } from './auth';
 import {
   isOneClick,
@@ -70,10 +72,11 @@ registerAi(app);
 // Feeds and websites: discovery, following, the Feedly import and the PC's fetch jobs.
 registerFeeds(app);
 registerUsage(app);
+registerBacklog(app);
 
 // ---------- Items ----------
 
-const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category, sources.ai_mode AS source_ai_mode,
+const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category, sources.ai_mode AS source_ai_mode, sources.ai_since AS source_ai_since,
     ai_runs.provider AS run_provider, ai_runs.model AS run_model, ai_runs.prompt_version AS run_prompt_version,
     ai_runs.seconds AS run_seconds, ai_runs.rating AS run_rating
   FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN ai_runs ON ai_runs.id = items.ai_run_id`;
@@ -463,9 +466,23 @@ app.post('/api/sources/:id', async (c) => {
   if (input.category !== undefined) {
     set('category = ?', typeof input.category === 'string' && input.category.trim() ? input.category.trim().slice(0, 40) : null);
   }
+  let switchedOnSince: number | null = null;
   if (input.aiMode !== undefined) {
     if (!AI_MODES.includes(input.aiMode)) return c.json({ error: 'bad aiMode' }, 400);
     set('ai_mode = ?', input.aiMode);
+    // Switching AI on only summarises new items, unless asked to go back a few days
+    // (or through everything), so a feed's old posts don't flood the PC.
+    const current = await c.env.DB.prepare('SELECT kind, ai_mode FROM sources WHERE id = ?').bind(id).first<{ kind: ItemKind; ai_mode: AiMode }>();
+    if (current) {
+      const { aiByKind } = await loadSettings(c.env);
+      const isOn = (mode: AiMode) => mode === 'on' || (mode === 'default' && aiByKind[current.kind]);
+      if (!isOn(current.ai_mode) && isOn(input.aiMode)) {
+        const back = input.aiBackdateDays;
+        const t = now();
+        switchedOnSince = back === 'all' ? 0 : t - Math.min(Math.max(Number(back) || 0, 0), 365) * 86_400_000;
+        set('ai_since = ?', switchedOnSince);
+      }
+    }
   }
   if (typeof input.name === 'string' && input.name.trim()) set('name = ?', input.name.trim().slice(0, 200));
   // The rest only mean something for feeds and websites.
@@ -487,6 +504,14 @@ app.post('/api/sources/:id', async (c) => {
   if (sets.length > 0) {
     await c.env.DB.prepare(`UPDATE sources SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, id).run();
   }
+  if (switchedOnSince !== null) {
+    // Older items brought in by the backdate join the queue now, for the waiting-time stats.
+    await c.env.DB.prepare(
+      `UPDATE items SET ai_queued_at = ? WHERE source_id = ? AND ai_status = 'pending' AND MAX(created_at, received_at) >= ?`,
+    )
+      .bind(now(), id, switchedOnSince)
+      .run();
+  }
   const row = await c.env.DB.prepare(
     `SELECT sources.*,
        (SELECT COUNT(*) FROM items WHERE items.source_id = sources.id AND items.status IN ('inbox', 'archived')) AS item_count,
@@ -505,8 +530,16 @@ app.get('/api/settings', async (c) => c.json(await loadSettings(c.env)));
 app.put('/api/settings', async (c) => {
   const input = (await c.req.json().catch(() => null)) as Partial<AppSettings> | null;
   if (!input) return c.json({ error: 'body required' }, 400);
-  const settings = normalizeSettings(input, await loadSettings(c.env));
+  const before = await loadSettings(c.env);
+  const settings = normalizeSettings(input, before);
   await saveSettings(c.env, settings);
+  // A kind switched on here starts with new items only; a source's own page can go further back.
+  const switchedOn = (Object.keys(settings.aiByKind) as ItemKind[]).filter((k) => settings.aiByKind[k] && !before.aiByKind[k]);
+  if (switchedOn.length) {
+    await c.env.DB.batch(
+      switchedOn.map((k) => c.env.DB.prepare("UPDATE sources SET ai_since = ? WHERE kind = ? AND ai_mode = 'default'").bind(now(), k)),
+    );
+  }
   return c.json(settings);
 });
 

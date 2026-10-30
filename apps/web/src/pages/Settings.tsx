@@ -223,8 +223,8 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
           </label>
         ))}
         <span className="hint">
-          Which items go to the AI on your PC. Each source can override this on its own page. Everything always gets the
-          quick summary.
+          Which items go to the AI on your PC. Switching a kind on summarises new items only; to go back further, switch AI on
+          from a source’s own page. Each source can override this. Everything always gets the quick summary.
         </span>
         <div className="field">
           <label htmlFor="interests">Your interests</label>

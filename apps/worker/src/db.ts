@@ -48,6 +48,7 @@ export interface SourceRow {
   folder: string | null;
   category: string | null;
   ai_mode: AiMode;
+  ai_since: number | null;
   unsubscribed_at: number | null;
   created_at: number;
   url: string | null;
@@ -119,6 +120,7 @@ export interface ItemJoined {
   source_name?: string | null;
   source_category?: string | null;
   source_ai_mode?: AiMode | null;
+  source_ai_since?: number | null;
   run_provider?: string | null;
   run_model?: string | null;
   run_prompt_version?: number | null;
@@ -163,7 +165,8 @@ export function isOneClick(header: string | null, post: string | null): boolean 
 export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<ItemKind, boolean>): ItemSummary {
   const aiCategory = parseList(row.ai_category)[0] ?? null;
   const mode = row.source_ai_mode ?? 'default';
-  const aiOff = aiByKind !== undefined && (mode === 'off' || (mode === 'default' && !aiByKind[row.kind]));
+  const beforeCutoff = row.source_ai_since != null && Math.max(row.created_at, row.received_at) < row.source_ai_since;
+  const aiOff = aiByKind !== undefined && (mode === 'off' || (mode === 'default' && !aiByKind[row.kind]) || beforeCutoff);
   const aiStatus = aiOff && (row.ai_status === 'pending' || row.ai_status === null) ? null : row.ai_status;
   return {
     id: row.id,
@@ -266,6 +269,7 @@ export function toSource(
     folder: row.folder,
     category: row.category,
     aiMode: row.ai_mode,
+    aiSince: row.ai_since ?? null,
     unsubscribedAt: row.unsubscribed_at ?? null,
     createdAt: row.created_at,
     itemCount: row.item_count ?? 0,

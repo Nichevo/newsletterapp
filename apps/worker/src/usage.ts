@@ -93,7 +93,7 @@ function startOfLocalDay(at: number, timezone: string): number {
 }
 
 /** Offsets only change a couple of times a year, so one lookup per UTC day is plenty. */
-function offsetCache(timezone: string) {
+export function offsetCache(timezone: string) {
   const seen = new Map<number, number>();
   return (at: number) => {
     const day = Math.floor(at / DAY);
@@ -244,7 +244,7 @@ function bucket(at: number, label: string, aggs: Agg[], settings: AiUsageSetting
   return { at, label, minutes: t.minutes, runs: t.runs, kwh: t.kwh, cost: t.electricity + t.wear };
 }
 
-const pad = (n: number) => String(n).padStart(2, '0');
+export const pad = (n: number) => String(n).padStart(2, '0');
 
 // ---------- Routes ----------
 
