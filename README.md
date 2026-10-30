@@ -1,6 +1,6 @@
 # newsletterapp
 
-A personal reader for email newsletters (and, in later phases, RSS feeds and websites), built on Cloudflare's free plan.
+A personal reader for email newsletters, RSS feeds and websites, built on Cloudflare's free plan.
 
 Phase 1, in this repo today:
 
@@ -100,6 +100,16 @@ The helper signs in with a Cloudflare Access **service token**. Set it up once:
 4. On the PC: Node.js 20+ and Ollama, then download `newsletter-helper.mjs` and `install-helper.ps1` from **Settings → PC helper, models and prompts** and run `powershell -ExecutionPolicy Bypass -File install-helper.ps1`.
 
 The helper keeps its config and log in `%LOCALAPPDATA%\NewsletterHelper` and updates itself when `HELPER_VERSION` in `packages/shared` changes; bump it with every helper change. For local testing against `wrangler dev`, run it with `HELPER_DEV=1 HELPER_CONFIG=path/to/config.json`.
+
+## Feeds and websites
+
+**Add** takes any address: a site, a blog or a feed. The Worker finds the feed (the page's `<link rel="alternate">`, then the usual `/feed`, `/rss`, `/atom.xml` paths) and shows its latest posts. If there is no feed, it offers to watch the page for new article links instead. **Import from Feedly** takes an OPML export; folders are kept, and become categories when the names match.
+
+- **Feeds** (RSS, Atom, JSON Feed) are checked by the Worker on a 15-minute cron, each one hourly by default, with conditional requests, up to 10 per run to stay inside the free plan's limits. A new feed brings in its latest 5 posts. When more are due than a run can take, the PC helper takes the rest while it is online.
+- **Full articles**: when a feed only carries the start of each post, the helper fetches the article from the site and saves a clean copy; the post goes to the AI after that (or after 12 hours with the PC off).
+- **Websites without a feed** are always fetched by the helper: it finds new article links on the page (optionally only links containing a hint such as `/blog/`) and saves each article. Pages built by JavaScript are opened in a windowless Edge or Chrome (`--dump-dom`) when the source has **Needs a browser** on. Set `browserPath` in the helper's `config.json` if neither is found.
+- A feed that turns Cloudflare away three times in a row moves to the PC on its own.
+- AI summaries are off for feeds and websites by default (Settings, overridable per source). Every post gets the quick summary.
 
 ## How screening works
 

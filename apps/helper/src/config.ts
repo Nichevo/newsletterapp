@@ -16,6 +16,8 @@ export interface LocalConfig {
   anthropicApiKey?: string;
   /** Characters of newsletter text sent to the model. */
   maxChars: number;
+  /** Edge or Chrome for pages built by JavaScript; found on its own when left out. */
+  browserPath?: string;
 }
 
 /** %LOCALAPPDATA%\NewsletterHelper on Windows, ~/.newsletter-helper elsewhere. */
@@ -47,5 +49,6 @@ export function loadConfig(): LocalConfig {
     openaiCompatible: toList(raw.openaiCompatible),
     anthropicApiKey: raw.anthropicApiKey,
     maxChars: raw.maxChars ?? 24_000,
+    browserPath: raw.browserPath,
   };
 }

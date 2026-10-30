@@ -54,8 +54,8 @@ export function SettingsPage({ me }: { me: Me }) {
         <div className="card card--list">
           <Link to="/add" className="cardrow">
             <div className="cardrow__main">
-              <span className="cardrow__title">Sign-up addresses</span>
-              <span className="cardrow__sub">Create an address for a newsletter, or block one</span>
+              <span className="cardrow__title">Add a source</span>
+              <span className="cardrow__sub">Follow a site or feed, import from Feedly, or create a newsletter address</span>
             </div>
           </Link>
           <Link to="/senders" className="cardrow">
@@ -74,26 +74,8 @@ export function SettingsPage({ me }: { me: Me }) {
       {settings && <CategoriesSection settings={settings} onSave={save} />}
       {settings && <AiSection settings={settings} onSave={save} />}
 
-      {sources.length > 0 && (
-        <div className="section">
-          <span className="label">Newsletters you receive</span>
-          <div className="card card--list">
-            {sources.map((s) => (
-              <Link key={s.id} to={`/source/${s.id}`} className="cardrow">
-                <div className="cardrow__main">
-                  <span className="cardrow__title">{s.name}</span>
-                  <span className="cardrow__sub">
-                    {s.itemCount} issue{s.itemCount === 1 ? '' : 's'}
-                    {s.lastReceivedAt ? ` · last ${shortTime(s.lastReceivedAt)}` : ''}
-                    {s.category ? ` · ${s.category}` : ''}
-                    {s.aiMode !== 'default' ? ` · AI ${s.aiMode}` : ''}
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
+      <SourceList title="Newsletters you receive" sources={sources.filter((s) => s.kind === 'newsletter')} noun="issue" />
+      <SourceList title="Feeds and websites you follow" sources={sources.filter((s) => s.kind !== 'newsletter')} noun="post" />
 
       <div className="section">
         <span className="label">Account</span>
@@ -229,7 +211,7 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
           </label>
         ))}
         <span className="hint">
-          Which items go to the AI on your PC. Each newsletter can override this on its own page. Everything always gets the
+          Which items go to the AI on your PC. Each source can override this on its own page. Everything always gets the
           quick summary.
         </span>
         <div className="field">
@@ -429,6 +411,33 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
         </div>
         {note && <span className="hint">{note}</span>}
       </section>
+    </div>
+  );
+}
+
+function SourceList({ title, sources, noun }: { title: string; sources: Source[]; noun: string }) {
+  if (sources.length === 0) return null;
+  return (
+    <div className="section">
+      <span className="label">{title}</span>
+      <div className="card card--list">
+        {sources.map((s) => (
+          <Link key={s.id} to={`/source/${s.id}`} className="cardrow">
+            <div className="cardrow__main">
+              <span className="cardrow__title">{s.name}</span>
+              <span className="cardrow__sub">
+                {s.kind === 'site' ? 'Website · ' : ''}
+                {s.itemCount} {noun}
+                {s.itemCount === 1 ? '' : 's'}
+                {s.lastReceivedAt ? ` · last ${shortTime(s.lastReceivedAt)}` : ''}
+                {s.category ? ` · ${s.category}` : ''}
+                {s.aiMode !== 'default' ? ` · AI ${s.aiMode}` : ''}
+                {s.pausedAt ? ' · paused' : s.lastError ? ' · last check failed' : ''}
+              </span>
+            </div>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }
