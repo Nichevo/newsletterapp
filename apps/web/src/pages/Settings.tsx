@@ -7,11 +7,14 @@ import {
   DENSITIES,
   TEXT_SIZES,
   getHideSponsored,
+  getSwipeReadSide,
   getTextSize,
   setDensity,
   setHideSponsored,
+  setSwipeReadSide,
   setTextSize,
   setViewOptions,
+  type SwipeReadSide,
   type TextSize,
 } from '../prefs';
 import { useDensity, useViewOptions } from '../components/DensityToggle';
@@ -273,6 +276,7 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
 function ReadingSection() {
   const [size, setSize] = useState<TextSize>(getTextSize());
   const [hideSponsored, setHide] = useState(getHideSponsored());
+  const [swipeRead, setSwipeRead] = useState<SwipeReadSide>(getSwipeReadSide());
   const density = useDensity();
   const opts = useViewOptions();
 
@@ -341,6 +345,24 @@ function ReadingSection() {
           <OptionSwitch label="Why it matters" value={opts.expandedWhy} onChange={(v) => setViewOptions({ expandedWhy: v })} />
           <OptionSwitch label="Show tags and category" value={opts.expandedTags} onChange={(v) => setViewOptions({ expandedTags: v })} />
           <span className="hint">Key points and “why it matters” come from the AI summary, so they show once the PC helper has done an issue.</span>
+        </div>
+        <div className="field">
+          <span className="label">Swipe to mark read</span>
+          <div className="segmented" role="group" aria-label="Swipe to mark read">
+            {(['right', 'left'] as SwipeReadSide[]).map((side) => (
+              <button
+                key={side}
+                aria-pressed={swipeRead === side}
+                onClick={() => {
+                  setSwipeReadSide(side);
+                  setSwipeRead(side);
+                }}
+              >
+                Swipe {side}
+              </button>
+            ))}
+          </div>
+          <span className="hint">The other way saves the item for later.</span>
         </div>
         <label className="switchrow">
           <span style={{ fontSize: 15 }}>Hide sponsored sections</span>

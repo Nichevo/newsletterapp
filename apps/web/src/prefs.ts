@@ -50,6 +50,17 @@ export function setHideSponsored(on: boolean) {
   write('reader:hideSponsored', on ? '1' : '0');
 }
 
+/** Which way a swipe marks an item read; the other way saves it. */
+export type SwipeReadSide = 'right' | 'left';
+
+export function getSwipeReadSide(): SwipeReadSide {
+  return read('inbox:swipeReadSide') === 'left' ? 'left' : 'right';
+}
+
+export function setSwipeReadSide(side: SwipeReadSide) {
+  write('inbox:swipeReadSide', side);
+}
+
 /** Newsletters whose images load without asking, by source id. */
 export function imagesAllowed(sourceId: string | null): boolean {
   return sourceId !== null && read(`images:${sourceId}`) === '1';
