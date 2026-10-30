@@ -1,6 +1,6 @@
 import type { ItemSummary, ItemView, Me, Source } from '@newsletterapp/shared';
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { Counts } from '../App';
 import { FilterBar, type Filters } from '../components/FilterBar';
@@ -16,7 +16,7 @@ function storageKey(mode: 'inbox' | 'saved') {
 }
 
 function loadFilters(mode: 'inbox' | 'saved'): Filters {
-  const fallback: Filters = { view: mode === 'saved' ? 'saved' : 'inbox', sort: 'newest', source: null };
+  const fallback: Filters = { view: mode === 'saved' ? 'saved' : 'inbox', sort: 'newest', source: null, category: null };
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey(mode)) ?? 'null') as Partial<Filters> | null;
     if (!saved) return fallback;
@@ -24,6 +24,7 @@ function loadFilters(mode: 'inbox' | 'saved'): Filters {
       view: mode === 'saved' ? 'saved' : VIEWS.includes(saved.view as ItemView) ? (saved.view as ItemView) : fallback.view,
       sort: saved.sort === 'oldest' ? 'oldest' : 'newest',
       source: typeof saved.source === 'string' ? saved.source : null,
+      category: typeof saved.category === 'string' ? saved.category : null,
     };
   } catch {
     return fallback;
@@ -49,12 +50,19 @@ export function InboxPage({
   counts: Counts;
   onChanged: () => void;
 }) {
-  const [filters, setFilters] = useState<Filters>(() => loadFilters(mode));
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [filters, setFilters] = useState<Filters>(() => {
+    // A link like /?source=<id> (from Settings) opens the inbox on that source.
+    const linked = searchParams.get('source');
+    const stored = loadFilters(mode);
+    return linked ? { ...stored, view: mode === 'saved' ? 'saved' : 'inbox', source: linked, category: null } : stored;
+  });
   const [items, setItems] = useState<ItemSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
 
   const load = useCallback(
     async (append: boolean) => {
@@ -80,8 +88,32 @@ export function InboxPage({
   }, [filters]);
 
   useEffect(() => {
+    if (searchParams.has('source')) setSearchParams({}, { replace: true });
     api.sources().then(setSources).catch(() => undefined);
+    api
+      .settings()
+      .then((s) => setCategories(s.categories))
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Items that arrived before quick summaries existed get them filled in, a few at a time.
+  const needsBackfill = items.some((i) => i.wordCount === null);
+  useEffect(() => {
+    if (!needsBackfill) return;
+    let cancelled = false;
+    void (async () => {
+      for (let round = 0; round < 40 && !cancelled; round++) {
+        const res = await api.quickBackfill().catch(() => null);
+        if (!res || res.remaining === 0 || res.done === 0) break;
+      }
+      if (!cancelled) void load(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsBackfill]);
 
   function patch(updated: ItemSummary) {
     setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
@@ -134,7 +166,14 @@ export function InboxPage({
         </div>
       </header>
 
-      <FilterBar filters={filters} onChange={setFilters} sources={sources} count={total} fixedView={mode === 'saved'} />
+      <FilterBar
+        filters={filters}
+        onChange={setFilters}
+        sources={sources}
+        categories={categories}
+        count={total}
+        fixedView={mode === 'saved'}
+      />
 
       {mode === 'inbox' && counts.pendingSenders > 0 && (
         <Link to="/senders" className="notice notice--amber">
@@ -171,7 +210,7 @@ export function InboxPage({
               <h2>Nothing saved yet</h2>
               <p>Swipe an item right in the inbox, or tap Save in the reader.</p>
             </>
-          ) : filters.view !== 'inbox' || filters.source ? (
+          ) : filters.view !== 'inbox' || filters.source || filters.category ? (
             <>
               <h2>Nothing here</h2>
               <p>Try a different filter.</p>

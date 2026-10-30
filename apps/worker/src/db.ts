@@ -1,4 +1,5 @@
 import type {
+  AiMode,
   Address,
   AuthResult,
   ItemKind,
@@ -42,6 +43,8 @@ export interface SourceRow {
   sender_email: string | null;
   address_id: string | null;
   folder: string | null;
+  category: string | null;
+  ai_mode: AiMode;
   created_at: number;
 }
 
@@ -77,6 +80,10 @@ export interface ItemRow {
   tags: string | null;
   score: number | null;
   created_at: number;
+  preheader: string | null;
+  word_count: number | null;
+  category: string | null;
+  sponsored: number;
 }
 
 export function parseTags(raw: string | null): string[] {
@@ -89,7 +96,9 @@ export function parseTags(raw: string | null): string[] {
   }
 }
 
-export function toItemSummary(row: ItemRow & { source_name?: string | null }): ItemSummary {
+export function toItemSummary(
+  row: ItemRow & { source_name?: string | null; source_category?: string | null },
+): ItemSummary {
   return {
     id: row.id,
     kind: row.kind,
@@ -111,6 +120,10 @@ export function toItemSummary(row: ItemRow & { source_name?: string | null }): I
     authSpf: row.auth_spf,
     authDkim: row.auth_dkim,
     authDmarc: row.auth_dmarc,
+    preheader: row.preheader,
+    wordCount: row.word_count,
+    category: row.category ?? row.source_category ?? null,
+    sponsored: row.sponsored === 1,
     summary: row.summary,
     tags: parseTags(row.tags),
     score: row.score,
@@ -169,6 +182,8 @@ export function toSource(
     senderEmail: row.sender_email,
     addressId: row.address_id,
     folder: row.folder,
+    category: row.category,
+    aiMode: row.ai_mode,
     createdAt: row.created_at,
     itemCount: row.item_count ?? 0,
     lastReceivedAt: row.last_received_at ?? null,

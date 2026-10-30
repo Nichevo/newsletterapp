@@ -8,6 +8,7 @@ import { InboxPage } from './pages/Inbox';
 import { ReaderPage } from './pages/Reader';
 import { SendersPage } from './pages/Senders';
 import { SettingsPage } from './pages/Settings';
+import { SourcePage } from './pages/Source';
 
 export interface Counts {
   inbox: number;
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="/senders" element={<SendersPage onChanged={refreshCounts} />} />
         <Route path="/add" element={<AddPage me={me} />} />
         <Route path="/settings" element={<SettingsPage me={me} />} />
+        <Route path="/source/:id" element={<SourcePage />} />
         <Route path="*" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
       </Routes>
       {!isReader && <TabBar pendingSenders={counts.pendingSenders} />}

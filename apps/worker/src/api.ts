@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import type {
+  AiMode,
   Address,
+  AppSettings,
   ItemBody,
   ItemListResponse,
   ItemSort,
@@ -9,6 +11,7 @@ import type {
   Me,
   ReadingEventInput,
   ReadingEventType,
+  SourceUpdate,
 } from '@newsletterapp/shared';
 import { AuthError, authenticate } from './auth';
 import {
@@ -23,6 +26,8 @@ import {
 } from './db';
 import type { AppVariables, Env } from './env';
 import { newId, now, slugify } from './ids';
+import { categoryFromRules, quickSummary } from './quick';
+import { loadSettings, normalizeSettings, saveSettings } from './settings';
 
 export const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -43,7 +48,9 @@ app.get('/api/me', (c) => {
 
 // ---------- Items ----------
 
-const ITEM_SELECT = `SELECT items.*, sources.name AS source_name FROM items LEFT JOIN sources ON sources.id = items.source_id`;
+const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category
+  FROM items LEFT JOIN sources ON sources.id = items.source_id`;
+type ItemSelectRow = ItemRow & { source_name: string | null; source_category: string | null };
 
 const VIEW_WHERE: Record<ItemView, string> = {
   inbox: "items.status = 'inbox'",
@@ -55,7 +62,7 @@ const VIEW_WHERE: Record<ItemView, string> = {
 async function loadItem(env: Env, id: string): Promise<ItemSummary | null> {
   const row = await env.DB.prepare(`${ITEM_SELECT} WHERE items.id = ?`)
     .bind(id)
-    .first<ItemRow & { source_name: string | null }>();
+    .first<ItemSelectRow>();
   return row ? toItemSummary(row) : null;
 }
 
@@ -63,6 +70,7 @@ app.get('/api/items', async (c) => {
   const view = (c.req.query('view') ?? 'inbox') as ItemView;
   const sort = (c.req.query('sort') ?? 'newest') as ItemSort;
   const sourceId = c.req.query('source');
+  const category = c.req.query('category');
   const limit = Math.min(Number(c.req.query('limit') ?? 50) || 50, 200);
   const cursor = c.req.query('cursor');
   if (!(view in VIEW_WHERE)) return c.json({ error: 'bad view' }, 400);
@@ -72,6 +80,10 @@ app.get('/api/items', async (c) => {
   if (sourceId) {
     where.push('items.source_id = ?');
     binds.push(sourceId);
+  }
+  if (category) {
+    where.push('COALESCE(items.category, sources.category) = ?');
+    binds.push(category);
   }
   if (cursor) {
     const sep = cursor.lastIndexOf(':');
@@ -91,7 +103,7 @@ app.get('/api/items', async (c) => {
     `${ITEM_SELECT} WHERE ${where.join(' AND ')} ORDER BY items.received_at ${order}, items.id ${order} LIMIT ?`,
   )
     .bind(...binds, limit + 1)
-    .all<ItemRow & { source_name: string | null }>();
+    .all<ItemSelectRow>();
 
   const page = rows.results.slice(0, limit);
   const last = page[page.length - 1];
@@ -286,6 +298,84 @@ app.get('/api/sources', async (c) => {
      ) WHERE item_count > 0 ORDER BY last_received_at DESC`,
   ).all<SourceRow & { item_count: number; last_received_at: number | null }>();
   return c.json(rows.results.map(toSource));
+});
+
+const AI_MODES: AiMode[] = ['default', 'on', 'off'];
+
+app.post('/api/sources/:id', async (c) => {
+  const id = c.req.param('id');
+  const input = (await c.req.json().catch(() => null)) as SourceUpdate | null;
+  if (!input) return c.json({ error: 'body required' }, 400);
+  const sets: string[] = [];
+  const binds: unknown[] = [];
+  if (input.category !== undefined) {
+    sets.push('category = ?');
+    binds.push(typeof input.category === 'string' && input.category.trim() ? input.category.trim().slice(0, 40) : null);
+  }
+  if (input.aiMode !== undefined) {
+    if (!AI_MODES.includes(input.aiMode)) return c.json({ error: 'bad aiMode' }, 400);
+    sets.push('ai_mode = ?');
+    binds.push(input.aiMode);
+  }
+  if (sets.length > 0) {
+    await c.env.DB.prepare(`UPDATE sources SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, id).run();
+  }
+  const row = await c.env.DB.prepare(
+    `SELECT sources.*,
+       (SELECT COUNT(*) FROM items WHERE items.source_id = sources.id AND items.status IN ('inbox', 'archived')) AS item_count,
+       (SELECT MAX(received_at) FROM items WHERE items.source_id = sources.id AND items.status IN ('inbox', 'archived')) AS last_received_at
+     FROM sources WHERE id = ?`,
+  )
+    .bind(id)
+    .first<SourceRow & { item_count: number; last_received_at: number | null }>();
+  return row ? c.json(toSource(row)) : c.json({ error: 'not found' }, 404);
+});
+
+// ---------- Settings ----------
+
+app.get('/api/settings', async (c) => c.json(await loadSettings(c.env)));
+
+app.put('/api/settings', async (c) => {
+  const input = (await c.req.json().catch(() => null)) as Partial<AppSettings> | null;
+  if (!input) return c.json({ error: 'body required' }, 400);
+  const settings = normalizeSettings(input, await loadSettings(c.env));
+  await saveSettings(c.env, settings);
+  return c.json(settings);
+});
+
+// ---------- Quick summaries for items that arrived before they existed ----------
+
+const BACKFILL_BATCH = 5;
+
+/**
+ * Fills in the quick summary for a few older items per call; the web app
+ * calls it until nothing remains. Small batches keep each request inside
+ * the free plan's CPU budget.
+ */
+app.post('/api/maintenance/quick-backfill', async (c) => {
+  const rows = await c.env.DB.prepare(
+    "SELECT id, subject, html_key, text_key FROM items WHERE word_count IS NULL AND status != 'dropped' LIMIT ?",
+  )
+    .bind(BACKFILL_BATCH)
+    .all<{ id: string; subject: string; html_key: string | null; text_key: string | null }>();
+  const settings = rows.results.length > 0 ? await loadSettings(c.env) : null;
+  for (const row of rows.results) {
+    const [html, text] = await Promise.all([
+      row.html_key ? c.env.RAW.get(row.html_key).then((o) => o?.text() ?? null) : null,
+      row.text_key ? c.env.RAW.get(row.text_key).then((o) => o?.text() ?? null) : null,
+    ]);
+    const quick = quickSummary(html, text);
+    const category = categoryFromRules(settings!.keywordRules, row.subject, quick.preheader);
+    await c.env.DB.prepare(
+      'UPDATE items SET preheader = ?, word_count = ?, sponsored = ?, category = COALESCE(category, ?) WHERE id = ?',
+    )
+      .bind(quick.preheader, quick.wordCount, quick.sponsored ? 1 : 0, category, row.id)
+      .run();
+  }
+  const left = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM items WHERE word_count IS NULL AND status != 'dropped'").first<{
+    n: number;
+  }>();
+  return c.json({ done: rows.results.length, remaining: left?.n ?? 0 });
 });
 
 app.notFound((c) => {

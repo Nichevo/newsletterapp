@@ -2,6 +2,17 @@
 // sanitising (DOMPurify in a shadow root); here we only keep the Worker
 // cheap and derive a plain-text snippet for list views.
 
+// Zero-width and filler characters newsletters pad their preview text with.
+const INVISIBLE = /[\u200b-\u200f\u2060\u034f\u00ad\ufeff\u2007]/g;
+
+function safeChar(code: number): string {
+  try {
+    return String.fromCodePoint(code);
+  } catch {
+    return ' ';
+  }
+}
+
 const BLOCK_TAGS = /<\/(p|div|br|li|tr|h[1-6]|blockquote|section|article|table)>/gi;
 
 /** Strips tags and collapses whitespace. Good enough for snippets and search. */
@@ -13,11 +24,15 @@ export function htmlToText(html: string): string {
     .replace(BLOCK_TAGS, '\n')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
+    .replace(/&(zwnj|zwj|shy);/gi, '')
+    .replace(/&#(\d+);/g, (_, n: string) => safeChar(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n: string) => safeChar(parseInt(n, 16)))
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
+    .replace(INVISIBLE, '')
     .replace(/[ \t\r\f\v]+/g, ' ')
     .replace(/\s*\n\s*/g, '\n')
     .trim();

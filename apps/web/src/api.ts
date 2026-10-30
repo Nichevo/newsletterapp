@@ -1,5 +1,6 @@
 import type {
   Address,
+  AppSettings,
   ItemBody,
   ItemListResponse,
   ItemSort,
@@ -10,6 +11,7 @@ import type {
   Sender,
   SenderStatus,
   Source,
+  SourceUpdate,
 } from '@newsletterapp/shared';
 
 export class ApiError extends Error {
@@ -40,6 +42,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const get = <T>(path: string) => request<T>(path);
+const put = <T>(path: string, body: unknown) => request<T>(path, { method: 'PUT', body: JSON.stringify(body) });
 const post = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
 
@@ -47,9 +50,16 @@ export const api = {
   me: () => get<Me>('/api/me'),
   counts: () => get<{ inbox: number; unread: number; saved: number; pendingSenders: number }>('/api/counts'),
 
-  listItems: (params: { view: ItemView; sort: ItemSort; source?: string | null; cursor?: string | null }) => {
+  listItems: (params: {
+    view: ItemView;
+    sort: ItemSort;
+    source?: string | null;
+    category?: string | null;
+    cursor?: string | null;
+  }) => {
     const q = new URLSearchParams({ view: params.view, sort: params.sort });
     if (params.source) q.set('source', params.source);
+    if (params.category) q.set('category', params.category);
     if (params.cursor) q.set('cursor', params.cursor);
     return get<ItemListResponse>(`/api/items?${q}`);
   },
@@ -77,6 +87,12 @@ export const api = {
   addressAction: (id: string, action: 'block' | 'unblock') => post<Address>(`/api/addresses/${id}/${action}`),
 
   sources: () => get<Source[]>('/api/sources'),
+  updateSource: (id: string, update: SourceUpdate) => post<Source>(`/api/sources/${id}`, update),
+
+  settings: () => get<AppSettings>('/api/settings'),
+  saveSettings: (settings: Partial<AppSettings>) => put<AppSettings>('/api/settings', settings),
+
+  quickBackfill: () => post<{ done: number; remaining: number }>('/api/maintenance/quick-backfill'),
 };
 
 export function isPhone(): 'phone' | 'desktop' {
