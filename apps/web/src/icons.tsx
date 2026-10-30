@@ -95,3 +95,15 @@ export const IconCopy = (p: Props) => (
     <path d="M5 15V5a1 1 0 0 1 1-1h10" />
   </svg>
 );
+export const IconThumbUp = (p: Props) => (
+  <svg {...base(p)}>
+    <path d="M7 11v9H4v-9z" />
+    <path d="M7 11l4-8c1.5 0 2.5 1 2.5 2.5V9h5a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 17.3 20H7" />
+  </svg>
+);
+export const IconThumbDown = (p: Props) => (
+  <svg {...base(p)}>
+    <path d="M7 13V4H4v9z" />
+    <path d="M7 13l4 8c1.5 0 2.5-1 2.5-2.5V15h5a2 2 0 0 0 2-2.3l-1.2-7A2 2 0 0 0 17.3 4H7" />
+  </svg>
+);

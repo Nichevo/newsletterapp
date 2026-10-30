@@ -1,6 +1,13 @@
 import type {
   Address,
+  AiStatsRow,
+  AiStatusView,
   AppSettings,
+  ModelInfo,
+  ModelRef,
+  PromptInfo,
+  PromptScope,
+  TrialView,
   ItemBody,
   ItemListResponse,
   ItemSort,
@@ -91,6 +98,24 @@ export const api = {
 
   settings: () => get<AppSettings>('/api/settings'),
   saveSettings: (settings: Partial<AppSettings>) => put<AppSettings>('/api/settings', settings),
+
+  // AI summaries (written by the PC helper)
+  aiStatus: () => get<AiStatusView>('/api/ai/status'),
+  aiPause: () => post<{ ok: boolean }>('/api/ai/pause'),
+  aiResume: () => post<{ ok: boolean }>('/api/ai/resume'),
+  aiRetryFailed: () => post<{ requeued: number }>('/api/ai/retry-failed'),
+  aiModels: () => get<ModelInfo[]>('/api/ai/models'),
+  saveAiModels: (list: (ModelRef & { enabled: boolean })[]) => put<{ ok: boolean }>('/api/ai/models', list),
+  aiRedoModel: (m: ModelRef) => post<{ requeued: number }>('/api/ai/redo', m),
+  aiPrompts: () => get<PromptInfo[]>('/api/ai/prompts'),
+  saveAiPrompt: (p: { scope: PromptScope; scopeValue?: string | null; body: string }) => put<PromptInfo>('/api/ai/prompts', p),
+  deleteAiPrompt: (id: string) => request<{ ok: boolean }>(`/api/ai/prompts/${id}`, { method: 'DELETE' }),
+  aiStats: (by: 'model' | 'source' | 'prompt') => get<AiStatsRow[]>(`/api/ai/stats?by=${by}`),
+  startTrial: (models: ModelRef[], count = 20) => post<{ id: string }>('/api/ai/trials', { models, count }),
+  latestTrial: () => get<TrialView | null>('/api/ai/trials/latest'),
+  rateItem: (id: string, rating: 1 | -1 | 0) => post<{ ok: boolean }>(`/api/items/${id}/rate`, { rating }),
+  redoItem: (id: string) => post<{ ok: boolean }>(`/api/items/${id}/redo`),
+  aiAdvice: (id: string) => get<{ suggestOff: boolean }>(`/api/items/${id}/ai-advice`),
 
   quickBackfill: () => post<{ done: number; remaining: number }>('/api/maintenance/quick-backfill'),
 };

@@ -34,6 +34,7 @@ jobs:
           ACCESS_TEAM_DOMAIN: ${{ vars.ACCESS_TEAM_DOMAIN }}
           ACCESS_AUD: ${{ vars.ACCESS_AUD }}
           ALLOWED_EMAILS: ${{ vars.ALLOWED_EMAILS }}
+          HELPER_CLIENT_ID: ${{ vars.HELPER_CLIENT_ID }}
         run: node ../../scripts/prepare-deploy.mjs
 
       - name: Apply database migrations

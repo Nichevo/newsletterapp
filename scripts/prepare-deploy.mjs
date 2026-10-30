@@ -72,7 +72,7 @@ if (hostname) {
   console.log('APP_HOSTNAME not set; serving on the workers.dev subdomain');
 }
 
-for (const key of ['MAIL_DOMAIN', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ALLOWED_EMAILS']) {
+for (const key of ['MAIL_DOMAIN', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ALLOWED_EMAILS', 'HELPER_CLIENT_ID']) {
   const value = process.env[key]?.trim();
   if (value) {
     config.vars[key] = value;

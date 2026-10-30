@@ -12,11 +12,14 @@ export interface Env {
   AUTO_ALLOW_DAYS: string;
   /** The domain newsletters are sent to, e.g. "example.com". Shown in the app when creating addresses. */
   MAIL_DOMAIN: string;
+  /** Client ID of the Cloudflare Access service token the PC helper signs in with. */
+  HELPER_CLIENT_ID: string;
   /** Local development only (.dev.vars). */
   DEV_BYPASS_AUTH?: string;
   DEV_EMAIL?: string;
 }
 
 export type AppVariables = {
+  /** Set for people; empty for the helper. */
   userEmail: string;
 };

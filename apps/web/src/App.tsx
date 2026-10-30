@@ -4,11 +4,13 @@ import { Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError, api } from './api';
 import { TabBar } from './components/TabBar';
 import { AddPage } from './pages/Add';
+import { AiSettingsPage } from './pages/AiSettings';
 import { InboxPage } from './pages/Inbox';
 import { ReaderPage } from './pages/Reader';
 import { SendersPage } from './pages/Senders';
 import { SettingsPage } from './pages/Settings';
 import { SourcePage } from './pages/Source';
+import { StatsPage } from './pages/Stats';
 
 export interface Counts {
   inbox: number;
@@ -58,6 +60,8 @@ export default function App() {
         <Route path="/add" element={<AddPage me={me} />} />
         <Route path="/settings" element={<SettingsPage me={me} />} />
         <Route path="/source/:id" element={<SourcePage />} />
+        <Route path="/settings/ai" element={<AiSettingsPage />} />
+        <Route path="/stats" element={<StatsPage />} />
         <Route path="*" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
       </Routes>
       {!isReader && <TabBar pendingSenders={counts.pendingSenders} />}

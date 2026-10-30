@@ -41,9 +41,27 @@ export interface ItemSummary {
   /** The email looks like it carries a sponsored section. */
   sponsored: boolean;
   // AI fields, filled in by the PC helper.
+  aiStatus: AiStatus | null;
   summary: string | null;
+  keyPoints: string[];
+  whyItMatters: string | null;
+  /** Topic tags picked by the AI. */
   tags: string[];
+  thinContent: boolean;
+  /** Who wrote the AI summary, for the italic attribution line. */
+  ai: AiAttribution | null;
   score: number | null;
+}
+
+export type AiStatus = 'pending' | 'working' | 'done' | 'failed';
+
+export interface AiAttribution {
+  runId: string;
+  provider: string;
+  model: string;
+  promptVersion: number | null;
+  seconds: number | null;
+  rating: -1 | 1 | null;
 }
 
 export interface ItemBody {
@@ -159,3 +177,171 @@ export interface SourceUpdate {
   category?: string | null;
   aiMode?: AiMode;
 }
+
+// ---------- AI: shared between the Worker, the web app and the PC helper ----------
+
+/** What the model must return, as JSON. */
+export interface AiOutput {
+  summary: string;
+  key_points: string[];
+  why_it_matters: string;
+  category: string[];
+  topics: string[];
+  thin_content: boolean;
+}
+
+export interface ModelRef {
+  provider: string;
+  name: string;
+}
+
+export interface ModelInfo extends ModelRef {
+  enabled: boolean;
+  position: number;
+  installed: boolean;
+  sizeBytes: number | null;
+  lastSeenAt: number;
+  /** Average rating (-1..1) and number of rated summaries, for the settings list. */
+  avgRating: number | null;
+  ratedCount: number;
+}
+
+export type PromptScope = 'default' | 'category' | 'source';
+
+export interface PromptInfo {
+  id: string;
+  scope: PromptScope;
+  scopeValue: string | null;
+  version: number;
+  body: string;
+  updatedAt: number;
+}
+
+export interface HelperLoad {
+  cpuPercent?: number;
+  gpuPercent?: number;
+  vramUsedMb?: number;
+  vramTotalMb?: number;
+  ramUsedMb?: number;
+  ramTotalMb?: number;
+}
+
+/** Sent by the helper every time it checks in. */
+export interface HelperHeartbeat {
+  version: string;
+  hostname: string;
+  /** Models found on each provider the helper can reach. */
+  models: (ModelRef & { sizeBytes?: number })[];
+  providerErrors: { provider: string; error: string }[];
+  load?: HelperLoad;
+}
+
+/** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
+export const HELPER_VERSION = '0.1.0';
+
+/** The Worker's answer to a heartbeat: what the helper should do. */
+export interface HelperConfig {
+  paused: boolean;
+  /** The helper version the app ships; the helper downloads it when it differs from its own. */
+  latestHelperVersion: string;
+  /** Enabled, installed models in the reader's preferred order. */
+  models: ModelRef[];
+  pollSeconds: number;
+  batchSize: number;
+  /** A test-mode run waiting to be done, if any. */
+  trialId: string | null;
+}
+
+export interface HelperJob {
+  itemId: string;
+  subject: string;
+  sourceName: string | null;
+  fromName: string | null;
+  receivedAt: number;
+  html: string | null;
+  text: string | null;
+  /** The resolved prompt with {categories} and {interests} filled in. */
+  prompt: string;
+  promptId: string;
+  promptVersion: number;
+  categories: string[];
+}
+
+export interface HelperResult {
+  itemId: string;
+  ok: boolean;
+  provider: string;
+  model: string;
+  promptId: string;
+  promptVersion: number;
+  seconds: number;
+  output?: AiOutput;
+  error?: string;
+}
+
+export interface TrialJob {
+  trialId: string;
+  models: ModelRef[];
+  items: Omit<HelperJob, 'promptId' | 'promptVersion'>[];
+}
+
+export interface TrialResultInput {
+  itemId: string;
+  provider: string;
+  model: string;
+  seconds: number;
+  output?: AiOutput;
+  error?: string;
+}
+
+export interface TrialView {
+  id: string;
+  status: 'pending' | 'running' | 'done';
+  createdAt: number;
+  models: ModelRef[];
+  items: { id: string; subject: string; sourceName: string | null }[];
+  results: { itemId: string; provider: string; model: string; seconds: number; output: AiOutput | null; error: string | null }[];
+}
+
+/** For the Settings > AI status panel. */
+export interface AiStatusView {
+  helper: (HelperHeartbeat & { lastSeenAt: number }) | null;
+  paused: boolean;
+  pauseReason: string | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+  queue: { waiting: number; working: number; failed: number; done: number };
+  last24h: { runs: number; failures: number; avgSeconds: number | null };
+}
+
+export interface AiStatsRow {
+  month: string; // YYYY-MM
+  key: string; // model, source name or prompt version, depending on the grouping
+  runs: number;
+  failures: number;
+  up: number;
+  down: number;
+  /** Summaries where the full item was never opened afterwards. */
+  summaryEnough: number;
+  avgSeconds: number | null;
+}
+
+export const DEFAULT_PROMPT = `You summarise newsletters for one busy reader who skims on a phone.
+You get the newsletter's sender, subject and cleaned text.
+
+Rules:
+- Say what the issue actually reports: facts, numbers, names, dates. No filler such as "this newsletter discusses".
+- Ignore ads, sponsored sections, promos for the newsletter itself, and sign-offs.
+- If the issue covers several unrelated stories, cover the most important ones, not the first ones.
+- If the text is thin (a teaser that says "read more on the site"), say so instead of guessing.
+- Never invent anything that isn't in the text.
+
+Return only this JSON:
+{
+  "summary": "2-3 sentences, under 60 words, most important point first",
+  "key_points": ["3-5 short points, each a standalone fact"],
+  "why_it_matters": "one sentence on why a reader interested in {interests} might care, or empty",
+  "category": ["1-2 from: {categories}"],
+  "topics": ["up to 3 specific names or subjects, e.g. Nvidia, interest rates"],
+  "thin_content": true or false
+}`;

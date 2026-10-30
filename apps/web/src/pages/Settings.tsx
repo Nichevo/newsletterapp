@@ -101,8 +101,7 @@ export function SettingsPage({ me }: { me: Me }) {
       </div>
 
       <p className="hint" style={{ padding: '0 16px' }}>
-        Quick summaries are on. AI summaries arrive once the PC helper is set up; the digest, feeds, websites and stats come
-        later.
+        Quick summaries are on. AI summaries come from the PC helper once it is set up. The digest, feeds and websites come later.
       </p>
     </div>
   );
@@ -232,6 +231,20 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
           <span className="hint">Used for the “why it matters” line in AI summaries.</span>
         </div>
       </section>
+      <div className="card card--list">
+        <Link to="/settings/ai" className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">PC helper, models and prompts</span>
+            <span className="cardrow__sub">Status, which models to use, the summary prompt, test runs, setup</span>
+          </div>
+        </Link>
+        <Link to="/stats" className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">AI statistics</span>
+            <span className="cardrow__sub">Summary value by model, newsletter and prompt, month by month</span>
+          </div>
+        </Link>
+      </div>
     </div>
   );
 }

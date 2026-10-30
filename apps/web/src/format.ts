@@ -38,3 +38,21 @@ export function readingMinutes(source: number | string | null | undefined): numb
   const words = typeof source === 'number' ? source : source ? source.trim().split(/\s+/).length : 0;
   return Math.max(1, Math.round(words / WORDS_PER_MINUTE));
 }
+
+const PROVIDER_LABEL: Record<string, string> = { ollama: 'Ollama on your PC', anthropic: 'Claude (hosted)' };
+
+/** "Summary by qwen3:32b via Ollama on your PC, prompt v2, 12 s" */
+export function aiAttribution(ai: { provider: string; model: string; promptVersion: number | null; seconds: number | null }): string {
+  const parts = [`Summary by ${ai.model} via ${PROVIDER_LABEL[ai.provider] ?? ai.provider}`];
+  if (ai.promptVersion) parts.push(`prompt v${ai.promptVersion}`);
+  if (ai.seconds !== null) parts.push(`${Math.round(ai.seconds)} s`);
+  return parts.join(', ');
+}
+
+export function relativeTime(ms: number, now = Date.now()): string {
+  const s = Math.round((now - ms) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86_400) return `${Math.round(s / 3600)} h ago`;
+  return `${Math.round(s / 86_400)} days ago`;
+}

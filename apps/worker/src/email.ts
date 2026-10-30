@@ -85,8 +85,8 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
        id, source_id, sender_id, address_id, kind, status, subject, from_name, from_email, to_address,
        snippet, received_at, message_id, raw_key, html_key, text_key, raw_size, has_html,
        list_unsubscribe, auth_spf, auth_dkim, auth_dmarc, web_url, created_at,
-       preheader, word_count, category, sponsored
-     ) VALUES (?, ?, ?, ?, 'newsletter', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       preheader, word_count, category, sponsored, ai_status
+     ) VALUES (?, ?, ?, ?, 'newsletter', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
@@ -116,6 +116,9 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
       quick.wordCount,
       category,
       quick.sponsored ? 1 : 0,
+      // Queued for the PC helper; whether it is actually sent depends on the
+      // AI switches at the time the helper asks for work.
+      decision.action === 'inbox' ? 'pending' : null,
     )
     .run();
 }
