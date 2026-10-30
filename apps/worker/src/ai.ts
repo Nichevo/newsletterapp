@@ -152,10 +152,12 @@ export function cleanOutput(o: unknown, categories: string[]): AiOutput | null {
 // ---------- Which items may go to the AI ----------
 
 /** SQL condition for the AI switches: per source, falling back to the per-kind default. */
-function eligibleSql(aiByKind: Record<ItemKind, boolean>): string {
+export function eligibleSql(aiByKind: Record<ItemKind, boolean>): string {
   const kinds = (Object.keys(aiByKind) as ItemKind[]).filter((k) => aiByKind[k]);
   const byKind = kinds.length ? `items.kind IN (${kinds.map((k) => `'${k}'`).join(', ')})` : '0';
-  return `(sources.ai_mode = 'on' OR (COALESCE(sources.ai_mode, 'default') = 'default' AND ${byKind}))`;
+  // Items from before the source's cut-off (set when AI was switched on) stay out.
+  return `((sources.ai_mode = 'on' OR (COALESCE(sources.ai_mode, 'default') = 'default' AND ${byKind}))
+    AND MAX(items.created_at, items.received_at) >= COALESCE(sources.ai_since, 0))`;
 }
 
 async function bodiesFor(env: Env, row: { html_key: string | null; text_key: string | null }) {
@@ -303,9 +305,9 @@ export function registerAi(app: App) {
   app.post('/api/helper/result', async (c) => {
     const r = (await c.req.json().catch(() => null)) as HelperResult | null;
     if (!r?.itemId || !r.model || !r.provider) return c.json({ error: 'bad result' }, 400);
-    const item = await c.env.DB.prepare('SELECT id, source_id, ai_attempts FROM items WHERE id = ?')
+    const item = await c.env.DB.prepare('SELECT id, source_id, ai_attempts, COALESCE(ai_queued_at, created_at) AS queued_at FROM items WHERE id = ?')
       .bind(r.itemId)
-      .first<{ id: string; source_id: string | null; ai_attempts: number }>();
+      .first<{ id: string; source_id: string | null; ai_attempts: number; queued_at: number }>();
     if (!item) return c.json({ error: 'not found' }, 404);
 
     const settings = await loadSettings(c.env);
@@ -319,8 +321,8 @@ export function registerAi(app: App) {
 
     const stmts = [
       c.env.DB.prepare(
-        `INSERT INTO ai_runs (id, item_id, source_id, provider, model, prompt_id, prompt_version, seconds, watts, ok, error, at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO ai_runs (id, item_id, source_id, provider, model, prompt_id, prompt_version, seconds, watts, ok, error, at, wait_seconds)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         runId,
         item.id,
@@ -334,6 +336,8 @@ export function registerAi(app: App) {
         ok ? 1 : 0,
         error,
         t,
+        // How long the item waited for its summary: the "is the PC keeping up" figure.
+        ok ? Math.max(0, (t - item.queued_at) / 1000) : null,
       ),
     ];
     if (output) {
@@ -492,8 +496,10 @@ export function registerAi(app: App) {
   /** Puts failed items back in the queue (after fixing whatever made them fail). */
   app.post('/api/ai/retry-failed', async (c) => {
     const res = await c.env.DB.prepare(
-      "UPDATE items SET ai_status = 'pending', ai_attempts = 0, ai_error = NULL WHERE ai_status = 'failed' AND status = 'inbox'",
-    ).run();
+      "UPDATE items SET ai_status = 'pending', ai_attempts = 0, ai_error = NULL, ai_queued_at = ? WHERE ai_status = 'failed' AND status = 'inbox'",
+    )
+      .bind(now())
+      .run();
     return c.json({ requeued: res.meta.changes ?? 0 });
   });
 
@@ -549,10 +555,10 @@ export function registerAi(app: App) {
     const input = (await c.req.json().catch(() => null)) as ModelRef | null;
     if (!input?.provider || !input?.name) return c.json({ error: 'provider and name required' }, 400);
     const res = await c.env.DB.prepare(
-      `UPDATE items SET ai_status = 'pending', ai_attempts = 0, ai_error = NULL
+      `UPDATE items SET ai_status = 'pending', ai_attempts = 0, ai_error = NULL, ai_queued_at = ?
        WHERE status = 'inbox' AND ai_run_id IN (SELECT id FROM ai_runs WHERE provider = ? AND model = ?)`,
     )
-      .bind(input.provider, input.name)
+      .bind(now(), input.provider, input.name)
       .run();
     return c.json({ requeued: res.meta.changes ?? 0 });
   });
@@ -718,8 +724,8 @@ export function registerAi(app: App) {
   });
 
   app.post('/api/items/:id/redo', async (c) => {
-    await c.env.DB.prepare("UPDATE items SET ai_status = 'pending', ai_attempts = 0, ai_error = NULL WHERE id = ?")
-      .bind(c.req.param('id'))
+    await c.env.DB.prepare("UPDATE items SET ai_status = 'pending', ai_attempts = 0, ai_error = NULL, ai_queued_at = ? WHERE id = ?")
+      .bind(now(), c.req.param('id'))
       .run();
     return c.json({ ok: true });
   });

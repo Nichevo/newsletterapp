@@ -126,6 +126,8 @@ export interface Source {
   /** Default category for this source's items. */
   category: string | null;
   aiMode: AiMode;
+  /** Only items that arrived or were published from this time go to the AI; null = all. */
+  aiSince: number | null;
   /** When you unsubscribed through the app; the source keeps its issues. */
   unsubscribedAt: number | null;
   createdAt: number;
@@ -269,6 +271,11 @@ export interface Digest {
 export interface SourceUpdate {
   category?: string | null;
   aiMode?: AiMode;
+  /**
+   * When aiMode switches AI on: how far back to summarise. 0 (the default) = new
+   * items only, a number = items from that many days back, 'all' = everything waiting.
+   */
+  aiBackdateDays?: number | 'all';
   name?: string;
   fetchVia?: FetchVia;
   render?: boolean;

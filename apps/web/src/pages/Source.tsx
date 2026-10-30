@@ -7,6 +7,16 @@ import { IconBack } from '../icons';
 
 const AI_LABEL: Record<AiMode, string> = { default: 'Default', on: 'On', off: 'Off' };
 
+/** How far back to summarise when AI is switched on: 0 = new items only. */
+const BACKDATE: { value: number | 'all'; label: string }[] = [
+  { value: 0, label: 'New items only' },
+  { value: 1, label: 'Last day' },
+  { value: 3, label: 'Last 3 days' },
+  { value: 7, label: 'Last week' },
+  { value: 30, label: 'Last month' },
+  { value: 'all', label: 'Everything in the inbox' },
+];
+
 const FULL_TEXT_LABEL: Record<FullTextMode, string> = { auto: 'Teasers only', always: 'Always', never: 'Never' };
 const EVERY: { minutes: number; label: string }[] = [
   { minutes: 30, label: '30 min' },
@@ -24,6 +34,8 @@ export function SourcePage() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  /** A mode that would switch AI on, waiting for how far back to go. */
+  const [turningOn, setTurningOn] = useState<AiMode | null>(null);
 
   async function bulk(action: 'read-all' | 'archive-all') {
     if (!source) return;
@@ -80,6 +92,7 @@ export function SourcePage() {
   }
 
   const kindDefault = source && settings ? settings.aiByKind[source.kind] : null;
+  const aiOn = (m: AiMode) => m === 'on' || (m === 'default' && kindDefault === true);
   const isWeb = source?.kind === 'feed' || source?.kind === 'site';
   const noun = source?.kind === 'newsletter' ? 'issue' : 'post';
   const categories = settings?.categories ?? [];
@@ -154,11 +167,48 @@ export function SourcePage() {
             <section className="card">
               <div className="segmented" role="group" aria-label="AI summaries">
                 {(Object.keys(AI_LABEL) as AiMode[]).map((m) => (
-                  <button key={m} aria-pressed={source.aiMode === m} onClick={() => void update({ aiMode: m })}>
+                  <button
+                    key={m}
+                    aria-pressed={(turningOn ?? source.aiMode) === m}
+                    onClick={() => {
+                      // Switching AI on asks how far back to go first; anything else saves straight away.
+                      if (!aiOn(source.aiMode) && aiOn(m)) setTurningOn(m);
+                      else {
+                        setTurningOn(null);
+                        void update({ aiMode: m });
+                      }
+                    }}
+                  >
                     {AI_LABEL[m]}
                   </button>
                 ))}
               </div>
+              {turningOn && (
+                <div className="field">
+                  <label>Summarise which items?</label>
+                  <div className="inline" style={{ flexWrap: 'wrap' }}>
+                    {BACKDATE.map((b) => (
+                      <button
+                        key={String(b.value)}
+                        className={b.value === 0 ? 'btn btn--primary btn--small' : 'btn btn--small'}
+                        onClick={() => {
+                          setTurningOn(null);
+                          void update({ aiMode: turningOn, aiBackdateDays: b.value });
+                        }}
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                    <button className="btn btn--ghost btn--small" onClick={() => setTurningOn(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                  <span className="hint">Going back sends older posts to your PC too; new items only keeps the queue short.</span>
+                </div>
+              )}
+              {!turningOn && aiOn(source.aiMode) && source.aiSince !== null && source.aiSince > 0 && (
+                <span className="hint">Summarising items from {shortTime(source.aiSince)} on.</span>
+              )}
               <span className="hint">
                 Default follows Settings (currently {kindDefault ? 'on' : 'off'} for this kind of source). Off means this source
                 only gets the quick summary and never goes to your PC.

@@ -102,3 +102,38 @@ export interface AiUsageView {
   /** Cost of one hour of AI work at these settings. */
   costPerHour: { electricity: number; wear: number };
 }
+
+// ---------- Is the PC keeping up? ----------
+
+export interface BacklogPoint {
+  at: number;
+  label: string;
+  /** Most items waiting at any snapshot in the period; null before snapshots began. */
+  waiting: number | null;
+  /** Longest any item had been waiting at a snapshot in the period, in minutes. */
+  oldestMinutes: number | null;
+}
+
+export interface WaitBucket {
+  at: number;
+  label: string;
+  /** Items that joined the AI queue. */
+  arrived: number;
+  /** Summaries written. */
+  done: number;
+  /** Minutes from joining the queue to the summary. */
+  medianMinutes: number | null;
+  p90Minutes: number | null;
+}
+
+export interface AiBacklogView {
+  now: { waiting: number; working: number; oldestAt: number | null };
+  /** Clock hours, last 7 days, oldest first. */
+  hourly: BacklogPoint[];
+  /** Calendar days, last 90 days, oldest first. */
+  daily: BacklogPoint[];
+  waitsHourly: WaitBucket[];
+  waitsDaily: WaitBucket[];
+  /** When the 15-minute snapshots started; earlier periods have no backlog figure. */
+  snapshotsSince: number | null;
+}

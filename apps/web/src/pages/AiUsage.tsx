@@ -2,6 +2,7 @@ import type { AiCostSettings, AiLimits, AiUsageView, UsageBucket, UsageTotals } 
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { BarChart, dayName, dayTick, hourTick, RangeSwitch, shortDate } from '../components/BarChart';
 import { IconBack } from '../icons';
 
 // Settings > AI > Usage and cost: caps on how long the PC spends on AI,
@@ -266,142 +267,43 @@ function ChartsSection({ usage, draft }: { usage: AiUsageView; draft: AiLimits }
   const hourly = usage.hourly.slice(-hours);
   const daily = usage.daily.slice(-days);
   const cur = usage.settings.cost.currency;
+  const total = (b: UsageBucket[]) => minutesLabel(b.reduce((s, x) => s + x.minutes, 0));
   return (
     <div className="section">
       <span className="label">Usage history</span>
       <section className="card">
         <div className="switchrow">
           <strong>By hour</strong>
-          <div className="segmented" role="group" aria-label="Hours shown">
-            <button aria-pressed={hours === 48} onClick={() => setHours(48)}>
-              48 h
-            </button>
-            <button aria-pressed={hours === 168} onClick={() => setHours(168)}>
-              7 days
-            </button>
-          </div>
+          <RangeSwitch value={hours} options={[[48, '48 h'], [168, '7 days']]} onChange={setHours} label="Hours shown" />
         </div>
         <BarChart
-          buckets={hourly}
+          points={hourly}
+          value={(b) => b.minutes}
+          unit="min"
+          label="Minutes of AI work by hour"
           limit={draft.perHourMinutes}
-          limitLabel="hourly limit"
+          summary={`${total(hourly)} in total${draft.perHourMinutes !== null ? ` · hourly limit ${draft.perHourMinutes} min` : ''}`}
           describe={(b) => `${dayName(b.at)} ${b.label} · ${minutesLabel(b.minutes)} · ${b.runs} run${b.runs === 1 ? '' : 's'}`}
-          tick={(b) => (b.label === '00:00' ? dayName(b.at) : hours === 48 && b.label === '12:00' ? '12:00' : null)}
+          tick={hourTick(hours)}
         />
       </section>
       <section className="card">
         <div className="switchrow">
           <strong>By day</strong>
-          <div className="segmented" role="group" aria-label="Days shown">
-            <button aria-pressed={days === 30} onClick={() => setDays(30)}>
-              30 days
-            </button>
-            <button aria-pressed={days === 90} onClick={() => setDays(90)}>
-              90 days
-            </button>
-          </div>
+          <RangeSwitch value={days} options={[[30, '30 days'], [90, '90 days']]} onChange={setDays} label="Days shown" />
         </div>
         <BarChart
-          buckets={daily}
+          points={daily}
+          value={(b) => b.minutes}
+          unit="min"
+          label="Minutes of AI work by day"
           limit={draft.perDayMinutes}
-          limitLabel="daily limit"
+          summary={`${total(daily)} in total${draft.perDayMinutes !== null ? ` · daily limit ${draft.perDayMinutes} min` : ''}`}
           describe={(b) => `${dayName(b.at)} ${shortDate(b.at)} · ${minutesLabel(b.minutes)} · ${b.runs} runs · ${money(cur, b.cost)}`}
-          tick={(b, i) => ((days === 30 ? i % 7 : i % 21) === 0 ? shortDate(b.at) : null)}
+          tick={dayTick(days)}
         />
       </section>
       <span className="hint">Tap or hover a bar for its numbers. Bars over the limit you're setting turn amber.</span>
-    </div>
-  );
-}
-
-const dayName = (at: number) => new Date(at).toLocaleDateString(undefined, { weekday: 'short' });
-const shortDate = (at: number) => new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-
-/** Round the top of the scale up to a tidy number of minutes. */
-function niceMax(v: number): number {
-  for (const step of [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720, 1440]) if (v <= step) return step;
-  return Math.ceil(v / 60) * 60;
-}
-
-function BarChart({
-  buckets,
-  limit,
-  limitLabel,
-  describe,
-  tick,
-}: {
-  buckets: UsageBucket[];
-  limit: number | null;
-  limitLabel: string;
-  describe: (b: UsageBucket) => string;
-  tick: (b: UsageBucket, i: number) => string | null;
-}) {
-  const [active, setActive] = useState<number | null>(null);
-  const top = niceMax(Math.max(1, limit ?? 0, ...buckets.map((b) => b.minutes)));
-  const n = buckets.length;
-  const gap = n > 60 ? 0.15 : 0.25; // share of each slot left empty between bars
-  const total = buckets.reduce((s, b) => s + b.minutes, 0);
-  const shown = active !== null ? buckets[active] : null;
-
-  function pick(e: React.PointerEvent<SVGSVGElement>) {
-    const r = e.currentTarget.getBoundingClientRect();
-    const i = Math.floor(((e.clientX - r.left) / r.width) * n);
-    setActive(i >= 0 && i < n ? i : null);
-  }
-
-  return (
-    <div className="chart">
-      <div className="chart__readout" aria-live="polite">
-        {shown ? describe(shown) : `${minutesLabel(total)} in total${limit !== null ? ` · ${limitLabel} ${limit} min` : ''}`}
-      </div>
-      <div className="chart__plot">
-        <span className="chart__ymax">{top} min</span>
-        <svg
-          viewBox={`0 0 ${n} 100`}
-          preserveAspectRatio="none"
-          role="img"
-          aria-label={`Minutes of AI work, ${n} bars`}
-          onPointerMove={pick}
-          onPointerDown={pick}
-          onPointerLeave={() => setActive(null)}
-        >
-          <line x1="0" x2={n} y1="100" y2="100" className="chart__base" vectorEffect="non-scaling-stroke" />
-          {buckets.map((b, i) => {
-            const h = (b.minutes / top) * 100;
-            const over = limit !== null && b.minutes > limit;
-            return (
-              <rect
-                key={b.at}
-                x={i + gap / 2}
-                width={1 - gap}
-                y={100 - h}
-                height={h}
-                className={`chart__bar${over ? ' chart__bar--over' : ''}${active === i ? ' chart__bar--active' : ''}`}
-              />
-            );
-          })}
-          {limit !== null && (
-            <line
-              x1="0"
-              x2={n}
-              y1={100 - (limit / top) * 100}
-              y2={100 - (limit / top) * 100}
-              className="chart__limit"
-              vectorEffect="non-scaling-stroke"
-            />
-          )}
-        </svg>
-      </div>
-      <div className="chart__ticks">
-        {buckets.map((b, i) => {
-          const t = tick(b, i);
-          return t ? (
-            <span key={b.at} style={{ left: `${(i / n) * 100}%` }}>
-              {t}
-            </span>
-          ) : null;
-        })}
-      </div>
     </div>
   );
 }
