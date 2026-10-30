@@ -18,7 +18,8 @@ Later phases add AI summaries and tags (local Ollama via a PC helper, hosted mod
 ```
 apps/worker     Cloudflare Worker: email handler + JSON API (Hono) + serves the web app
 apps/web        React + Vite PWA
-packages/shared Types shared by both
+apps/helper     PC helper (Node, Windows): pulls AI jobs, runs Ollama, posts summaries back
+packages/shared Types shared by all three
 scripts/        prepare-deploy.mjs, run by the deploy workflow
 ```
 
@@ -82,6 +83,23 @@ Variables:
 3. Open `https://app.yourdomain.com`, sign in with the PIN Cloudflare emails you, and create your first address under **Add**.
 
 If you also want ordinary mailboxes on the domain (say `jeff@`), add explicit routing rules forwarding them to Gmail; explicit rules win over the catch-all.
+
+## AI summaries (PC helper)
+
+Every item gets a quick summary from rules when it arrives (preview line, reading time, sponsored flag, rules-based category). AI summaries come from a small helper on your PC that only makes outbound requests:
+
+1. It checks in with `POST /api/helper/heartbeat` every minute (models it can see, PC load), and gets back whether AI is paused and the switched-on models in your preferred order.
+2. It claims up to 5 waiting items (`/api/helper/claim`), summarises each with the first switched-on model, and posts the JSON result (`/api/helper/result`). A claimed item goes back in the queue after 10 minutes; after 3 failed tries it is set aside. Five failures in a row pause all AI until you press Resume.
+3. Which items qualify is decided at claim time from the AI switches (per source kind in Settings, overridable per newsletter).
+
+The helper signs in with a Cloudflare Access **service token**. Set it up once:
+
+1. Zero Trust → Access → Service credentials → Service Tokens → Create. Copy the Client ID and Secret.
+2. Your Access application → Policies → add a policy with action **Service Auth**, include that service token.
+3. Add the repository variable `HELPER_CLIENT_ID` (the Client ID only) and redeploy. The Worker only lets that token use `/api/helper/*`, and people can't call those endpoints.
+4. On the PC: Node.js 20+ and Ollama, then download `newsletter-helper.mjs` and `install-helper.ps1` from **Settings → PC helper, models and prompts** and run `powershell -ExecutionPolicy Bypass -File install-helper.ps1`.
+
+The helper keeps its config and log in `%LOCALAPPDATA%\NewsletterHelper` and updates itself when `HELPER_VERSION` in `packages/shared` changes; bump it with every helper change. For local testing against `wrangler dev`, run it with `HELPER_DEV=1 HELPER_CONFIG=path/to/config.json`.
 
 ## How screening works
 

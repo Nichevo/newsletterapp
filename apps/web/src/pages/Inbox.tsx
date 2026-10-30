@@ -63,6 +63,7 @@ export function InboxPage({
   const [error, setError] = useState<string | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [aiPaused, setAiPaused] = useState<string | null>(null);
 
   const load = useCallback(
     async (append: boolean) => {
@@ -93,6 +94,10 @@ export function InboxPage({
     api
       .settings()
       .then((s) => setCategories(s.categories))
+      .catch(() => undefined);
+    api
+      .aiStatus()
+      .then((s) => setAiPaused(s.paused ? (s.pauseReason ?? 'Paused') : null))
       .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -186,6 +191,16 @@ export function InboxPage({
           <span className="btn btn--small" style={{ background: 'var(--amber-ink)', color: '#fff', borderColor: 'transparent' }}>
             Review
           </span>
+        </Link>
+      )}
+
+      {mode === 'inbox' && aiPaused && (
+        <Link to="/settings/ai" className="notice notice--amber">
+          <div className="notice__text">
+            <span className="notice__title">AI summaries paused</span>
+            <span className="notice__sub">{aiPaused}. Quick summaries carry on.</span>
+          </div>
+          <span className="btn btn--small">Check</span>
         </Link>
       )}
 

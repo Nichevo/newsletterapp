@@ -13,6 +13,7 @@ import type {
   ReadingEventType,
   SourceUpdate,
 } from '@newsletterapp/shared';
+import { registerAi } from './ai';
 import { AuthError, authenticate } from './auth';
 import {
   toAddress,
@@ -20,6 +21,7 @@ import {
   toSender,
   toSource,
   type AddressRow,
+  type ItemJoined,
   type ItemRow,
   type SenderRow,
   type SourceRow,
@@ -33,7 +35,12 @@ export const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 app.use('/api/*', async (c, next) => {
   try {
-    c.set('userEmail', await authenticate(c.req.raw, c.env));
+    const who = await authenticate(c.req.raw, c.env);
+    // The helper's service token only opens the helper endpoints, and only the helper uses them.
+    const helperPath = c.req.path.startsWith('/api/helper/');
+    if (who.kind === 'helper' && !helperPath) return c.json({ error: 'not for the helper' }, 403);
+    if (who.kind === 'user' && helperPath) return c.json({ error: 'helper only' }, 403);
+    c.set('userEmail', who.kind === 'user' ? who.email : '');
   } catch (err) {
     if (err instanceof AuthError) return c.json({ error: err.message }, err.status);
     throw err;
@@ -46,11 +53,17 @@ app.get('/api/me', (c) => {
   return c.json(me);
 });
 
+// AI queue, helper endpoints and AI settings. Registered before the generic
+// item action route so /api/items/:id/rate and friends match first.
+registerAi(app);
+
 // ---------- Items ----------
 
-const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category
-  FROM items LEFT JOIN sources ON sources.id = items.source_id`;
-type ItemSelectRow = ItemRow & { source_name: string | null; source_category: string | null };
+const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category,
+    ai_runs.provider AS run_provider, ai_runs.model AS run_model, ai_runs.prompt_version AS run_prompt_version,
+    ai_runs.seconds AS run_seconds, ai_runs.rating AS run_rating
+  FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN ai_runs ON ai_runs.id = items.ai_run_id`;
+type ItemSelectRow = ItemRow & ItemJoined;
 
 const VIEW_WHERE: Record<ItemView, string> = {
   inbox: "items.status = 'inbox'",
@@ -82,7 +95,7 @@ app.get('/api/items', async (c) => {
     binds.push(sourceId);
   }
   if (category) {
-    where.push('COALESCE(items.category, sources.category) = ?');
+    where.push("COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]')) = ?");
     binds.push(category);
   }
   if (cursor) {
@@ -220,7 +233,9 @@ app.post('/api/senders/:id/:decision', async (c) => {
   if (decision === 'allow') {
     await c.env.DB.batch([
       c.env.DB.prepare("UPDATE senders SET status = 'approved', decided_at = ? WHERE id = ?").bind(t, id),
-      c.env.DB.prepare("UPDATE items SET status = 'inbox' WHERE sender_id = ? AND status = 'screening'").bind(id),
+      c.env.DB.prepare(
+        "UPDATE items SET status = 'inbox', ai_status = COALESCE(ai_status, 'pending') WHERE sender_id = ? AND status = 'screening'",
+      ).bind(id),
     ]);
   } else if (decision === 'block') {
     await c.env.DB.batch([

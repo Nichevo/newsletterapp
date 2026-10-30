@@ -935,6 +935,7 @@ select {
 
 .quick__toggle {
   align-self: flex-start;
+  text-align: left;
   background: none;
   border: none;
   padding: 0;
@@ -974,4 +975,106 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+/* AI summary card */
+.ai {
+  gap: 8px;
+}
+
+.ai__why {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.ai__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.iconbtn--small {
+  width: 36px;
+  height: 36px;
+}
+
+.iconbtn[aria-pressed='true'] {
+  color: var(--teal);
+  background: var(--teal-tint);
+}
+
+/* Tables (statistics, test runs) */
+.tablewrap {
+  overflow-x: auto;
+  margin: 0 -16px;
+  padding: 0 16px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--quiet);
+}
+
+.table td:first-child {
+  min-width: 110px;
+  word-break: break-word;
+}
+
+.table td.num,
+.table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat strong {
+  font-size: 20px;
+}
+
+.statgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 260px;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  resize: vertical;
+}
+
+.trial {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
 }

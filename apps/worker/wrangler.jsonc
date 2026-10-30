@@ -32,6 +32,7 @@
     "ACCESS_AUD": "",
     "ALLOWED_EMAILS": "",
     "AUTO_ALLOW_DAYS": "14",
-    "MAIL_DOMAIN": ""
+    "MAIL_DOMAIN": "",
+    "HELPER_CLIENT_ID": ""
   }
 }

@@ -1,5 +1,6 @@
 import type {
   AiMode,
+  AiStatus,
   Address,
   AuthResult,
   ItemKind,
@@ -84,9 +85,28 @@ export interface ItemRow {
   word_count: number | null;
   category: string | null;
   sponsored: number;
+  ai_status: AiStatus | null;
+  ai_attempts: number;
+  ai_claimed_at: number | null;
+  ai_error: string | null;
+  ai_category: string | null;
+  why_it_matters: string | null;
+  thin_content: number;
+  ai_run_id: string | null;
 }
 
-export function parseTags(raw: string | null): string[] {
+/** Extra columns joined in by the item queries (source and the AI run that wrote the summary). */
+export interface ItemJoined {
+  source_name?: string | null;
+  source_category?: string | null;
+  run_provider?: string | null;
+  run_model?: string | null;
+  run_prompt_version?: number | null;
+  run_seconds?: number | null;
+  run_rating?: number | null;
+}
+
+export function parseList(raw: string | null): string[] {
   if (!raw) return [];
   try {
     const v: unknown = JSON.parse(raw);
@@ -96,9 +116,8 @@ export function parseTags(raw: string | null): string[] {
   }
 }
 
-export function toItemSummary(
-  row: ItemRow & { source_name?: string | null; source_category?: string | null },
-): ItemSummary {
+export function toItemSummary(row: ItemRow & ItemJoined): ItemSummary {
+  const aiCategory = parseList(row.ai_category)[0] ?? null;
   return {
     id: row.id,
     kind: row.kind,
@@ -122,10 +141,25 @@ export function toItemSummary(
     authDmarc: row.auth_dmarc,
     preheader: row.preheader,
     wordCount: row.word_count,
-    category: row.category ?? row.source_category ?? null,
+    category: row.category ?? row.source_category ?? aiCategory,
     sponsored: row.sponsored === 1,
+    aiStatus: row.ai_status,
     summary: row.summary,
-    tags: parseTags(row.tags),
+    keyPoints: parseList(row.key_points),
+    whyItMatters: row.why_it_matters,
+    tags: parseList(row.tags),
+    thinContent: row.thin_content === 1,
+    ai:
+      row.ai_run_id && row.run_model
+        ? {
+            runId: row.ai_run_id,
+            provider: row.run_provider ?? '',
+            model: row.run_model,
+            promptVersion: row.run_prompt_version ?? null,
+            seconds: row.run_seconds ?? null,
+            rating: row.run_rating === 1 || row.run_rating === -1 ? row.run_rating : null,
+          }
+        : null,
     score: row.score,
   };
 }

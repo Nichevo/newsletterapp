@@ -43,14 +43,21 @@ export class AuthError extends Error {
   }
 }
 
+/** Who is calling: a person signed in through Access, or the PC helper using its service token. */
+export type Identity = { kind: 'user'; email: string } | { kind: 'helper'; clientId: string };
+
+/** Client IDs look like "abc123.access"; compare them without the suffix. */
+const clientIdKey = (id: string) => id.trim().toLowerCase().replace(/\.access$/, '');
+
 /**
- * Resolves the signed-in user's email from the Cloudflare Access JWT.
+ * Resolves the caller from the Cloudflare Access JWT.
  * Fails closed: with no Access configuration every request is refused,
  * except in local development with DEV_BYPASS_AUTH set.
  */
-export async function authenticate(request: Request, env: Env): Promise<string> {
+export async function authenticate(request: Request, env: Env): Promise<Identity> {
   if (env.DEV_BYPASS_AUTH === '1') {
-    return env.DEV_EMAIL || 'dev@localhost';
+    if (request.headers.get('X-Dev-Helper') === '1') return { kind: 'helper', clientId: 'dev' };
+    return { kind: 'user', email: env.DEV_EMAIL || 'dev@localhost' };
   }
   if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) {
     throw new AuthError(
@@ -63,14 +70,22 @@ export async function authenticate(request: Request, env: Env): Promise<string> 
 
   const issuer = accessIssuer(env.ACCESS_TEAM_DOMAIN);
   let email: string | undefined;
+  let commonName: string | undefined;
   try {
     const { payload } = await jwtVerify(token, jwksFor(issuer), {
       issuer,
       audience: env.ACCESS_AUD.trim(),
     });
     email = typeof payload.email === 'string' ? payload.email.toLowerCase() : undefined;
+    // Service-token logins carry the token's client ID instead of an email.
+    commonName = typeof payload.common_name === 'string' ? payload.common_name : undefined;
   } catch {
     throw new AuthError('Invalid Access token', 401);
+  }
+  if (!email && commonName) {
+    const expected = env.HELPER_CLIENT_ID?.trim();
+    if (expected && clientIdKey(commonName) === clientIdKey(expected)) return { kind: 'helper', clientId: commonName };
+    throw new AuthError('This service token is not the PC helper', 403);
   }
   if (!email) throw new AuthError('Access token has no email', 401);
 
@@ -80,5 +95,5 @@ export async function authenticate(request: Request, env: Env): Promise<string> 
   if (allowed.length > 0 && !allowed.includes(email)) {
     throw new AuthError('This account is not allowed', 403);
   }
-  return email;
+  return { kind: 'user', email };
 }

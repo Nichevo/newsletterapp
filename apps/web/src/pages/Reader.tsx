@@ -3,8 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
 import { EmailBody } from '../components/EmailBody';
-import { longDate, readingMinutes } from '../format';
-import { IconArchive, IconBack, IconBookmark, IconExternal, IconImage } from '../icons';
+import { aiAttribution, longDate, readingMinutes } from '../format';
+import { IconArchive, IconBack, IconBookmark, IconExternal, IconImage, IconThumbDown, IconThumbUp } from '../icons';
 import { outlineOf } from '../quick';
 
 export function ReaderPage({ onChanged }: { onChanged: () => void }) {
@@ -91,18 +91,12 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
               </span>
             ))}
           </div>
-          {item.summary && (
-            <section className="card" aria-label="Summary">
-              <span className="label" style={{ color: 'var(--teal-ink)' }}>
-                Summary
-              </span>
-              <p style={{ margin: 0, fontSize: 15, lineHeight: 1.45 }}>{item.summary}</p>
-            </section>
-          )}
+          {item.summary && <AiSummary item={item} onItem={setItem} />}
           <QuickSummary
             preview={item.preheader ?? item.snippet}
             html={body?.html ?? null}
             folded={Boolean(item.summary)}
+            pending={!item.summary && (item.aiStatus === 'pending' || item.aiStatus === 'working')}
             onLinkClick={onLinkClick}
           />
           {hasRemoteImages && !loadImages && (
@@ -171,6 +165,74 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   );
 }
 
+/** The AI summary from the PC helper, with who wrote it and a thumbs up/down. */
+function AiSummary({ item, onItem }: { item: ItemSummary; onItem: (i: ItemSummary) => void }) {
+  const [advice, setAdvice] = useState(false);
+  const [redoing, setRedoing] = useState(false);
+  const rating = item.ai?.rating ?? null;
+
+  async function rate(value: 1 | -1) {
+    if (!item.ai) return;
+    const next = rating === value ? null : value;
+    onItem({ ...item, ai: { ...item.ai, rating: next } });
+    await api.rateItem(item.id, next ?? 0).catch(() => undefined);
+    if (next === -1) {
+      const res = await api.aiAdvice(item.id).catch(() => null);
+      setAdvice(Boolean(res?.suggestOff));
+    } else {
+      setAdvice(false);
+    }
+  }
+
+  async function redo() {
+    setRedoing(true);
+    await api.redoItem(item.id).catch(() => undefined);
+    onItem({ ...item, aiStatus: 'pending' });
+  }
+
+  return (
+    <section className="card ai" aria-label="AI summary">
+      <span className="label" style={{ color: 'var(--teal-ink)' }}>
+        AI summary
+      </span>
+      <p className="quick__lead">{item.summary}</p>
+      {item.thinContent && <p className="hint" style={{ margin: 0 }}>This issue is mostly a teaser; the full story is on the website.</p>}
+      {item.keyPoints.length > 0 && (
+        <ul className="quick__list">
+          {item.keyPoints.map((k) => (
+            <li key={k}>{k}</li>
+          ))}
+        </ul>
+      )}
+      {item.whyItMatters && (
+        <p className="ai__why">
+          <strong>Why it matters:</strong> {item.whyItMatters}
+        </p>
+      )}
+      <div className="ai__foot">
+        {item.ai && <p className="attribution">{aiAttribution(item.ai)}</p>}
+        <div className="inline">
+          <button className="iconbtn iconbtn--small" aria-label="Good summary" aria-pressed={rating === 1} onClick={() => void rate(1)}>
+            <IconThumbUp size={18} />
+          </button>
+          <button className="iconbtn iconbtn--small" aria-label="Poor summary" aria-pressed={rating === -1} onClick={() => void rate(-1)}>
+            <IconThumbDown size={18} />
+          </button>
+          <button className="quick__toggle" disabled={redoing || item.aiStatus === 'pending'} onClick={() => void redo()}>
+            {redoing || item.aiStatus === 'pending' ? 'Queued' : 'Redo'}
+          </button>
+        </div>
+      </div>
+      {advice && item.sourceId && (
+        <p className="hint" style={{ margin: 0 }}>
+          The last few AI summaries from this newsletter weren't useful.{' '}
+          <Link to={`/source/${item.sourceId}`}>Turn AI off for it?</Link>
+        </p>
+      )}
+    </section>
+  );
+}
+
 /**
  * The rules-based summary every item gets: the sender's preview line plus the
  * headings and main story links in the issue. Folds away under an AI summary.
@@ -179,11 +241,14 @@ function QuickSummary({
   preview,
   html,
   folded,
+  pending,
   onLinkClick,
 }: {
   preview: string | null;
   html: string | null;
   folded: boolean;
+  /** An AI summary is on its way from the PC. */
+  pending: boolean;
   onLinkClick: (href: string) => void;
 }) {
   const [open, setOpen] = useState(!folded);
@@ -243,7 +308,7 @@ function QuickSummary({
               </ul>
             </>
           )}
-          <p className="attribution">Quick summary (no AI)</p>
+          <p className="attribution">Quick summary (no AI){pending ? ' · AI summary waiting for your PC' : ''}</p>
         </>
       )}
     </section>
