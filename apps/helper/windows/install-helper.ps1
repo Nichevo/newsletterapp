@@ -51,11 +51,12 @@ $config = [ordered]@{
   clientId          = $clientId
   clientSecret      = $secret
   ollamaUrl         = $(if ($existing -and $existing.ollamaUrl) { $existing.ollamaUrl } else { 'http://127.0.0.1:11434' })
-  openaiCompatible  = $(if ($existing -and $existing.openaiCompatible) { @($existing.openaiCompatible) } else { @() })
   maxChars          = $(if ($existing -and $existing.maxChars) { $existing.maxChars } else { 24000 })
 }
+if ($existing -and $existing.openaiCompatible) { $config.openaiCompatible = @($existing.openaiCompatible) }
 if ($existing -and $existing.anthropicApiKey) { $config.anthropicApiKey = $existing.anthropicApiKey }
-$config | ConvertTo-Json -Depth 5 | Set-Content -Path $configPath -Encoding UTF8
+# WriteAllText writes UTF-8 without the BOM that Windows PowerShell 5 adds.
+[IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 5))
 
 # Only this Windows user can read the file with the secret.
 icacls $configPath /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null
