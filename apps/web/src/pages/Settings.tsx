@@ -54,8 +54,8 @@ export function SettingsPage({ me }: { me: Me }) {
         <div className="card card--list">
           <Link to="/add" className="cardrow">
             <div className="cardrow__main">
-              <span className="cardrow__title">Sign-up addresses</span>
-              <span className="cardrow__sub">Create an address for a newsletter, or block one</span>
+              <span className="cardrow__title">Add a source</span>
+              <span className="cardrow__sub">Follow a site or feed, import from Feedly, or create a newsletter address</span>
             </div>
           </Link>
           <Link to="/senders" className="cardrow">
@@ -81,8 +81,8 @@ export function SettingsPage({ me }: { me: Me }) {
               <span className="cardrow__title">Your sources</span>
               <span className="cardrow__sub">
                 {sources.length === 0
-                  ? 'Newsletters appear here once the first issue arrives'
-                  : `${sources.length} newsletter${sources.length === 1 ? '' : 's'} · category, AI mode and history for each`}
+                  ? 'Newsletters, feeds and websites appear here once something arrives'
+                  : `${sources.length} source${sources.length === 1 ? '' : 's'} · category, AI mode, pause and history for each`}
               </span>
             </div>
           </Link>
@@ -223,7 +223,7 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
           </label>
         ))}
         <span className="hint">
-          Which items go to the AI on your PC. Each newsletter can override this on its own page. Everything always gets the
+          Which items go to the AI on your PC. Each source can override this on its own page. Everything always gets the
           quick summary.
         </span>
         <div className="field">

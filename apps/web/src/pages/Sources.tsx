@@ -68,6 +68,7 @@ function SourceList({ title, sources, noun }: { title: string; sources: Source[]
                 {s.lastReceivedAt ? ` · last ${shortTime(s.lastReceivedAt)}` : ''}
                 {s.category ? ` · ${s.category}` : ''}
                 {s.aiMode !== 'default' ? ` · AI ${s.aiMode}` : ''}
+                {s.pausedAt ? ' · paused' : s.lastError ? ' · last check failed' : ''}
               </span>
             </div>
           </Link>

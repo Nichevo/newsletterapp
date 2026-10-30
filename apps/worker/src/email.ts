@@ -64,15 +64,15 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
 
   // One source per (sender, address) pair, named after the sender.
   const sourceName = fromName ?? fromEmail;
-  let source = await env.DB.prepare('SELECT id FROM sources WHERE sender_email = ? AND address_id = ?')
+  let source = await env.DB.prepare('SELECT id, paused_at FROM sources WHERE sender_email = ? AND address_id = ?')
     .bind(fromEmail, decision.address.id)
-    .first<{ id: string }>();
+    .first<{ id: string; paused_at: number | null }>();
   // A keyword rule match wins over the source's default category, which is
   // applied at read time so changing it re-files older issues too.
   const settings = await loadSettings(env);
   const category = categoryFromRules(settings.keywordRules, subject, quick.preheader);
   if (!source) {
-    source = { id: newId() };
+    source = { id: newId(), paused_at: null };
     await env.DB.prepare(
       `INSERT INTO sources (id, kind, name, sender_email, address_id, created_at) VALUES (?, 'newsletter', ?, ?, ?, ?)`,
     )
@@ -80,20 +80,24 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
       .run();
   }
 
+  // A paused newsletter still gets stored (nothing is lost), but straight into
+  // Archived and without an AI summary, so it stays out of the inbox.
+  const paused = decision.action === 'inbox' && source.paused_at !== null;
+
   await env.DB.prepare(
     `INSERT INTO items (
        id, source_id, sender_id, address_id, kind, status, subject, from_name, from_email, to_address,
        snippet, received_at, message_id, raw_key, html_key, text_key, raw_size, has_html,
        list_unsubscribe, list_unsubscribe_post, auth_spf, auth_dkim, auth_dmarc, web_url, created_at,
-       preheader, word_count, category, sponsored, ai_status
-     ) VALUES (?, ?, ?, ?, 'newsletter', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       preheader, word_count, category, sponsored, ai_status, archived_at
+     ) VALUES (?, ?, ?, ?, 'newsletter', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
       source.id,
       decision.sender.id,
       decision.address.id,
-      decision.action === 'inbox' ? 'inbox' : 'screening',
+      paused ? 'archived' : decision.action === 'inbox' ? 'inbox' : 'screening',
       subject,
       fromName,
       fromEmail,
@@ -119,7 +123,8 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
       quick.sponsored ? 1 : 0,
       // Queued for the PC helper; whether it is actually sent depends on the
       // AI switches at the time the helper asks for work.
-      decision.action === 'inbox' ? 'pending' : null,
+      decision.action === 'inbox' && !paused ? 'pending' : null,
+      paused ? t : null,
     )
     .run();
 }

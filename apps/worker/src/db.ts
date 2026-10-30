@@ -1,6 +1,8 @@
 import type {
   AiMode,
   AiStatus,
+  FetchVia,
+  FullTextMode,
   Address,
   AuthResult,
   ItemKind,
@@ -48,6 +50,21 @@ export interface SourceRow {
   ai_mode: AiMode;
   unsubscribed_at: number | null;
   created_at: number;
+  url: string | null;
+  feed_url: string | null;
+  fetch_via: FetchVia;
+  render: number;
+  full_text: FullTextMode;
+  link_hint: string | null;
+  check_minutes: number | null;
+  etag: string | null;
+  last_modified: string | null;
+  last_checked_at: number | null;
+  next_check_at: number | null;
+  last_ok_at: number | null;
+  last_error: string | null;
+  error_count: number;
+  paused_at: number | null;
 }
 
 export interface ItemRow {
@@ -101,6 +118,7 @@ export interface ItemRow {
 export interface ItemJoined {
   source_name?: string | null;
   source_category?: string | null;
+  source_ai_mode?: AiMode | null;
   run_provider?: string | null;
   run_model?: string | null;
   run_prompt_version?: number | null;
@@ -137,8 +155,16 @@ export function isOneClick(header: string | null, post: string | null): boolean 
   return unsubscribeHttpUrl(header) !== null && /one-click/i.test(post ?? '');
 }
 
-export function toItemSummary(row: ItemRow & ItemJoined): ItemSummary {
+/**
+ * With the AI switches passed in, an item whose source has AI off reports no
+ * AI status, so the app doesn't show it as waiting for the PC. (Items stay
+ * queued, so switching AI on later picks them up.)
+ */
+export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<ItemKind, boolean>): ItemSummary {
   const aiCategory = parseList(row.ai_category)[0] ?? null;
+  const mode = row.source_ai_mode ?? 'default';
+  const aiOff = aiByKind !== undefined && (mode === 'off' || (mode === 'default' && !aiByKind[row.kind]));
+  const aiStatus = aiOff && (row.ai_status === 'pending' || row.ai_status === null) ? null : row.ai_status;
   return {
     id: row.id,
     kind: row.kind,
@@ -165,7 +191,7 @@ export function toItemSummary(row: ItemRow & ItemJoined): ItemSummary {
     wordCount: row.word_count,
     category: row.category ?? row.source_category ?? aiCategory,
     sponsored: row.sponsored === 1,
-    aiStatus: row.ai_status,
+    aiStatus,
     summary: row.summary,
     keyPoints: parseList(row.key_points),
     whyItMatters: row.why_it_matters,
@@ -244,5 +270,17 @@ export function toSource(
     createdAt: row.created_at,
     itemCount: row.item_count ?? 0,
     lastReceivedAt: row.last_received_at ?? null,
+    url: row.url ?? null,
+    feedUrl: row.feed_url ?? null,
+    fetchVia: row.fetch_via ?? 'cloud',
+    render: row.render === 1,
+    fullText: row.full_text ?? 'auto',
+    linkHint: row.link_hint ?? null,
+    checkMinutes: row.check_minutes ?? null,
+    lastCheckedAt: row.last_checked_at ?? null,
+    nextCheckAt: row.next_check_at ?? null,
+    lastError: row.last_error ?? null,
+    errorCount: row.error_count ?? 0,
+    pausedAt: row.paused_at ?? null,
   };
 }

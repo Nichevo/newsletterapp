@@ -1,6 +1,10 @@
 // Types shared between the Worker API and the web app.
 // Timestamps are Unix milliseconds.
 
+import type { Article, FeedEntry } from './web';
+
+export * from './web';
+
 export type ItemKind = 'newsletter' | 'feed' | 'site';
 
 /** Where an item sits in the app. */
@@ -105,6 +109,12 @@ export type ItemView = 'inbox' | 'unread' | 'saved' | 'archived';
 export type AiMode = 'default' | 'on' | 'off';
 export type ItemSort = 'newest' | 'oldest' | 'top';
 
+/** Where a feed or website is fetched from: Cloudflare, or the helper on your PC. */
+export type FetchVia = 'cloud' | 'pc';
+
+/** Whether to fetch the full article for feed posts: only for teasers, always, or never. */
+export type FullTextMode = 'auto' | 'always' | 'never';
+
 export interface Source {
   id: string;
   kind: ItemKind;
@@ -120,6 +130,23 @@ export interface Source {
   createdAt: number;
   itemCount: number;
   lastReceivedAt: number | null;
+  // Feeds and websites only.
+  /** The site's home page, or the watched page for a website. */
+  url: string | null;
+  feedUrl: string | null;
+  fetchVia: FetchVia;
+  /** Open the page in a real browser on the PC (pages built by JavaScript). */
+  render: boolean;
+  fullText: FullTextMode;
+  /** Website watches: only links whose address contains this. */
+  linkHint: string | null;
+  checkMinutes: number | null;
+  lastCheckedAt: number | null;
+  nextCheckAt: number | null;
+  lastError: string | null;
+  errorCount: number;
+  /** Set when you stop following; nothing is fetched until you resume. */
+  pausedAt: number | null;
 }
 
 export type SenderStatus = 'pending' | 'approved' | 'blocked';
@@ -241,6 +268,105 @@ export interface Digest {
 export interface SourceUpdate {
   category?: string | null;
   aiMode?: AiMode;
+  name?: string;
+  fetchVia?: FetchVia;
+  render?: boolean;
+  fullText?: FullTextMode;
+  linkHint?: string | null;
+  checkMinutes?: number;
+  paused?: boolean;
+}
+
+// ---------- Feeds and websites (Phase 3) ----------
+
+export interface DiscoveredFeed {
+  feedUrl: string;
+  title: string | null;
+  siteUrl: string | null;
+  format: 'rss' | 'atom' | 'json';
+  /** Latest posts, so you can tell it's the right feed. */
+  sample: { title: string; url: string | null; publishedAt: number | null }[];
+  /** Most posts are teasers, so full articles will be fetched. */
+  teasers: boolean;
+}
+
+/** What the Add screen found at a pasted address. */
+export interface DiscoverResult {
+  url: string;
+  title: string | null;
+  feeds: DiscoveredFeed[];
+  /** Watching the page itself, for sites without a feed. */
+  page: {
+    url: string;
+    title: string | null;
+    sample: { title: string; url: string }[];
+    /** Cloudflare was turned away; the PC has to fetch this site. */
+    blocked: boolean;
+    /** The page is built by JavaScript; the PC has to open it in a browser. */
+    scripted: boolean;
+  } | null;
+  error: string | null;
+  /** Already followed: the existing source. */
+  existingSourceId: string | null;
+}
+
+export interface NewSourceInput {
+  kind: 'feed' | 'site';
+  url: string;
+  feedUrl?: string | null;
+  name: string;
+  category?: string | null;
+  fetchVia?: FetchVia;
+  render?: boolean;
+  linkHint?: string | null;
+}
+
+export interface NewSourceResult {
+  source: Source;
+  /** Posts brought in straight away (feeds fetched by Cloudflare). */
+  added: number;
+  /** The first check is waiting for the PC helper. */
+  waitingForPc: boolean;
+}
+
+export interface OpmlImportResult {
+  added: number;
+  skipped: number;
+  /** Feed check order is spread over the next hour or so. */
+  total: number;
+}
+
+/** A fetch the PC helper does for the app: a feed or page Cloudflare can't fetch, or a full article. */
+export interface FetchJob {
+  id: string;
+  kind: 'feed' | 'page' | 'article';
+  url: string;
+  sourceId: string | null;
+  itemId: string | null;
+  render: boolean;
+  linkHint: string | null;
+  etag: string | null;
+  lastModified: string | null;
+  /** Page watches: links already seen, so only new ones are fetched. */
+  knownKeys: string[];
+  /** First check of a source: learn what is there and bring in only the latest few. */
+  firstRun: boolean;
+}
+
+export interface FetchJobResult {
+  jobId: string;
+  ok: boolean;
+  error?: string;
+  /** The site turned the PC away too (a bot check). */
+  blocked?: boolean;
+  notModified?: boolean;
+  etag?: string | null;
+  lastModified?: string | null;
+  title?: string | null;
+  entries?: FeedEntry[];
+  /** Page watches: every article link on the page, new or not. */
+  seenKeys?: string[];
+  article?: Article;
 }
 
 // ---------- AI: shared between the Worker, the web app and the PC helper ----------
@@ -302,7 +428,7 @@ export interface HelperHeartbeat {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.1.2';
+export const HELPER_VERSION = '0.2.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -315,6 +441,8 @@ export interface HelperConfig {
   batchSize: number;
   /** A test-mode run waiting to be done, if any. */
   trialId: string | null;
+  /** Feed, website and full-article fetches waiting for the PC. */
+  fetchWaiting?: number;
 }
 
 export interface HelperJob {
