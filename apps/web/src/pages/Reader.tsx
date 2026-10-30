@@ -4,9 +4,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
 import { EmailBody } from '../components/EmailBody';
 import { aiAttribution, longDate, readingMinutes, shortTime } from '../format';
-import { IconArchive, IconBack, IconBookmark, IconExternal, IconImage, IconThumbDown, IconThumbUp } from '../icons';
+import { IconArchive, IconBack, IconBookmark, IconChevron, IconExternal, IconImage, IconThumbDown, IconThumbUp } from '../icons';
 import { getHideSponsored, getTextSize, imagesAllowed, setImagesAllowed, textSizePx } from '../prefs';
 import { outlineOf } from '../quick';
+import { neighbours } from '../readingList';
 
 export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const { id = '' } = useParams();
@@ -19,6 +20,27 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const [sponsoredCount, setSponsoredCount] = useState(0);
   const [showSponsored, setShowSponsored] = useState(false);
   const fontSize = textSizePx(getTextSize());
+  const nav = useMemo(() => neighbours(id), [id]);
+
+  // Previous / Next replace the current entry so Back still returns to the inbox.
+  const go = useCallback(
+    (target: string | null) => {
+      if (target) navigate(`/item/${target}`, { replace: true });
+    },
+    [navigate],
+  );
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (e.key === 'ArrowLeft' || e.key === 'k') go(nav.prev);
+      if (e.key === 'ArrowRight' || e.key === 'j') go(nav.next);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [nav, go]);
   const hideSponsored = getHideSponsored() && !showSponsored;
 
   useEffect(() => {
@@ -98,6 +120,19 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             {item ? `${item.kind === 'newsletter' ? 'Newsletter' : item.kind} · ${readingMinutes(item.wordCount ?? body?.text)} min read` : ''}
           </span>
         </div>
+        {nav.position !== null && (
+          <div className="reader__nav">
+            <button className="iconbtn" aria-label="Previous in list" disabled={!nav.prev} onClick={() => go(nav.prev)}>
+              <IconChevron style={{ transform: 'rotate(90deg)' }} />
+            </button>
+            <span className="reader__nav-pos">
+              {nav.position}/{nav.total}
+            </span>
+            <button className="iconbtn" aria-label="Next in list" disabled={!nav.next} onClick={() => go(nav.next)}>
+              <IconChevron style={{ transform: 'rotate(-90deg)' }} />
+            </button>
+          </div>
+        )}
       </div>
 
       {error && <div className="error">{error}</div>}
