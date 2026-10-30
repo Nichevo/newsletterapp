@@ -10,6 +10,10 @@ export function DigestPage() {
   const [day, setDay] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
+  const [showEarlier, setShowEarlier] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  // Whether Done also marks the stories read; starts from the Settings default, changeable per digest.
+  const [markRead, setMarkRead] = useState<boolean | null>(null);
 
   function load() {
     return api
@@ -23,6 +27,10 @@ export function DigestPage() {
 
   useEffect(() => {
     void load();
+    api
+      .settings()
+      .then((st) => setMarkRead((v) => v ?? st.digest.doneMarksRead))
+      .catch(() => setMarkRead((v) => v ?? false));
   }, []);
 
   async function buildNow() {
@@ -40,7 +48,26 @@ export function DigestPage() {
     }
   }
 
-  const current = digests?.find((d) => d.day === day) ?? digests?.[0] ?? null;
+  const open = digests?.filter((d) => !d.readAt) ?? [];
+  const earlier = digests?.filter((d) => d.readAt) ?? [];
+  const visible = showEarlier ? (digests ?? []) : open;
+  const current = visible.find((d) => d.day === day) ?? visible[0] ?? null;
+
+  async function markDone(d: Digest) {
+    try {
+      const r = await api.digestDone(d.day, markRead === true);
+      setNote(r.itemsRead > 0 ? `Done. ${r.itemsRead} stor${r.itemsRead === 1 ? 'y' : 'ies'} marked read.` : null);
+      setDigests((list) => list?.map((x) => (x.day === d.day ? { ...x, readAt: r.readAt } : x)) ?? null);
+      setDay(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not mark the digest done');
+    }
+  }
+
+  async function reopen(d: Digest) {
+    await api.digestUndone(d.day).catch(() => undefined);
+    setDigests((list) => list?.map((x) => (x.day === d.day ? { ...x, readAt: null } : x)) ?? null);
+  }
 
   return (
     <div className="page">
@@ -58,31 +85,59 @@ export function DigestPage() {
         </button>
       </header>
 
-      {digests && digests.length > 1 && (
+      {(visible.length > 1 || earlier.length > 0) && (
         <div className="tabs">
-          {digests.map((d) => (
+          {visible.map((d) => (
             <button key={d.day} className="pill" aria-pressed={d.day === current?.day} onClick={() => setDay(d.day)}>
               {dayLabel(d.day)}
+              {d.readAt ? ' ✓' : ''}
             </button>
           ))}
+          {earlier.length > 0 && (
+            <button className="pill" onClick={() => setShowEarlier((v) => !v)}>
+              {showEarlier ? 'Hide earlier' : `Earlier (${earlier.length})`}
+            </button>
+          )}
         </div>
       )}
 
       {error && <div className="error">{error}</div>}
+      {note && <p className="hint" style={{ padding: '0 16px' }}>{note}</p>}
       {digests === null && !error && <div className="spinner">Loading…</div>}
 
       {digests && !current && (
         <div className="empty">
-          <h2>No digest yet</h2>
-          <p>One is built every day at the hour set in Settings, from the issues that arrived. Tap “Build now” to make one from what's here already.</p>
+          <h2>{earlier.length > 0 ? 'All caught up' : 'No digest yet'}</h2>
+          <p>
+            {earlier.length > 0
+              ? 'The next digest is built at the hour set in Settings. Tap “Build now” for one from what has arrived since.'
+              : 'One is built every day at the hour set in Settings, from the issues that arrived. Tap “Build now” to make one from what is here already.'}
+          </p>
         </div>
       )}
 
       {current && (
         <div className="digest">
-          <span className="digest__meta">
-            Issues from {shortTime(current.fromAt)} to {shortTime(current.toAt)}, ranked by what you tend to read.
-          </span>
+          <div className="digest__bar">
+            <span className="digest__meta">
+              Issues from {shortTime(current.fromAt)} to {shortTime(current.toAt)}, ranked by what you tend to read.
+            </span>
+            {current.readAt ? (
+              <button className="btn btn--ghost btn--small" onClick={() => void reopen(current)}>
+                Reopen
+              </button>
+            ) : (
+              <button className="btn btn--small" onClick={() => void markDone(current)}>
+                Done
+              </button>
+            )}
+          </div>
+          {!current.readAt && (
+            <label className="digest__option">
+              <input type="checkbox" checked={markRead === true} onChange={(e) => setMarkRead(e.target.checked)} />
+              Done also marks these stories read
+            </label>
+          )}
           {current.sections.map((section) => (
             <section key={section.title} className="card digest__section">
               <h2>{section.title}</h2>
@@ -111,6 +166,11 @@ export function DigestPage() {
               ))}
             </section>
           ))}
+          {!current.readAt && (
+            <button className="btn btn--block" onClick={() => void markDone(current)}>
+              Done with this digest
+            </button>
+          )}
         </div>
       )}
     </div>

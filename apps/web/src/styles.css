@@ -1239,6 +1239,22 @@ select {
   gap: 16px;
 }
 
+.digest__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.digest__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--quiet);
+  margin-top: -6px;
+}
+
 .digest__meta {
   color: var(--muted);
   font-size: 13px;

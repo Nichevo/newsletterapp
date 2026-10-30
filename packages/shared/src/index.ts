@@ -59,7 +59,14 @@ export interface ItemSummary {
   ai: AiAttribution | null;
   /** 0-100, how worth your time this item looks; see scoring.ts. */
   score: number | null;
+  /** How it came to be marked read: opened in the reader, swiped in the inbox, a bulk action, or a digest marked done. */
+  readVia: ReadVia | null;
+  /** Which kind of device it was read on. */
+  readDevice: ReadDevice | null;
 }
+
+export type ReadVia = 'reader' | 'swipe' | 'bulk' | 'digest';
+export type ReadDevice = 'phone' | 'desktop';
 
 /** An older item that shares topics with the one being read. */
 export interface RelatedItem {
@@ -225,7 +232,33 @@ export interface AppSettings {
   digestHour: number;
   /** IANA time zone the digest day and hour are measured in, e.g. "Australia/Sydney". */
   timezone: string;
+  /** How the daily digest is put together. */
+  digest: DigestOptions;
 }
+
+export interface DigestOptions {
+  /** Roughly how many lead stories. */
+  stories: 6 | 12 | 20;
+  /** Hours of mail to cover; 0 = everything since the last digest. */
+  windowHours: 0 | 24 | 48;
+  includeRead: boolean;
+  includeSponsored: boolean;
+  groupBy: 'category' | 'source';
+  /** Categories left out of the digest entirely. */
+  skipCategories: string[];
+  /** Marking a digest done also marks its stories read. */
+  doneMarksRead: boolean;
+}
+
+export const DEFAULT_DIGEST_OPTIONS: DigestOptions = {
+  stories: 12,
+  windowHours: 0,
+  includeRead: false,
+  includeSponsored: false,
+  groupBy: 'category',
+  skipCategories: [],
+  doneMarksRead: false,
+};
 
 export const DEFAULT_SETTINGS: AppSettings = {
   categories: ['AI', 'Tech', 'Business', 'Finance', 'Science', 'Politics', 'Health', 'Productivity', 'Culture', 'Other'],
@@ -234,6 +267,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   interests: '',
   digestHour: 7,
   timezone: 'UTC',
+  digest: DEFAULT_DIGEST_OPTIONS,
 };
 
 // ---------- Daily digest ----------
@@ -266,6 +300,8 @@ export interface Digest {
   /** How many items the digest was built from. */
   itemCount: number;
   sections: DigestSection[];
+  /** When the reader marked it done; null while it is still on the Digest tab. */
+  readAt: number | null;
 }
 
 export interface SourceUpdate {

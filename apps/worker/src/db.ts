@@ -94,6 +94,8 @@ export interface ItemRow {
   auth_dmarc: AuthResult;
   web_url: string | null;
   read_at: number | null;
+  read_via: string | null;
+  read_device: string | null;
   saved_at: number | null;
   archived_at: number | null;
   summary: string | null;
@@ -181,6 +183,8 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<ItemK
     snippet: row.snippet,
     receivedAt: row.received_at,
     readAt: row.read_at,
+    readVia: (row.read_via as ItemSummary['readVia']) ?? null,
+    readDevice: (row.read_device as ItemSummary['readDevice']) ?? null,
     savedAt: row.saved_at,
     archivedAt: row.archived_at,
     hasHtml: row.has_html === 1,
