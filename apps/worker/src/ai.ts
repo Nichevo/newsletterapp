@@ -11,6 +11,8 @@ import {
   type HelperResult,
   type ItemKind,
   type ModelInfo,
+  type ModelMode,
+  type ModelRating,
   type ModelRef,
   type PromptInfo,
   type PromptScope,
@@ -67,6 +69,28 @@ export async function writeJson(env: Env, key: string, value: unknown): Promise<
 }
 
 const loadState = async (env: Env) => ({ ...NO_STATE, ...(await readJson<AiState>(env, 'ai_state')) });
+
+// ---------- Which model does the work ----------
+
+const loadModelMode = async (env: Env): Promise<ModelMode> => ((await readJson<ModelMode>(env, 'model_mode')) === 'split' ? 'split' : 'first');
+
+/**
+ * When the work is split, the switched-on model with the fewest runs in the last
+ * day takes the whole batch. Whole batches rather than item by item, so the PC
+ * isn't swapping models in and out of the GPU for every newsletter.
+ */
+async function pickSplitModel(env: Env): Promise<ModelRef | null> {
+  const row = await env.DB.prepare(
+    `SELECT models.provider, models.name FROM models
+     LEFT JOIN (SELECT provider, model, COUNT(*) AS n FROM ai_runs WHERE at > ? GROUP BY provider, model) runs
+       ON runs.provider = models.provider AND runs.model = models.name
+     WHERE models.enabled = 1 AND models.installed = 1
+     ORDER BY COALESCE(runs.n, 0), models.position LIMIT 1`,
+  )
+    .bind(now() - 86_400_000)
+    .first<ModelRef>();
+  return row ? { provider: row.provider, name: row.name } : null;
+}
 
 // ---------- Prompts ----------
 
@@ -282,6 +306,7 @@ export function registerAi(app: App) {
       .bind(...ids)
       .all<JobRow>();
     const prompts = await loadPrompts(c.env);
+    const model = (await loadModelMode(c.env)) === 'split' ? await pickSplitModel(c.env) : null;
     const jobs: HelperJob[] = await Promise.all(
       rows.results.map(async (r) => {
         const prompt = pickPrompt(prompts, r.source_id, r.rules_category);
@@ -296,6 +321,7 @@ export function registerAi(app: App) {
           promptId: prompt.id,
           promptVersion: prompt.version,
           categories: settings.categories,
+          ...(model ? { model } : {}),
         };
       }),
     );
@@ -692,7 +718,15 @@ export function registerAi(app: App) {
         : { results: [] },
       c.env.DB.prepare('SELECT * FROM trial_results WHERE trial_id = ?')
         .bind(trial.id)
-        .all<{ item_id: string; provider: string; model: string; output: string | null; error: string | null; seconds: number | null }>(),
+        .all<{
+          item_id: string;
+          provider: string;
+          model: string;
+          output: string | null;
+          error: string | null;
+          seconds: number | null;
+          rating: number | null;
+        }>(),
     ]);
     const view: TrialView = {
       id: trial.id,
@@ -707,9 +741,56 @@ export function registerAi(app: App) {
         seconds: r.seconds ?? 0,
         output: r.output ? (JSON.parse(r.output) as AiOutput) : null,
         error: r.error,
+        rating: r.rating === 1 || r.rating === -1 ? r.rating : null,
       })),
     };
     return c.json(view);
+  });
+
+  /** Thumbs up or down on one model's answer for one item in a test run; anything else clears it. */
+  app.post('/api/ai/trials/:id/rate', async (c) => {
+    const input = (await c.req.json().catch(() => null)) as { itemId?: string; provider?: string; model?: string; rating?: number } | null;
+    if (!input?.itemId || !input.provider || !input.model) return c.json({ error: 'itemId, provider and model required' }, 400);
+    const rating = input.rating === 1 || input.rating === -1 ? input.rating : null;
+    await c.env.DB.prepare(
+      'UPDATE trial_results SET rating = ?, rated_at = ? WHERE trial_id = ? AND item_id = ? AND provider = ? AND model = ?',
+    )
+      .bind(rating, rating === null ? null : now(), c.req.param('id'), input.itemId, input.provider, input.model)
+      .run();
+    return c.json({ ok: true, rating });
+  });
+
+  app.get('/api/ai/model-mode', async (c) => c.json({ mode: await loadModelMode(c.env) }));
+
+  app.put('/api/ai/model-mode', async (c) => {
+    const input = (await c.req.json().catch(() => null)) as { mode?: string } | null;
+    const mode: ModelMode = input?.mode === 'split' ? 'split' : 'first';
+    await writeJson(c.env, 'model_mode', mode);
+    return c.json({ mode });
+  });
+
+  /** Every thumbs up or down in the last few months, from everyday summaries and test runs, for the charts. */
+  app.get('/api/ai/ratings', async (c) => {
+    const days = Math.min(Math.max(Number(c.req.query('days')) || 182, 1), 400);
+    const since = now() - days * 86_400_000;
+    const rows = await c.env.DB.prepare(
+      `SELECT provider, model, rating, COALESCE(rated_at, at) AS at, 'reading' AS src FROM ai_runs
+         WHERE rating IS NOT NULL AND COALESCE(rated_at, at) >= ?1
+       UNION ALL
+       SELECT provider, model, rating, COALESCE(rated_at, at) AS at, 'test' AS src FROM trial_results
+         WHERE rating IS NOT NULL AND COALESCE(rated_at, at) >= ?1
+       ORDER BY at`,
+    )
+      .bind(since)
+      .all<{ provider: string; model: string; rating: number; at: number; src: 'reading' | 'test' }>();
+    const out: ModelRating[] = rows.results.map((r) => ({
+      provider: r.provider,
+      model: r.model,
+      rating: r.rating === 1 ? 1 : -1,
+      at: r.at,
+      from: r.src,
+    }));
+    return c.json(out);
   });
 
   // ----- Per item -----
@@ -717,8 +798,8 @@ export function registerAi(app: App) {
   app.post('/api/items/:id/rate', async (c) => {
     const input = (await c.req.json().catch(() => null)) as { rating?: number } | null;
     const rating = input?.rating === 1 || input?.rating === -1 ? input.rating : null;
-    await c.env.DB.prepare('UPDATE ai_runs SET rating = ? WHERE id = (SELECT ai_run_id FROM items WHERE id = ?)')
-      .bind(rating, c.req.param('id'))
+    await c.env.DB.prepare('UPDATE ai_runs SET rating = ?, rated_at = ? WHERE id = (SELECT ai_run_id FROM items WHERE id = ?)')
+      .bind(rating, rating === null ? null : now(), c.req.param('id'))
       .run();
     return c.json({ ok: true, rating });
   });

@@ -1,8 +1,9 @@
-import type { AiBacklogView, AiStatsRow, WaitBucket } from '@newsletterapp/shared';
+import type { AiBacklogView, AiStatsRow, ModelRating, WaitBucket } from '@newsletterapp/shared';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { BarChart, dayName, dayTick, hourTick, RangeSwitch, shortDate } from '../components/BarChart';
+import { RatingChart, type RatingBucket } from '../components/RatingChart';
 import { IconBack } from '../icons';
 
 type Grouping = 'model' | 'source' | 'prompt';
@@ -39,6 +40,7 @@ export function StatsPage() {
       </header>
 
       <KeepingUpSection />
+      <RatingsSection />
 
       <span className="label" style={{ padding: '8px 16px 0' }}>
         Summary value
@@ -291,5 +293,142 @@ function KeepingUpSection() {
         </section>
       </div>
     </>
+  );
+}
+
+const DAY_MS = 86_400_000;
+
+/** Local midnight of the day `at` falls in, or of that week's Monday. */
+function startOf(at: number, unit: 'day' | 'week'): number {
+  const d = new Date(at);
+  d.setHours(0, 0, 0, 0);
+  if (unit === 'week') d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d.getTime();
+}
+
+/** Empty buckets for the range, oldest first; stepping by date keeps daylight-saving days right. */
+function emptyBuckets(unit: 'day' | 'week', count: number): RatingBucket[] {
+  const out: RatingBucket[] = [];
+  const d = new Date(startOf(Date.now(), unit));
+  d.setDate(d.getDate() - (count - 1) * (unit === 'week' ? 7 : 1));
+  for (let i = 0; i < count; i++) {
+    const at = d.getTime();
+    out.push({ at, label: unit === 'week' ? `Week of ${shortDate(at)}` : `${dayName(at)} ${shortDate(at)}`, up: 0, down: 0 });
+    d.setDate(d.getDate() + (unit === 'week' ? 7 : 1));
+  }
+  return out;
+}
+
+/** Thumbs up and down per model over time, from everyday summaries and (optionally) test runs. */
+function RatingsSection() {
+  const [ratings, setRatings] = useState<ModelRating[] | null>(null);
+  const [range, setRange] = useState<30 | 182>(30);
+  const [withTests, setWithTests] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .aiRatings(182)
+      .then(setRatings)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load'));
+  }, []);
+
+  if (error) return <div className="error">{error}</div>;
+  if (!ratings) return null;
+
+  const unit = range === 30 ? 'day' : 'week';
+  const count = range === 30 ? 30 : 26;
+  const base = emptyBuckets(unit, count);
+  const from = base[0]!.at;
+  const shown = ratings.filter((r) => r.at >= from && (withTests || r.from === 'reading'));
+
+  const byModel = new Map<string, { name: string; buckets: RatingBucket[]; up: number; down: number }>();
+  for (const r of shown) {
+    const key = `${r.provider}/${r.model}`;
+    let m = byModel.get(key);
+    if (!m) {
+      m = { name: r.model, buckets: base.map((b) => ({ ...b })), up: 0, down: 0 };
+      byModel.set(key, m);
+    }
+    const at = startOf(r.at, unit);
+    const b = m.buckets.find((x) => x.at === at);
+    if (!b) continue;
+    if (r.rating === 1) {
+      b.up++;
+      m.up++;
+    } else {
+      b.down++;
+      m.down++;
+    }
+  }
+  // Best-liked first; models with few ratings sort by what they have.
+  const models = [...byModel.values()].sort((a, b) => b.up / (b.up + b.down) - a.up / (a.up + a.down) || b.up + b.down - (a.up + a.down));
+  const tick = (b: RatingBucket, i: number) =>
+    unit === 'day' ? (i % 7 === 0 ? shortDate(b.at) : null) : i % 4 === 0 ? shortDate(b.at) : null;
+
+  return (
+    <div className="section">
+      <span className="label">Thumbs by model</span>
+      <section className="card">
+        <div className="switchrow">
+          <label className="inline" style={{ fontSize: 13 }}>
+            <input type="checkbox" checked={withTests} onChange={(e) => setWithTests(e.target.checked)} />
+            Include test runs
+          </label>
+          <RangeSwitch value={range} options={[[30, '30 days'], [182, '6 months']]} onChange={setRange} label="Range shown" />
+        </div>
+        {models.length === 0 && (
+          <span className="hint">
+            No thumbs in this range yet. Rate AI summaries in the reader, or answers in a test run (Settings &gt; AI), and they show up
+            here per model.
+          </span>
+        )}
+        {models.length > 1 && (
+          <div className="tablewrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th className="num">Up</th>
+                  <th className="num">Down</th>
+                  <th className="num">% up</th>
+                </tr>
+              </thead>
+              <tbody>
+                {models.map((m) => (
+                  <tr key={m.name}>
+                    <td style={{ wordBreak: 'break-all' }}>{m.name}</td>
+                    <td className="num">{m.up}</td>
+                    <td className="num">{m.down}</td>
+                    <td className="num">{pct(m.up, m.up + m.down)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      {models.map((m) => (
+        <section key={m.name} className="card">
+          <div className="switchrow">
+            <strong style={{ fontSize: 14, wordBreak: 'break-all' }}>{m.name}</strong>
+            <span className="cardrow__sub">
+              {pct(m.up, m.up + m.down)} up of {m.up + m.down}
+            </span>
+          </div>
+          <RatingChart
+            buckets={m.buckets}
+            label={`Thumbs up and down for ${m.name} by ${unit}`}
+            tick={tick}
+            window={unit === 'day' ? 7 : 4}
+            windowLabel={unit === 'day' ? '7 days' : '4 weeks'}
+          />
+        </section>
+      ))}
+      <span className="hint" style={{ padding: '0 16px' }}>
+        Bars above the line are thumbs up, below are thumbs down; the line is the share of thumbs up over the last 7 days (or 4 weeks). Ratings count on the day you gave
+        them.
+      </span>
+    </div>
   );
 }

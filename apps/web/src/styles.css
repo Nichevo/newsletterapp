@@ -243,6 +243,13 @@ select {
   font-weight: 500;
 }
 
+/* The model ahead in a test run's thumbs */
+.chip--leader {
+  border: 1px solid var(--green-ink);
+  color: var(--green-ink);
+  font-weight: 600;
+}
+
 .chip--warn {
   background: var(--amber-tint);
   color: var(--amber-ink);
@@ -1423,4 +1430,64 @@ select {
   position: absolute;
   top: 0;
   white-space: nowrap;
+}
+
+/* Thumbs per model over time (AI statistics) */
+.chart__bar--up {
+  fill: var(--teal);
+}
+
+.chart__bar--down {
+  fill: var(--red-ink);
+}
+
+.chart__pct {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.chart__plot--split {
+  padding-bottom: 16px;
+}
+
+.chart__ymin {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.chart__key::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+
+.chart__key--up::before {
+  background: var(--teal);
+}
+
+.chart__key--down::before {
+  background: var(--red-ink);
+}
+
+.chart__key--pct::before {
+  height: 2px;
+  vertical-align: 3px;
+  background: var(--ink);
 }
