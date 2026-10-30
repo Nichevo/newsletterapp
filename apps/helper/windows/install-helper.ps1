@@ -24,6 +24,10 @@ if ($major -lt 20) { throw "Node.js 20 or newer is needed (found $(& $node --ver
 
 $source = Join-Path $PSScriptRoot 'newsletter-helper.mjs'
 if (-not (Test-Path $source)) { throw "newsletter-helper.mjs was not found next to this script." }
+# A download that went wrong can save the app's web page under the helper's name.
+if (-not (Select-String -Path $source -Pattern 'Newsletter app PC helper' -SimpleMatch -Quiet)) {
+  throw "newsletter-helper.mjs doesn't look like the helper (it may be a saved web page). Delete it, download it again, and rerun this script."
+}
 Copy-Item $source (Join-Path $dir 'newsletter-helper.mjs') -Force
 
 $configPath = Join-Path $dir 'config.json'
