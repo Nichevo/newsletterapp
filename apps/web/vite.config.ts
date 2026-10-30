@@ -25,7 +25,8 @@ export default defineConfig({
       workbox: {
         // Keep the last few days readable offline: lists and bodies fall back to cache.
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        // /helper/ holds the PC helper downloads: real files, never the app shell.
+        navigateFallbackDenylist: [/^\/api\//, /^\/helper\//],
         runtimeCaching: [
           {
             urlPattern: ({ url, request }) => request.method === 'GET' && url.pathname.startsWith('/api/items') && url.pathname.endsWith('/body'),
