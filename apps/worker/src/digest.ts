@@ -1,4 +1,4 @@
-import type { Digest, DigestSection, DigestStory } from '@newsletterapp/shared';
+import type { Digest, DigestOptions, DigestSection, DigestStory } from '@newsletterapp/shared';
 import { parseList } from './db';
 import type { Env } from './env';
 import { newId, now } from './ids';
@@ -9,7 +9,6 @@ import { loadSettings } from './settings';
 // each with its summary and "More:" links to issues on the same topics. Built
 // from the summaries and scores already on hand, so it costs no AI calls.
 
-const MAX_STORIES = 12;
 const MAX_MORE = 4;
 const MIN_WINDOW = 6 * 3_600_000; // never build from less than six hours of mail
 
@@ -27,6 +26,7 @@ interface DigestRow {
   tags: string | null;
   category: string | null;
   thin_content: number;
+  sponsored: number;
 }
 
 /** "2026-10-30" for a moment in the given time zone. */
@@ -75,19 +75,23 @@ function storyFrom(row: DigestRow, more: DigestRow[]): DigestStory {
 }
 
 /** Builds the digest for [fromAt, toAt) and stores it under `day`. Returns null when there was nothing to say. */
-export async function buildDigest(env: Env, day: string, fromAt: number, toAt: number): Promise<Digest | null> {
+export async function buildDigest(env: Env, day: string, fromAt: number, toAt: number, options: DigestOptions): Promise<Digest | null> {
   await scoreRecentItems(env);
+  const where = ['items.received_at >= ?', 'items.received_at < ?', "items.status IN ('inbox', 'archived')"];
+  if (!options.includeRead) where.push('items.read_at IS NULL');
+  if (!options.includeSponsored) where.push('items.sponsored = 0');
   const rows = await env.DB.prepare(
     `SELECT items.id, items.subject, sources.name AS source_name, items.summary, items.preheader, items.snippet,
-       items.why_it_matters, items.score, items.received_at, items.read_at, items.tags, items.thin_content,
+       items.why_it_matters, items.score, items.received_at, items.read_at, items.tags, items.thin_content, items.sponsored,
        COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]')) AS category
      FROM items LEFT JOIN sources ON sources.id = items.source_id
-     WHERE items.received_at >= ? AND items.received_at < ? AND items.status IN ('inbox', 'archived')
+     WHERE ${where.join(' AND ')}
      ORDER BY COALESCE(items.score, 0) DESC, items.received_at DESC LIMIT 200`,
   )
     .bind(fromAt, toAt)
     .all<DigestRow>();
-  const all = rows.results;
+  const skip = new Set(options.skipCategories.map((c) => c.toLowerCase()));
+  const all = rows.results.filter((r) => !skip.has((r.category ?? 'Other').toLowerCase()));
   if (all.length === 0) return null;
 
   // Lead stories: best scores first; an issue that shares topics with a lead
@@ -105,15 +109,15 @@ export async function buildDigest(env: Env, day: string, fromAt: number, toAt: n
       }
       continue;
     }
-    if (leads.length >= MAX_STORIES) continue;
+    if (leads.length >= options.stories) continue;
     leads.push({ row, more: [] });
     used.add(row.id);
   }
 
-  // Group by category, biggest section first, keeping score order inside each.
+  // Group by category (or newsletter), biggest section first, keeping score order inside each.
   const byCategory = new Map<string, DigestStory[]>();
   for (const l of leads) {
-    const key = l.row.category ?? 'Other';
+    const key = options.groupBy === 'source' ? (l.row.source_name ?? 'Unknown sender') : (l.row.category ?? 'Other');
     const list = byCategory.get(key) ?? [];
     list.push(storyFrom(l.row, l.more));
     byCategory.set(key, list);
@@ -122,10 +126,10 @@ export async function buildDigest(env: Env, day: string, fromAt: number, toAt: n
     .map(([title, stories]) => ({ title, stories }))
     .sort((a, b) => b.stories.length - a.stories.length || (b.stories[0]?.score ?? 0) - (a.stories[0]?.score ?? 0));
 
-  const digest: Digest = { id: newId(), day, createdAt: now(), fromAt, toAt, itemCount: all.length, sections };
+  const digest: Digest = { id: newId(), day, createdAt: now(), fromAt, toAt, itemCount: all.length, sections, readAt: null };
   await env.DB.prepare(
     `INSERT INTO digests (id, day, created_at, from_at, to_at, body) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-     ON CONFLICT(day) DO UPDATE SET id = ?1, created_at = ?3, from_at = ?4, to_at = ?5, body = ?6`,
+     ON CONFLICT(day) DO UPDATE SET id = ?1, created_at = ?3, from_at = ?4, to_at = ?5, body = ?6, read_at = NULL`,
   )
     .bind(digest.id, day, digest.createdAt, fromAt, toAt, JSON.stringify(digest))
     .run();
@@ -139,8 +143,14 @@ export async function buildDigestIfDue(env: Env, force = false): Promise<Digest 
   const day = dayKey(at, settings.timezone);
   const existing = await env.DB.prepare('SELECT day FROM digests WHERE day = ?').bind(day).first<{ day: string }>();
   if (!force && (existing || localHour(at, settings.timezone) !== settings.digestHour)) return null;
-  const last = await env.DB.prepare('SELECT MAX(to_at) AS to_at FROM digests WHERE day != ?').bind(day).first<{ to_at: number | null }>();
-  const fromAt = last?.to_at ?? at - 24 * 3_600_000;
+  const opts = settings.digest;
+  let fromAt: number;
+  if (opts.windowHours > 0) {
+    fromAt = at - opts.windowHours * 3_600_000;
+  } else {
+    const last = await env.DB.prepare('SELECT MAX(to_at) AS to_at FROM digests WHERE day != ?').bind(day).first<{ to_at: number | null }>();
+    fromAt = last?.to_at ?? at - 24 * 3_600_000;
+  }
   if (!force && at - fromAt < MIN_WINDOW) return null;
-  return buildDigest(env, day, Math.min(fromAt, at - MIN_WINDOW), at);
+  return buildDigest(env, day, Math.min(fromAt, at - MIN_WINDOW), at, opts);
 }

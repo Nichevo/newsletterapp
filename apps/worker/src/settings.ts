@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, type AppSettings, type ItemKind } from '@newsletterapp/shared';
+import { DEFAULT_SETTINGS, type AppSettings, type DigestOptions, type ItemKind } from '@newsletterapp/shared';
 import type { Env } from './env';
 import { now } from './ids';
 
@@ -58,5 +58,18 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
       ? input.digestHour
       : base.digestHour;
   const timezone = typeof input.timezone === 'string' && isTimezone(input.timezone) ? input.timezone : base.timezone;
-  return { categories, keywordRules, aiByKind, interests, digestHour, timezone };
+  const d = (input.digest && typeof input.digest === 'object' ? input.digest : {}) as Partial<DigestOptions>;
+  const bd = base.digest;
+  const digest: DigestOptions = {
+    stories: d.stories === 6 || d.stories === 12 || d.stories === 20 ? d.stories : bd.stories,
+    windowHours: d.windowHours === 0 || d.windowHours === 24 || d.windowHours === 48 ? d.windowHours : bd.windowHours,
+    includeRead: typeof d.includeRead === 'boolean' ? d.includeRead : bd.includeRead,
+    includeSponsored: typeof d.includeSponsored === 'boolean' ? d.includeSponsored : bd.includeSponsored,
+    groupBy: d.groupBy === 'category' || d.groupBy === 'source' ? d.groupBy : bd.groupBy,
+    skipCategories: Array.isArray(d.skipCategories)
+      ? [...new Set(d.skipCategories.map((c) => str(c, 40)).filter(Boolean))].slice(0, 40)
+      : bd.skipCategories,
+    doneMarksRead: typeof d.doneMarksRead === 'boolean' ? d.doneMarksRead : bd.doneMarksRead,
+  };
+  return { categories, keywordRules, aiByKind, interests, digestHour, timezone, digest };
 }

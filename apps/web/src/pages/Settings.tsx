@@ -1,4 +1,4 @@
-import type { AppSettings, ItemKind, Me, Source } from '@newsletterapp/shared';
+import type { AppSettings, DigestOptions, ItemKind, Me, Source } from '@newsletterapp/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
@@ -365,6 +365,8 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
   const [note, setNote] = useState<string | null>(null);
   const deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const zones = [...new Set([settings.timezone, deviceZone, 'UTC'])];
+  const d = settings.digest;
+  const saveDigest = (patch: Partial<DigestOptions>) => onSave({ digest: { ...d, ...patch } });
 
   async function buildNow() {
     setBuilding(true);
@@ -384,7 +386,7 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
       <span className="label">Daily digest</span>
       <section className="card">
         <div className="inline">
-          <div className="field" style={{ flex: 1 }}>
+          <div className="field" style={{ flex: 1, minWidth: 130 }}>
             <label htmlFor="digest-hour">Build at</label>
             <select
               id="digest-hour"
@@ -416,9 +418,64 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
           </div>
         </div>
         <span className="hint">
-          Once a day the top stories from the last 24 hours are grouped by topic, Techmeme style, using the summaries and
-          your reading habits. Nothing extra is sent to the AI.
+          Once a day the top stories are grouped Techmeme style, using the summaries and your reading habits. Nothing extra is
+          sent to the AI.
         </span>
+        <div className="switchrow">
+          <span style={{ fontSize: 14 }}>Lead stories</span>
+          <div className="segmented" role="group" aria-label="Lead stories" style={{ width: 180 }}>
+            {([6, 12, 20] as const).map((n) => (
+              <button key={n} aria-pressed={d.stories === n} onClick={() => void saveDigest({ stories: n })}>
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="switchrow">
+          <span style={{ fontSize: 14 }}>Covers</span>
+          <div className="segmented" role="group" aria-label="Window" style={{ width: 240 }}>
+            {([0, 24, 48] as const).map((h) => (
+              <button key={h} aria-pressed={d.windowHours === h} onClick={() => void saveDigest({ windowHours: h })}>
+                {h === 0 ? 'Since last' : `${h} h`}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="switchrow">
+          <span style={{ fontSize: 14 }}>Group by</span>
+          <div className="segmented" role="group" aria-label="Group by" style={{ width: 200 }}>
+            {(['category', 'source'] as const).map((g) => (
+              <button key={g} aria-pressed={d.groupBy === g} onClick={() => void saveDigest({ groupBy: g })}>
+                {g === 'category' ? 'Category' : 'Newsletter'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <OptionSwitch label="Include issues you've already read" value={d.includeRead} onChange={(v) => void saveDigest({ includeRead: v })} />
+        <OptionSwitch label="Include sponsored-heavy issues" value={d.includeSponsored} onChange={(v) => void saveDigest({ includeSponsored: v })} />
+        <OptionSwitch label="Done also marks its stories read" value={d.doneMarksRead} onChange={(v) => void saveDigest({ doneMarksRead: v })} />
+        <div className="field">
+          <label>Leave out categories</label>
+          <div className="chipedit">
+            {settings.categories.map((c) => {
+              const off = d.skipCategories.includes(c);
+              return (
+                <button
+                  key={c}
+                  className={`chip ${off ? 'chip--outline' : 'chip--category'}`}
+                  aria-pressed={off}
+                  style={{ textDecoration: off ? 'line-through' : 'none' }}
+                  onClick={() =>
+                    void saveDigest({ skipCategories: off ? d.skipCategories.filter((x) => x !== c) : [...d.skipCategories, c] })
+                  }
+                >
+                  {c}
+                </button>
+              );
+            })}
+          </div>
+          <span className="hint">Tap a category to leave it out of the digest; struck-through ones are skipped.</span>
+        </div>
         <div className="inline">
           <button className="btn btn--small" disabled={building} onClick={() => void buildNow()}>
             {building ? 'Building…' : 'Build now'}

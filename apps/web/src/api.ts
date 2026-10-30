@@ -118,6 +118,8 @@ export const api = {
 
   digests: () => get<Digest[]>('/api/digests'),
   buildDigest: () => post<Digest | { empty: true }>('/api/digests/build'),
+  digestDone: (day: string) => post<{ readAt: number; itemsRead: number }>(`/api/digests/${day}/done`),
+  digestUndone: (day: string) => post<{ readAt: null }>(`/api/digests/${day}/undone`),
 
   settings: () => get<AppSettings>('/api/settings'),
   saveSettings: (settings: Partial<AppSettings>) => put<AppSettings>('/api/settings', settings),

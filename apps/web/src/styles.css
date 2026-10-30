@@ -1239,6 +1239,13 @@ select {
   gap: 16px;
 }
 
+.digest__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .digest__meta {
   color: var(--muted);
   font-size: 13px;
