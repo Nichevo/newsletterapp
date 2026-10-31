@@ -184,6 +184,28 @@ export function eligibleSql(aiByKind: Record<ItemKind, boolean>): string {
     AND MAX(items.created_at, items.received_at) >= COALESCE(sources.ai_since, 0))`;
 }
 
+const IN_QUEUE = "items.status = 'inbox' AND items.ai_status IN ('pending', 'working')";
+
+/**
+ * Ids of queued items that could pass the AI switches, read through small
+ * queue-only indexes (migration 0010). Feed and website items go in as
+ * 'pending' even with AI off, so filtering on eligibility alone meant every
+ * helper check walked the whole inbox; that blew the free D1 read allowance.
+ * The caller still applies eligibleSql for the per-source details.
+ */
+export function queueCandidatesSql(aiByKind: Record<ItemKind, boolean>): string {
+  const kinds = (Object.keys(aiByKind) as ItemKind[]).filter((k) => aiByKind[k]);
+  const list = kinds.map((k) => `'${k}'`).join(', ');
+  const parts: string[] = [];
+  if (kinds.length) parts.push(`SELECT items.id FROM items INDEXED BY items_ai_queue_kind WHERE ${IN_QUEUE} AND items.kind IN (${list})`);
+  // Sources switched on by hand, for the kinds that are off by default.
+  parts.push(
+    `SELECT items.id FROM sources INDEXED BY sources_ai_mode JOIN items INDEXED BY items_ai_queue_source ON items.source_id = sources.id
+     WHERE sources.ai_mode = 'on' AND ${IN_QUEUE}${kinds.length ? ` AND items.kind NOT IN (${list})` : ''}`,
+  );
+  return parts.join(' UNION ALL ');
+}
+
 async function bodiesFor(env: Env, row: { html_key: string | null; text_key: string | null }) {
   const [html, text] = await Promise.all([
     row.html_key ? env.RAW.get(row.html_key).then((o) => o?.text() ?? null) : null,
@@ -217,6 +239,10 @@ export function registerAi(app: App) {
     const hb = (await c.req.json().catch(() => null)) as HelperHeartbeat | null;
     if (!hb || !Array.isArray(hb.models)) return c.json({ error: 'bad heartbeat' }, 400);
     const t = now();
+    const before = await readJson<{ models?: unknown; modelsSyncedAt?: number }>(c.env, 'helper');
+    // The model list rarely changes, so only rewrite it when it does (or hourly, to keep last seen fresh).
+    const sameModels = JSON.stringify(before?.models ?? null) === JSON.stringify(hb.models.slice(0, 100));
+    const syncModels = !sameModels || t - (before?.modelsSyncedAt ?? 0) >= 3_600_000;
     await writeJson(c.env, 'helper', {
       version: String(hb.version ?? '').slice(0, 40),
       hostname: String(hb.hostname ?? '').slice(0, 100),
@@ -224,34 +250,37 @@ export function registerAi(app: App) {
       providerErrors: Array.isArray(hb.providerErrors) ? hb.providerErrors.slice(0, 10) : [],
       load: hb.load ?? {},
       lastSeenAt: t,
+      modelsSyncedAt: syncModels ? t : (before?.modelsSyncedAt ?? 0),
     });
 
     // Keep the model list in step with what is installed. New models go to the end, switched on.
-    const reachable = new Set(hb.models.map((m) => m.provider));
-    const max = await c.env.DB.prepare('SELECT COALESCE(MAX(position), 0) AS p FROM models').first<{ p: number }>();
-    let position = max?.p ?? 0;
-    const stmts = [];
-    for (const provider of reachable) {
-      stmts.push(c.env.DB.prepare('UPDATE models SET installed = 0 WHERE provider = ?').bind(provider));
+    if (syncModels) {
+      const reachable = new Set(hb.models.map((m) => m.provider));
+      const max = await c.env.DB.prepare('SELECT COALESCE(MAX(position), 0) AS p FROM models').first<{ p: number }>();
+      let position = max?.p ?? 0;
+      const stmts = [];
+      for (const provider of reachable) {
+        stmts.push(c.env.DB.prepare('UPDATE models SET installed = 0 WHERE provider = ?').bind(provider));
+      }
+      for (const m of hb.models) {
+        position += 1;
+        stmts.push(
+          c.env.DB.prepare(
+            `INSERT INTO models (provider, name, enabled, position, installed, size_bytes, first_seen_at, last_seen_at)
+             VALUES (?1, ?2, 1, ?3, 1, ?4, ?5, ?5)
+             ON CONFLICT(provider, name) DO UPDATE SET installed = 1, size_bytes = ?4, last_seen_at = ?5`,
+          ).bind(String(m.provider).slice(0, 40), String(m.name).slice(0, 120), position, m.sizeBytes ?? null, t),
+        );
+      }
+      if (stmts.length) await c.env.DB.batch(stmts);
     }
-    for (const m of hb.models) {
-      position += 1;
-      stmts.push(
-        c.env.DB.prepare(
-          `INSERT INTO models (provider, name, enabled, position, installed, size_bytes, first_seen_at, last_seen_at)
-           VALUES (?1, ?2, 1, ?3, 1, ?4, ?5, ?5)
-           ON CONFLICT(provider, name) DO UPDATE SET installed = 1, size_bytes = ?4, last_seen_at = ?5`,
-        ).bind(String(m.provider).slice(0, 40), String(m.name).slice(0, 120), position, m.sizeBytes ?? null, t),
-      );
-    }
-    if (stmts.length) await c.env.DB.batch(stmts);
 
     const [state, models, trial, fetchWaiting, usage] = await Promise.all([
       loadState(c.env),
       c.env.DB.prepare('SELECT provider, name FROM models WHERE enabled = 1 AND installed = 1 ORDER BY position').all<ModelRef>(),
       c.env.DB.prepare("SELECT id FROM trials WHERE status != 'done' ORDER BY created_at LIMIT 1").first<{ id: string }>(),
       fetchJobsWaiting(c.env),
-      limitState(c.env),
+      limitState(c.env, now(), true),
     ]);
     const config: HelperConfig = {
       paused: state.paused,
@@ -270,7 +299,7 @@ export function registerAi(app: App) {
     const state = await loadState(c.env);
     if (state.paused) return c.json({ jobs: [], paused: true });
     // Usage caps hold work back here too, so an older helper that doesn't know about them still stops.
-    const usage = await limitState(c.env);
+    const usage = await limitState(c.env, now(), true);
     if (usage.limited) return c.json({ jobs: [], limited: usage.limited });
     const input = (await c.req.json().catch(() => ({}))) as { max?: number };
     const max = await jobsThatFit(c.env, usage.remainingSeconds, Math.min(Math.max(Number(input.max) || BATCH_SIZE, 1), 10));
@@ -290,7 +319,7 @@ export function registerAi(app: App) {
       `UPDATE items SET ai_status = 'working', ai_claimed_at = ?1, ai_attempts = ai_attempts + 1
        WHERE id IN (
          SELECT items.id FROM items LEFT JOIN sources ON sources.id = items.source_id
-         WHERE items.status = 'inbox'
+         WHERE items.id IN (${queueCandidatesSql(settings.aiByKind)})
            AND (items.ai_status = 'pending' OR (items.ai_status = 'working' AND items.ai_claimed_at < ?2))
            AND ${eligibleSql(settings.aiByKind)}
          ORDER BY items.received_at DESC LIMIT ?3
@@ -404,7 +433,7 @@ export function registerAi(app: App) {
       next.pauseReason = `${next.consecutiveFailures} items failed in a row`;
     }
     if (next.consecutiveFailures !== state.consecutiveFailures || next.paused !== state.paused) await writeJson(c.env, 'ai_state', next);
-    const usage = await limitState(c.env, t);
+    const usage = await limitState(c.env, t, true);
     return c.json({ ok, paused: next.paused, limited: usage.limited });
   });
 
@@ -482,11 +511,14 @@ export function registerAi(app: App) {
       readJson<HelperHeartbeat & { lastSeenAt: number; load: HelperLoad }>(c.env, 'helper'),
       loadState(c.env),
       // Only items the AI switches let through count as waiting (feeds are off by default).
+      // Each count reads only its own slice of the queue indexes, not the whole items table.
       c.env.DB.prepare(
         `SELECT
-           SUM(items.ai_status = 'pending' AND ${eligibleSql(settings.aiByKind)}) AS waiting, SUM(items.ai_status = 'working') AS working,
-           SUM(items.ai_status = 'failed') AS failed, SUM(items.ai_status = 'done') AS done
-         FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE items.status = 'inbox' OR items.ai_status = 'done'`,
+           (SELECT COUNT(*) FROM items LEFT JOIN sources ON sources.id = items.source_id
+              WHERE items.id IN (${queueCandidatesSql(settings.aiByKind)}) AND items.ai_status = 'pending' AND ${eligibleSql(settings.aiByKind)}) AS waiting,
+           (SELECT COUNT(*) FROM items INDEXED BY items_ai_queue WHERE items.ai_status = 'working' AND items.status = 'inbox') AS working,
+           (SELECT COUNT(*) FROM items INDEXED BY items_ai_queue WHERE items.ai_status = 'failed' AND items.status = 'inbox') AS failed,
+           (SELECT COUNT(*) FROM items INDEXED BY items_ai_queue WHERE items.ai_status = 'done') AS done`,
       ).first<{ waiting: number | null; working: number | null; failed: number | null; done: number | null }>(),
       c.env.DB.prepare('SELECT COUNT(*) AS runs, SUM(ok = 0) AS failures, AVG(CASE WHEN ok = 1 THEN seconds END) AS avg FROM ai_runs WHERE at > ?')
         .bind(day)
@@ -533,7 +565,7 @@ export function registerAi(app: App) {
     const rows = await c.env.DB.prepare(
       `SELECT models.*,
          (SELECT AVG(rating) FROM ai_runs WHERE ai_runs.provider = models.provider AND ai_runs.model = models.name AND rating IS NOT NULL) AS avg_rating,
-         (SELECT COUNT(rating) FROM ai_runs WHERE ai_runs.provider = models.provider AND ai_runs.model = models.name) AS rated_count
+         (SELECT COUNT(rating) FROM ai_runs WHERE ai_runs.provider = models.provider AND ai_runs.model = models.name AND rating IS NOT NULL) AS rated_count
        FROM models ORDER BY position`,
     ).all<{
       provider: string;

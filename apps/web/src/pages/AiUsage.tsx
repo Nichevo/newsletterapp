@@ -1,7 +1,8 @@
 import type { AiCostSettings, AiLimits, AiUsageView, UsageBucket, UsageTotals } from '@newsletterapp/shared';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { useVisiblePolling } from '../poll';
 import { BarChart, dayName, dayTick, hourTick, RangeSwitch, shortDate } from '../components/BarChart';
 import { IconBack } from '../icons';
 
@@ -45,11 +46,7 @@ export function AiUsagePage() {
       .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load'));
   }, []);
 
-  useEffect(() => {
-    refresh();
-    const t = window.setInterval(refresh, 60_000);
-    return () => window.clearInterval(t);
-  }, [refresh]);
+  useVisiblePolling(refresh, 60_000);
 
   async function save(next: { limits?: AiLimits; cost?: AiCostSettings }, message: string) {
     try {
