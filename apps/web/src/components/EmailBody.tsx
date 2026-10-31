@@ -7,6 +7,7 @@ const BASE_CSS = `
   :host([data-show-sponsored]) [data-sponsored] { display: revert !important; outline: 2px dashed rgba(217,119,6,0.5); outline-offset: 2px; }
   img { max-width: 100% !important; height: auto !important; }
   img[data-blocked-src] { display: inline-block; min-width: 24px; min-height: 24px; background: rgba(127,127,127,0.15); border-radius: 4px; }
+  .img-caption { display: block; margin: 4px 0 12px; font-size: 0.9em; font-style: italic; color: var(--quiet, #4a5259); }
   table { max-width: 100% !important; border-collapse: collapse; }
   [width], [style*="width"] { max-width: 100% !important; }
   td, th { word-break: break-word; }
@@ -16,6 +17,21 @@ const BASE_CSS = `
 `;
 
 const REMOTE = /^(https?:)?\/\//i;
+
+/**
+ * Hover text (the title attribute) never shows on a phone, and for comics such
+ * as xkcd it is the punchline. Put it under the image as a caption instead,
+ * after the link when the image is one.
+ */
+function addCaption(img: HTMLImageElement) {
+  const title = (img.getAttribute('title') ?? '').trim();
+  if (!title || title === (img.getAttribute('alt') ?? '').trim()) return;
+  const after = img.closest('a') ?? img;
+  const caption = img.ownerDocument.createElement('span');
+  caption.className = 'img-caption';
+  caption.textContent = title;
+  after.insertAdjacentElement('afterend', caption);
+}
 
 // Words that open a sponsored block. Matched against a block's own text,
 // so a long article that merely mentions "sponsored" is left alone.
@@ -99,6 +115,7 @@ export function EmailBody({
         }
       }
       img.removeAttribute('loading');
+      addCaption(img);
     }
     if (!loadImages) {
       for (const el of fragment.querySelectorAll<HTMLElement>('[style*="url("], [background]')) {
