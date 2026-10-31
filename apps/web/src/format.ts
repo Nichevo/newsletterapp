@@ -17,11 +17,13 @@ export function shortTime(ms: number, now = Date.now()): string {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+/** "Fri, 30 Oct 2026, 9:15 pm": the full date with the year, for the reader. */
 export function longDate(ms: number): string {
   return new Date(ms).toLocaleString(undefined, {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
+    year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
   });
