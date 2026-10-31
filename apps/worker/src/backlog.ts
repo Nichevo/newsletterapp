@@ -1,6 +1,6 @@
 import type { AiBacklogView, BacklogPoint, WaitBucket } from '@newsletterapp/shared';
 import type { Hono } from 'hono';
-import { eligibleSql } from './ai';
+import { eligibleSql, queueCandidatesSql } from './ai';
 import type { AppVariables, Env } from './env';
 import { now } from './ids';
 import { loadSettings } from './settings';
@@ -23,7 +23,7 @@ async function queueNow(env: Env) {
     `SELECT SUM(items.ai_status = 'pending') AS waiting, SUM(items.ai_status = 'working') AS working,
        MIN(COALESCE(items.ai_queued_at, items.created_at)) AS oldest_at
      FROM items LEFT JOIN sources ON sources.id = items.source_id
-     WHERE items.status = 'inbox' AND items.ai_status IN ('pending', 'working') AND ${eligibleSql(aiByKind)}`,
+     WHERE items.id IN (${queueCandidatesSql(aiByKind)}) AND ${eligibleSql(aiByKind)}`,
   ).first<{ waiting: number | null; working: number | null; oldest_at: number | null }>();
 }
 

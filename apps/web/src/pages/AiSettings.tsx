@@ -2,6 +2,7 @@ import type { AiStatusView, AiUsageView, AppSettings, ModelInfo, ModelMode, Mode
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { useVisiblePolling } from '../poll';
 import { relativeTime } from '../format';
 import { IconBack, IconThumbDown, IconThumbUp } from '../icons';
 import { LimitNotice, minutesLabel } from './AiUsage';
@@ -23,11 +24,7 @@ export function AiSettingsPage() {
     api.aiUsage().then(setUsage).catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    refresh();
-    const t = window.setInterval(refresh, 30_000);
-    return () => window.clearInterval(t);
-  }, [refresh]);
+  useVisiblePolling(refresh, 30_000);
 
   async function act(fn: () => Promise<unknown>, message?: string) {
     try {
@@ -414,11 +411,7 @@ function TrialSection({ models }: { models: ModelInfo[] }) {
   const load = useCallback(() => {
     api.latestTrial().then(setTrial).catch(() => undefined);
   }, []);
-  useEffect(() => {
-    load();
-    const t = window.setInterval(load, 20_000);
-    return () => window.clearInterval(t);
-  }, [load]);
+  useVisiblePolling(load, 20_000);
 
   async function start() {
     const chosen = installed.filter((m) => picked.includes(key(m)));

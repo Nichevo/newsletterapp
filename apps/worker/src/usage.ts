@@ -128,9 +128,16 @@ export interface LimitState {
 
 const mins = (s: number) => Math.round(s / 60);
 
-/** Where usage stands against each cap right now. */
-export async function limitState(env: Env, t = now()): Promise<LimitState> {
+/**
+ * Where usage stands against each cap right now. The helper asks on every
+ * check-in, so with `capsOnly` and no caps set it skips reading the runs
+ * (the totals then come back as zero).
+ */
+export async function limitState(env: Env, t = now(), capsOnly = false): Promise<LimitState> {
   const [{ limits }, { timezone }] = await Promise.all([loadUsageSettings(env), loadSettings(env)]);
+  if (capsOnly && limits.perHourMinutes === null && limits.perDayMinutes === null && limits.perSessionMinutes === null) {
+    return { hourSeconds: 0, daySeconds: 0, sessionSeconds: 0, limited: null, remainingSeconds: Infinity };
+  }
   const dayStart = startOfLocalDay(t, timezone);
   const since = Math.min(dayStart, t - DAY);
   const rows = (await env.DB.prepare(`SELECT at, seconds FROM (${RUNS_SINCE}) ORDER BY at`).bind(since).all<RunRow>()).results;
