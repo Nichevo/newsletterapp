@@ -235,6 +235,7 @@ function SourcesTable({ data: { sources, days } }: { data: ReadingStats }) {
                   <th className="num">Read</th>
                   <th className="num">Opened</th>
                   <th className="num">Finished</th>
+                  <th className="num">★</th>
                   <th className="num">Avg time</th>
                   <th>Last read</th>
                 </tr>
@@ -250,6 +251,7 @@ function SourcesTable({ data: { sources, days } }: { data: ReadingStats }) {
                     <td className="num">{pct(s.read, s.issues)}</td>
                     <td className="num">{pct(s.opened, s.issues)}</td>
                     <td className="num">{pct(s.finished, s.opened)}</td>
+                    <td className="num">{s.interesting || '–'}</td>
                     <td className="num">{s.avgMinutes === null ? '–' : s.avgMinutes < 1 ? '<1 min' : `${Math.round(s.avgMinutes)} min`}</td>
                     <td>{ago(s.lastReadAt)}</td>
                   </tr>
@@ -259,7 +261,7 @@ function SourcesTable({ data: { sources, days } }: { data: ReadingStats }) {
           </div>
         )}
         <span className="hint">
-          Read = marked read any way. Opened = read in the reader. Finished = scrolled to the end when opened. Last {days} days
+          Read = marked read any way. Opened = read in the reader. Finished = scrolled to the end when opened. ★ = starred as Interesting. Last {days} days
           {neverOpened.length > 0 && `; ${neverOpened.length} ${neverOpened.length === 1 ? 'source was' : 'sources were'} never opened`}.
         </span>
       </section>
@@ -282,6 +284,7 @@ function CategoriesTable({ data: { categories } }: { data: ReadingStats }) {
                 <th className="num">Read</th>
                 <th className="num">Opened</th>
                 <th className="num">Finished</th>
+                <th className="num">★</th>
               </tr>
             </thead>
             <tbody>
@@ -292,6 +295,7 @@ function CategoriesTable({ data: { categories } }: { data: ReadingStats }) {
                   <td className="num">{pct(r.read, r.issues)}</td>
                   <td className="num">{pct(r.opened, r.issues)}</td>
                   <td className="num">{pct(r.finished, r.opened)}</td>
+                  <td className="num">{r.interesting || '–'}</td>
                 </tr>
               ))}
             </tbody>

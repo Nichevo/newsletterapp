@@ -124,6 +124,7 @@ export function registerReading(app: App) {
         .prepare(
           `SELECT sources.id, sources.name, sources.kind, COUNT(items.id) AS issues,
                   SUM(items.read_at IS NOT NULL) AS read, SUM(COALESCE(ev.opened, 0)) AS opened, SUM(COALESCE(ev.finished, 0)) AS finished,
+                  SUM(items.interesting_at IS NOT NULL) AS interesting,
                   AVG(CASE WHEN ev.seconds >= 2 THEN ev.seconds END) AS avg_seconds, MAX(items.read_at) AS last_read
            FROM sources
            LEFT JOIN items ON items.source_id = sources.id AND items.received_at >= ?1 AND items.status != 'dropped'
@@ -140,19 +141,21 @@ export function registerReading(app: App) {
           read: number | null;
           opened: number | null;
           finished: number | null;
+          interesting: number | null;
           avg_seconds: number | null;
           last_read: number | null;
         }>(),
       db
         .prepare(
           `SELECT ${CATEGORY_SQL} AS cat, COUNT(*) AS issues, SUM(items.read_at IS NOT NULL) AS read,
-                  SUM(COALESCE(ev.opened, 0)) AS opened, SUM(COALESCE(ev.finished, 0)) AS finished
+                  SUM(COALESCE(ev.opened, 0)) AS opened, SUM(COALESCE(ev.finished, 0)) AS finished,
+                  SUM(items.interesting_at IS NOT NULL) AS interesting
            FROM items LEFT JOIN sources ON sources.id = items.source_id ${perItem}
            WHERE items.received_at >= ?1 AND items.status != 'dropped' AND items.kind != 'ai'
            GROUP BY cat ORDER BY issues DESC`,
         )
         .bind(tableFrom)
-        .all<{ cat: string; issues: number; read: number | null; opened: number | null; finished: number | null }>(),
+        .all<{ cat: string; issues: number; read: number | null; opened: number | null; finished: number | null; interesting: number | null }>(),
       db
         .prepare("SELECT read_via, read_device, COUNT(*) AS n FROM items WHERE read_at >= ? AND kind != 'ai' GROUP BY read_via, read_device")
         .bind(tableFrom)
@@ -176,6 +179,7 @@ export function registerReading(app: App) {
         read: r.read ?? 0,
         opened: r.opened ?? 0,
         finished: r.finished ?? 0,
+        interesting: r.interesting ?? 0,
         avgMinutes: r.avg_seconds === null ? null : r.avg_seconds / 60,
         lastReadAt: r.last_read,
       }))
@@ -209,6 +213,7 @@ export function registerReading(app: App) {
         read: r.read ?? 0,
         opened: r.opened ?? 0,
         finished: r.finished ?? 0,
+        interesting: r.interesting ?? 0,
       })),
       how: { via, device },
       backlog: { today: backlogRow?.today ?? 0, week: backlogRow?.week ?? 0, older: backlogRow?.older ?? 0 },

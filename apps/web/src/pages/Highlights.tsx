@@ -13,11 +13,20 @@ type Kind = '' | 'asked' | 'plain';
 const KIND_LABEL: Record<Kind, string> = { '': 'All', asked: 'Asked the AI', plain: 'Just highlighted' };
 
 /** The Saved | Highlights switch at the top of both pages. */
-export function SavedTabs({ current }: { current: 'saved' | 'highlights' }) {
+export function SavedTabs({ current }: { current: 'saved' | 'interesting' | 'highlights' }) {
   return (
     <div className="tabs" role="tablist" aria-label="Saved">
       <Link to="/saved" className="pill" role="tab" aria-selected={current === 'saved'} aria-pressed={current === 'saved'}>
         Saved
+      </Link>
+      <Link
+        to="/saved/interesting"
+        className="pill"
+        role="tab"
+        aria-selected={current === 'interesting'}
+        aria-pressed={current === 'interesting'}
+      >
+        Interesting
       </Link>
       <Link
         to="/saved/highlights"

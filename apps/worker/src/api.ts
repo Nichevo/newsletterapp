@@ -99,6 +99,7 @@ const VIEW_WHERE: Record<ItemView, string> = {
   inbox: "items.status = 'inbox'",
   unread: "items.status = 'inbox' AND items.read_at IS NULL",
   saved: "items.saved_at IS NOT NULL AND items.status != 'dropped'",
+  interesting: "items.interesting_at IS NOT NULL AND items.status != 'dropped'",
   archived: "items.status = 'archived'",
 };
 
@@ -136,7 +137,7 @@ app.get('/api/items', async (c) => {
   // Counts for the inbox header, before the cursor narrows the query: only when filtered
   // (the unfiltered totals come from /api/counts) and only on the first page.
   const countSql =
-    !cursor && (sourceId || kind || category)
+    !cursor && (sourceId || kind || category || view === 'interesting')
       ? `SELECT COUNT(*) AS shown, SUM(items.read_at IS NULL) AS unread FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE ${where.join(' AND ')}`
       : null;
   const countBinds = [...binds];
@@ -322,13 +323,15 @@ app.post('/api/items/:id/unsubscribe', async (c) => {
   return c.json(result);
 });
 
-type ItemAction = 'read' | 'unread' | 'save' | 'unsave' | 'archive' | 'unarchive';
+type ItemAction = 'read' | 'unread' | 'save' | 'unsave' | 'interesting' | 'uninteresting' | 'archive' | 'unarchive';
 // ?1 is the current time, ?2 the item id.
 const ITEM_ACTIONS: Record<ItemAction, { sql: string; event: ReadingEventType | null }> = {
   read: { sql: 'SELECT 1 WHERE ?1 > 0 AND ?2 != ?2', event: 'mark_read' }, // handled by markRead below
   unread: { sql: 'UPDATE items SET read_at = NULL, read_via = NULL, read_device = NULL WHERE id = ?2 AND ?1 > 0', event: null },
   save: { sql: 'UPDATE items SET saved_at = COALESCE(saved_at, ?1) WHERE id = ?2', event: 'save' },
   unsave: { sql: 'UPDATE items SET saved_at = NULL WHERE id = ?2 AND ?1 > 0', event: 'unsave' },
+  interesting: { sql: 'UPDATE items SET interesting_at = COALESCE(interesting_at, ?1) WHERE id = ?2', event: 'interesting' },
+  uninteresting: { sql: 'UPDATE items SET interesting_at = NULL WHERE id = ?2 AND ?1 > 0', event: 'uninteresting' },
   archive: { sql: "UPDATE items SET status = 'archived', archived_at = ?1 WHERE id = ?2 AND status = 'inbox'", event: 'archive' },
   unarchive: { sql: "UPDATE items SET status = 'inbox', archived_at = NULL WHERE id = ?2 AND ?1 > 0 AND status = 'archived'", event: 'unarchive' },
 };
@@ -385,9 +388,10 @@ app.get('/api/counts', async (c) => {
        (SELECT COUNT(*) FROM items WHERE status = 'inbox') AS inbox,
        (SELECT COUNT(*) FROM items WHERE status = 'inbox' AND read_at IS NULL) AS unread,
        (SELECT COUNT(*) FROM items WHERE saved_at IS NOT NULL AND status != 'dropped') AS saved,
+       (SELECT COUNT(*) FROM items WHERE interesting_at IS NOT NULL AND status != 'dropped') AS interesting,
        (SELECT COUNT(*) FROM senders WHERE status = 'pending') AS pendingSenders`,
-  ).first<{ inbox: number; unread: number; saved: number; pendingSenders: number }>();
-  return c.json(row ?? { inbox: 0, unread: 0, saved: 0, pendingSenders: 0 });
+  ).first<{ inbox: number; unread: number; saved: number; interesting: number; pendingSenders: number }>();
+  return c.json(row ?? { inbox: 0, unread: 0, saved: 0, interesting: 0, pendingSenders: 0 });
 });
 
 // ---------- Senders (New senders screen) ----------

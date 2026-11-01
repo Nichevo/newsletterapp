@@ -15,6 +15,7 @@ interface SourceStats {
   items: number;
   opened: number;
   saved: number;
+  interesting: number;
   finished: number; // finish events at 70% or more
   readSeconds: number;
 }
@@ -29,6 +30,7 @@ interface ScoreRow {
   sponsored: number;
   word_count: number | null;
   saved_at: number | null;
+  interesting_at: number | null;
   ai_status: string | null;
 }
 
@@ -39,6 +41,7 @@ async function sourceAffinity(env: Env, since: number): Promise<Map<string, numb
        COUNT(*) AS items,
        SUM(items.read_at IS NOT NULL) AS opened,
        SUM(items.saved_at IS NOT NULL) AS saved,
+       SUM(items.interesting_at IS NOT NULL) AS interesting,
        SUM(EXISTS (SELECT 1 FROM events WHERE events.item_id = items.id AND events.type = 'finish' AND events.value >= 70)) AS finished,
        (SELECT COALESCE(SUM(value), 0) FROM events WHERE events.type = 'read_time'
           AND events.item_id IN (SELECT id FROM items i2 WHERE i2.source_id = items.source_id AND i2.received_at >= ?1)) AS read_seconds
@@ -47,15 +50,16 @@ async function sourceAffinity(env: Env, since: number): Promise<Map<string, numb
      GROUP BY items.source_id`,
   )
     .bind(since)
-    .all<{ source_id: string } & { items: number; opened: number; saved: number; finished: number; read_seconds: number }>();
+    .all<{ source_id: string } & { items: number; opened: number; saved: number; interesting: number; finished: number; read_seconds: number }>();
 
   const out = new Map<string, number>();
   for (const r of rows.results) {
-    const s: SourceStats = { items: r.items, opened: r.opened, saved: r.saved, finished: r.finished, readSeconds: r.read_seconds };
+    const s: SourceStats = { items: r.items, opened: r.opened, saved: r.saved, interesting: r.interesting, finished: r.finished, readSeconds: r.read_seconds };
     if (s.items < 2) continue; // too new to judge; stays at the neutral default
     const openRate = s.opened / s.items;
     const finishRate = s.finished / s.items;
-    const saveRate = s.saved / s.items;
+    // A star says more than a save: it counts twice.
+    const saveRate = (s.saved + 2 * s.interesting) / s.items;
     const minutesPerItem = s.readSeconds / 60 / s.items;
     const affinity = 0.45 * openRate + 0.3 * finishRate + 0.15 * Math.min(1, saveRate * 3) + 0.1 * Math.min(1, minutesPerItem / 3);
     out.set(r.source_id, Math.max(0, Math.min(1, affinity)));
@@ -84,6 +88,7 @@ export function scoreFor(row: ScoreRow, affinity: number | undefined, at: number
   }
   if (row.sponsored) score -= 5;
   if (row.saved_at) score += 10;
+  if (row.interesting_at) score += 15;
   if (row.word_count !== null && row.word_count < 120) score -= 10; // a teaser or a notice
   // Freshness: full marks for today, fading to -10 after a week.
   const ageDays = Math.max(0, (at - row.received_at) / DAY);
@@ -108,7 +113,7 @@ export async function scoreRecentItems(env: Env): Promise<number> {
   const at = now();
   const affinity = await cachedAffinity(env, at);
   const rows = await env.DB.prepare(
-    `SELECT id, source_id, received_at, why_it_matters, key_points, thin_content, sponsored, word_count, saved_at, ai_status
+    `SELECT id, source_id, received_at, why_it_matters, key_points, thin_content, sponsored, word_count, saved_at, interesting_at, ai_status
      FROM items WHERE received_at >= ? AND status IN ('inbox', 'archived')`,
   )
     .bind(at - LOOKBACK_DAYS * DAY)

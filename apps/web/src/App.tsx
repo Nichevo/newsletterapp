@@ -24,13 +24,14 @@ export interface Counts {
   inbox: number;
   unread: number;
   saved: number;
+  interesting: number;
   pendingSenders: number;
 }
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [authError, setAuthError] = useState<ApiError | null>(null);
-  const [counts, setCounts] = useState<Counts>({ inbox: 0, unread: 0, saved: 0, pendingSenders: 0 });
+  const [counts, setCounts] = useState<Counts>({ inbox: 0, unread: 0, saved: 0, interesting: 0, pendingSenders: 0 });
   const location = useLocation();
 
   const refreshCounts = useCallback(() => {
@@ -64,6 +65,10 @@ export default function App() {
         <Route path="/" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
         <Route path="/digest" element={<DigestPage />} />
         <Route path="/saved" element={<InboxPage key="saved" mode="saved" me={me} counts={counts} onChanged={refreshCounts} />} />
+        <Route
+          path="/saved/interesting"
+          element={<InboxPage key="interesting" mode="interesting" me={me} counts={counts} onChanged={refreshCounts} />}
+        />
         <Route path="/saved/highlights" element={<HighlightsPage />} />
         <Route path="/item/:id" element={<ReaderPage onChanged={refreshCounts} />} />
         <Route path="/senders" element={<SendersPage onChanged={refreshCounts} />} />
