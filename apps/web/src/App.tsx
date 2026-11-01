@@ -4,6 +4,7 @@ import { Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError, api } from './api';
 import { TabBar } from './components/TabBar';
 import { AddPage } from './pages/Add';
+import { AskPage } from './pages/Ask';
 import { AiSettingsPage } from './pages/AiSettings';
 import { AiUsagePage } from './pages/AiUsage';
 import { HighlightsPage } from './pages/Highlights';
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="/item/:id" element={<ReaderPage onChanged={refreshCounts} />} />
         <Route path="/senders" element={<SendersPage onChanged={refreshCounts} />} />
         <Route path="/add" element={<AddPage me={me} />} />
+        <Route path="/ask" element={<AskPage />} />
         <Route path="/settings" element={<SettingsPage me={me} />} />
         <Route path="/source/:id" element={<SourcePage />} />
         <Route path="/settings/ai" element={<AiSettingsPage />} />
