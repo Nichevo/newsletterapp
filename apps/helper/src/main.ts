@@ -1,10 +1,10 @@
 import { HELPER_VERSION, type AskJob, type HelperConfig, type HelperJob, type ModelRef, type TrialResultInput } from '@newsletterapp/shared';
-import { writeFileSync } from 'node:fs';
+import { statSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { AppClient } from './app';
 import { UPDATED_EXIT_CODE } from './constants';
-import { loadConfig, type LocalConfig } from './config';
+import { configPath, loadConfig, type LocalConfig } from './config';
 import { askLookups, lookupsText, summaryLookups, toSources, type Lookups } from './lookups';
 import { runFetchJob } from './fetch';
 import { log } from './log';
@@ -25,6 +25,38 @@ const cfg = loadConfig();
 const app = new AppClient(cfg);
 const providers = providersFrom(cfg);
 const once = process.argv.includes('--once');
+const configMtime = () => {
+  try {
+    return statSync(configPath()).mtimeMs;
+  } catch {
+    return 0;
+  }
+};
+const startedConfig = configMtime();
+const supervisorPid = Number(process.env.HELPER_SUPERVISOR_PID) || null;
+
+/**
+ * Stops this worker when it would otherwise run on with stale settings: the
+ * config file changed (e.g. a Brave key was added by re-running the installer),
+ * so the supervisor starts it again with the new one; or the supervisor itself
+ * is gone (Windows stops a scheduled task's own process but not its children),
+ * so a leftover copy doesn't carry on beside the new one.
+ */
+function restartIfStale() {
+  if (once) return;
+  if (supervisorPid) {
+    try {
+      process.kill(supervisorPid, 0);
+    } catch {
+      log('supervisor is gone; this leftover copy is stopping');
+      process.exit(0);
+    }
+  }
+  if (configMtime() !== startedConfig) {
+    log('config changed; restarting to pick it up');
+    process.exit(UPDATED_EXIT_CODE);
+  }
+}
 
 async function heartbeat(): Promise<HelperConfig> {
   const models: { provider: string; name: string; sizeBytes?: number }[] = [];
@@ -291,6 +323,7 @@ async function selfUpdate(version: string) {
 }
 
 async function tick(): Promise<number> {
+  restartIfStale();
   const config = await heartbeat();
   if (config.latestHelperVersion && config.latestHelperVersion !== HELPER_VERSION && !once) {
     await selfUpdate(config.latestHelperVersion).catch((err: unknown) => log('update failed, carrying on:', err));
