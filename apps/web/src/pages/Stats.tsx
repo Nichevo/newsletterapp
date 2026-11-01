@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { BarChart, dayName, dayTick, hourTick, RangeSwitch, shortDate } from '../components/BarChart';
 import { RatingChart, type RatingBucket } from '../components/RatingChart';
+import { HighlightAiStats } from '../components/HighlightStats';
 import { IconBack } from '../icons';
 
 type Grouping = 'model' | 'source' | 'prompt';
@@ -107,6 +108,8 @@ export function StatsPage() {
           </div>
         );
       })}
+
+      <HighlightAiStats />
     </div>
   );
 }

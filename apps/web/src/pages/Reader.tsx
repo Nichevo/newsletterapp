@@ -1,6 +1,6 @@
 import type { AskPreset, ItemBody, ItemHighlights, ItemSummary, RelatedItem, UnsubscribeResult } from '@newsletterapp/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
 import { EmailBody } from '../components/EmailBody';
 import { AiNotes, HighlightSheet, SelectionBar, TextBody, useArticleSelection } from '../components/Highlights';
@@ -25,7 +25,8 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const [showSponsored, setShowSponsored] = useState(false);
   const fontSize = textSizePx(getTextSize());
   const nav = useMemo(() => neighbours(id), [id]);
-  const marks = useHighlights(id);
+  const [params] = useSearchParams();
+  const marks = useHighlights(id, params.get('hl'));
 
   // Previous / Next replace the current entry so Back still returns to the inbox.
   const go = useCallback(
@@ -285,7 +286,7 @@ const ROOTLESS: (ShadowRoot | HTMLElement)[] = [];
  * for a tapped highlight, the AI notes card, and checking for answers while
  * the PC works on them.
  */
-function useHighlights(itemId: string) {
+function useHighlights(itemId: string, jumpTo: string | null) {
   const [data, setData] = useState<ItemHighlights>({ highlights: [], asks: [], helperLastSeenAt: null });
   const [presets, setPresets] = useState<AskPreset[]>([]);
   const [missing, setMissingState] = useState<string[]>([]);
@@ -343,8 +344,25 @@ function useHighlights(itemId: string) {
   const openSheet = useCallback((id: string) => setSheet(id), []);
 
   function reveal(highlightId: string) {
-    for (const r of roots.current) if (revealMark(r, highlightId)) return;
+    for (const r of roots.current) if (revealMark(r, highlightId)) return true;
+    return false;
   }
+
+  // Opened from the Highlights page: scroll to that highlight once the article and its marks are in.
+  const jumped = useRef<string | null>(null);
+  const hasJumpTarget = jumpTo !== null && data.highlights.some((h) => h.id === jumpTo);
+  useEffect(() => {
+    if (!jumpTo || !hasJumpTarget || jumped.current === `${itemId}:${jumpTo}`) return;
+    let tries = 0;
+    const t = window.setInterval(() => {
+      const done = roots.current.some((r) => revealMark(r, jumpTo));
+      if (done || ++tries > 20) {
+        window.clearInterval(t);
+        jumped.current = `${itemId}:${jumpTo}`;
+      }
+    }, 250);
+    return () => window.clearInterval(t);
+  }, [itemId, jumpTo, hasJumpTarget]);
 
   function showNotes(highlightId: string) {
     setSheet(null);

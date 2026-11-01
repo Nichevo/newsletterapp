@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { dayTick, RangeSwitch, shortDate } from '../components/BarChart';
+import { HighlightReadingStats } from '../components/HighlightStats';
 import { IconBack } from '../icons';
 
 const pct = (n: number, of: number) => (of > 0 ? `${Math.round((100 * n) / of)}%` : '–');
@@ -65,6 +66,7 @@ export function ReadingStatsPage() {
           <SourcesTable data={data} />
           <CategoriesTable data={data} />
           <HowYouRead data={data} />
+          <HighlightReadingStats days={days} />
         </>
       )}
     </div>

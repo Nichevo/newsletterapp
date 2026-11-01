@@ -1,3 +1,4 @@
+import { SavedTabs } from './Highlights';
 import type { ItemKind, ItemSummary, ItemView, Me, Source } from '@newsletterapp/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -200,6 +201,7 @@ export function InboxPage({
           </Link>
         </div>
       </header>
+      {mode === 'saved' && <SavedTabs current="saved" />}
 
       <FilterBar
         filters={filters}
