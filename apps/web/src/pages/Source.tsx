@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { shortTime } from '../format';
 import { IconBack } from '../icons';
+import { StartWithPicker } from './Add';
 
 const AI_LABEL: Record<AiMode, string> = { default: 'Default', on: 'On', off: 'Off' };
 
@@ -335,6 +336,7 @@ function FollowSection({ source, onFollow }: { source: Source; onFollow: (p: Sou
   const [open, setOpen] = useState(false);
   const [address, setAddress] = useState(source.url ?? source.feedUrl ?? '');
   const [found, setFound] = useState<DiscoverResult | null>(null);
+  const [startWith, setStartWith] = useState(5);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -353,7 +355,7 @@ function FollowSection({ source, onFollow }: { source: Source; onFollow: (p: Sou
 
   async function choose(p: SourceUpdate) {
     setBusy(true);
-    await onFollow(p);
+    await onFollow({ ...p, startWith });
     setBusy(false);
     setOpen(false);
     setFound(null);
@@ -412,8 +414,10 @@ function FollowSection({ source, onFollow }: { source: Source; onFollow: (p: Sou
             ))}
             {found.feeds.length === 0 && <span className="hint" style={{ margin: 0 }}>No feed found at this address.</span>}
             {found.page && <WatchRow page={found.page} source={source} busy={busy} onChoose={(p) => void choose(p)} />}
+            <StartWithPicker value={startWith} onChange={setStartWith} />
             <span className="hint" style={{ margin: 0 }}>
-              Items you already have stay. After switching, the next check brings in the latest few posts, like a newly added source.
+              Items you already have stay. Posts you already have from the old address may show up once more if the new one names them
+              differently; pick &quot;Nothing old&quot; to avoid that.
             </span>
           </>
         )}

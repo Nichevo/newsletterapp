@@ -67,6 +67,7 @@ export interface SourceRow {
   last_error: string | null;
   error_count: number;
   paused_at: number | null;
+  start_count: number | null;
 }
 
 export interface ItemRow {

@@ -39,7 +39,7 @@ import {
   type SourceRow,
 } from './db';
 import { buildDigestIfDue, topicsOf } from './digest';
-import { normalizeUrl, registerFeeds } from './feeds';
+import { normalizeUrl, registerFeeds, startCount } from './feeds';
 import { registerHighlights } from './highlights';
 import { registerHighlightPages } from './highlight-pages';
 import { registerWebSearch } from './websearch';
@@ -564,6 +564,7 @@ app.post('/api/sources/:id', async (c) => {
       set('last_error = ?', null);
       set('error_count = ?', 0);
       set('next_check_at = ?', now());
+      set('start_count = ?', startCount(input.startWith));
     }
   }
   if (typeof input.paused === 'boolean') {
