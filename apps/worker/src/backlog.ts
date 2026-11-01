@@ -1,4 +1,4 @@
-import type { AiBacklogView, BacklogPoint, WaitBucket } from '@newsletterapp/shared';
+import type { AiBacklogView, BacklogPoint, SummaryKind, WaitBucket } from '@newsletterapp/shared';
 import type { Hono } from 'hono';
 import { eligibleSql, queueCandidatesSql } from './ai';
 import type { AppVariables, Env } from './env';
@@ -27,9 +27,36 @@ async function queueNow(env: Env) {
   ).first<{ waiting: number | null; working: number | null; oldest_at: number | null }>();
 }
 
+/**
+ * Items whose AI switch is off (a source set to Off, a kind switched off, or
+ * older than the cut-off) would otherwise sit in the queue indexes for good, and
+ * the PC's once-a-minute claim would read them all each time to find nothing.
+ * Park them as 'held'; any change to the AI switches puts them back (see
+ * {@link unparkHeld}) and the next cron parks whatever is still switched off.
+ */
+async function parkSwitchedOff(env: Env, aiByKind: Record<SummaryKind, boolean>) {
+  await env.DB.prepare(
+    `UPDATE items SET ai_status = 'held'
+     WHERE id IN (
+       SELECT items.id FROM items INDEXED BY items_ai_queue_source LEFT JOIN sources ON sources.id = items.source_id
+       WHERE items.status = 'inbox' AND items.ai_status IN ('pending', 'working') AND items.ai_status = 'pending' AND NOT ${eligibleSql(aiByKind)}
+     )`,
+  ).run();
+}
+
+/** Puts parked items back in the queue after an AI switch changes (for one source, or all). */
+export async function unparkHeld(env: Env, sourceId?: string): Promise<void> {
+  if (sourceId) {
+    await env.DB.prepare("UPDATE items SET ai_status = 'pending' WHERE ai_status = 'held' AND source_id = ?").bind(sourceId).run();
+  } else {
+    await env.DB.prepare("UPDATE items INDEXED BY items_ai_queue SET ai_status = 'pending' WHERE ai_status = 'held'").run();
+  }
+}
+
 /** Called from the cron: one row per run, kept for four months. */
 export async function snapshotBacklog(env: Env): Promise<void> {
   const t = now();
+  await parkSwitchedOff(env, (await loadSettings(env)).aiByKind);
   const q = await queueNow(env);
   await env.DB.batch([
     env.DB.prepare('INSERT OR REPLACE INTO ai_backlog (at, waiting, working, oldest_at) VALUES (?, ?, ?, ?)').bind(
