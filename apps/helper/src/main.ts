@@ -319,6 +319,7 @@ async function runTrial(trialId: string) {
     const provider = findProvider(providers, ref);
     const results: TrialResultInput[] = [];
     for (const item of trial.items) {
+      doing(`test run: ${ref.name} on ${item.itemId}`);
       if (!provider) {
         results.push({ itemId: item.itemId, provider: ref.provider, model: ref.name, seconds: 0, error: `${ref.provider} is not set up on this PC` });
         continue;
