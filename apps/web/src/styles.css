@@ -1893,3 +1893,8 @@ a.pill {
   text-decoration: underline;
   cursor: pointer;
 }
+
+.cardrow__sub.cardrow__flag {
+  color: var(--amber-ink);
+  font-weight: 600;
+}

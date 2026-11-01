@@ -1,4 +1,4 @@
-import type { FeedRhythm } from '@newsletterapp/shared';
+import type { FeedRhythm, SourceActivity } from '@newsletterapp/shared';
 
 const DAY = 86_400_000;
 
@@ -126,4 +126,68 @@ export function rhythmText(r: FeedRhythm | null, scheduled: boolean): { summary:
     return { summary, checking: `No set time, so checked about every ${Math.round(every)} hour${Math.round(every) === 1 ? '' : 's'}.` };
   }
   return { summary, checking: 'Checked every hour around then, every 8 hours otherwise.' };
+}
+
+/** "3 days ago", "6 weeks ago", "4 months ago". */
+export function agoText(at: number, now = Date.now()): string {
+  const days = Math.floor((now - at) / DAY);
+  if (days < 1) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+  if (days < 730) return `${Math.round(days / 30)} months ago`;
+  return `${Math.round(days / 365)} years ago`;
+}
+
+function rate(n: number): string {
+  if (n === 0) return '0';
+  if (n < 0.1) return 'under 0.1';
+  return n < 10 ? n.toFixed(1).replace(/\.0$/, '') : String(Math.round(n));
+}
+
+export interface ActivityView {
+  perMonth: number;
+  readsPerMonth: number;
+  /** Nothing new for 30+ days and well past its usual gap. */
+  quiet: boolean;
+  /** Items in the last 90 days, none of them read. */
+  unread: boolean;
+  /** "4.3 / month · read 1 / month · ★ 2 · last 3 days ago" */
+  line: string;
+  /** The warning, when quiet or unread. */
+  flag: string | null;
+}
+
+/** A source's activity over the last 90 days, in numbers and words. */
+export function activityView(
+  a: SourceActivity | undefined,
+  source: { lastReceivedAt: number | null; createdAt: number; kind: string; rhythm?: FeedRhythm | null },
+  now = Date.now(),
+): ActivityView {
+  const days = a?.days ?? 90;
+  const items = a?.items ?? 0;
+  const perMonth = (items / days) * 30;
+  const readsPerMonth = ((a?.reads ?? 0) / days) * 30;
+  const noun = source.kind === 'newsletter' ? 'issue' : 'post';
+  const gapHours = source.rhythm?.gapHours ?? (items >= 2 ? (days * 24) / items : null);
+  const since = source.lastReceivedAt ?? source.createdAt;
+  const silent = now - since;
+  const quiet = silent > 30 * DAY && (gapHours === null || silent > 3 * gapHours * 3_600_000);
+  const unread = items > 0 && (a?.reads ?? 0) === 0;
+  const line = [
+    `${rate(perMonth)} / month`,
+    `read ${rate(readsPerMonth)} / month`,
+    a?.stars ? `★ ${a.stars}` : '',
+    source.lastReceivedAt ? `last ${agoText(source.lastReceivedAt, now)}` : `no ${noun}s yet`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const flag = quiet
+    ? source.lastReceivedAt
+      ? `Quiet: no ${noun}s for ${agoText(source.lastReceivedAt, now).replace(' ago', '')}`
+      : `Quiet: nothing since it was added`
+    : unread
+      ? `Unread: you haven't read any of the last ${items} ${noun}${items === 1 ? '' : 's'}`
+      : null;
+  return { perMonth, readsPerMonth, quiet, unread, line, flag };
 }

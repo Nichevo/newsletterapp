@@ -1,10 +1,18 @@
-import type { Source } from '@newsletterapp/shared';
+import type { Source, SourceActivity } from '@newsletterapp/shared';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { nextTime, rhythmText, shortTime } from '../format';
+import { activityView, nextTime, rhythmText, type ActivityView } from '../format';
 import { IconBack } from '../icons';
 import { CategoriesSection, useAppSettings } from './Settings';
+
+type Show = 'all' | 'quiet' | 'unread';
+type Sort = 'latest' | 'name' | 'reads';
+const SORT_LABEL: Record<Sort, string> = { latest: 'Latest', name: 'Name', reads: 'Most read' };
+interface Row {
+  source: Source;
+  view: ActivityView;
+}
 
 /** Every source you receive or follow, grouped by kind. Each row opens the source's own page. */
 export function SourcesPage() {
@@ -12,16 +20,35 @@ export function SourcesPage() {
   const [sources, setSources] = useState<Source[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { settings, save } = useAppSettings();
+  const [activity, setActivity] = useState<Map<string, SourceActivity>>(new Map());
+  const [show, setShow] = useState<Show>('all');
+  const [sort, setSort] = useState<Sort>('latest');
 
   useEffect(() => {
     api
       .sources()
       .then(setSources)
       .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load sources'));
+    api
+      .sourceActivity()
+      .then((rows) => setActivity(new Map(rows.map((r) => [r.sourceId, r]))))
+      .catch(() => undefined);
   }, []);
 
-  const newsletters = sources?.filter((s) => s.kind === 'newsletter') ?? [];
-  const others = sources?.filter((s) => s.kind !== 'newsletter') ?? [];
+  const rows: Row[] = (sources ?? []).map((s) => ({ source: s, view: activityView(activity.get(s.id), s) }));
+  const quietCount = rows.filter((r) => r.view.quiet).length;
+  const unreadCount = rows.filter((r) => r.view.unread).length;
+  const picked = rows
+    .filter((r) => show === 'all' || (show === 'quiet' ? r.view.quiet : r.view.unread))
+    .sort((a, b) =>
+      sort === 'name'
+        ? a.source.name.localeCompare(b.source.name)
+        : sort === 'reads'
+          ? b.view.readsPerMonth - a.view.readsPerMonth || b.view.perMonth - a.view.perMonth
+          : 0,
+    );
+  const newsletters = picked.filter((r) => r.source.kind === 'newsletter');
+  const others = picked.filter((r) => r.source.kind !== 'newsletter');
   const [checking, setChecking] = useState<string | null>(null);
 
   const checkAll = async () => {
@@ -64,8 +91,39 @@ export function SourcesPage() {
         </div>
       )}
 
-      <SourceList title="Newsletters you receive" sources={newsletters} noun="issue" />
-      <SourceList title="Feeds and websites you follow" sources={others} noun="post" />
+      {sources && sources.length > 0 && (
+        <div className="section">
+          <div className="pills">
+            {(['all', 'quiet', 'unread'] as Show[]).map((v) => (
+              <button key={v} className="pill" aria-pressed={show === v} onClick={() => setShow(v)}>
+                {v === 'all' ? 'All' : v === 'quiet' ? `Quiet (${quietCount})` : `Unread (${unreadCount})`}
+              </button>
+            ))}
+          </div>
+          <div className="pills">
+            <span className="label" style={{ alignSelf: 'center' }}>
+              Sort
+            </span>
+            {(Object.keys(SORT_LABEL) as Sort[]).map((v) => (
+              <button key={v} className="pill" aria-pressed={sort === v} onClick={() => setSort(v)}>
+                {SORT_LABEL[v]}
+              </button>
+            ))}
+          </div>
+          <span className="hint">
+            Rates are over the last 90 days (or since a source was added). Quiet = nothing for 30+ days and well past its usual gap.
+            Unread = none of its recent items read.
+          </span>
+        </div>
+      )}
+      {sources && sources.length > 0 && picked.length === 0 && (
+        <p className="hint" style={{ padding: '0 16px' }}>
+          {show === 'quiet' ? 'No quiet sources: everything has posted recently.' : 'No unread sources: you read something from each.'}
+        </p>
+      )}
+
+      <SourceList title="Newsletters you receive" rows={newsletters} noun="issue" />
+      <SourceList title="Feeds and websites you follow" rows={others} noun="post" />
       {others.length > 0 && (
         <div className="section">
           <div className="inline">
@@ -85,13 +143,13 @@ export function SourcesPage() {
   );
 }
 
-function SourceList({ title, sources, noun }: { title: string; sources: Source[]; noun: string }) {
-  if (sources.length === 0) return null;
+function SourceList({ title, rows, noun }: { title: string; rows: Row[]; noun: string }) {
+  if (rows.length === 0) return null;
   return (
     <div className="section">
       <span className="label">{title}</span>
       <div className="card card--list">
-        {sources.map((s) => (
+        {rows.map(({ source: s, view }) => (
           <Link key={s.id} to={`/source/${s.id}`} className="cardrow">
             <div className="cardrow__main">
               <span className="cardrow__title">{s.name}</span>
@@ -99,11 +157,12 @@ function SourceList({ title, sources, noun }: { title: string; sources: Source[]
                 {s.kind === 'site' ? 'Website · ' : ''}
                 {s.itemCount} {noun}
                 {s.itemCount === 1 ? '' : 's'}
-                {s.lastReceivedAt ? ` · last ${shortTime(s.lastReceivedAt)}` : ''}
                 {s.category ? ` · ${s.category}` : ''}
                 {s.aiMode !== 'default' ? ` · AI ${s.aiMode}` : ''}
                 {s.pausedAt ? ' · paused' : s.lastError ? ' · last check failed' : ''}
               </span>
+              <span className="cardrow__sub">{view.line}</span>
+              {view.flag && !s.pausedAt && <span className="cardrow__sub cardrow__flag">{view.flag}</span>}
               {s.kind === 'feed' && !s.pausedAt && (
                 <span className="cardrow__sub">
                   {rhythmText(s.rhythm, s.checkMinutes === null).summary}
