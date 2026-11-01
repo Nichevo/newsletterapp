@@ -148,7 +148,7 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
   const fresh = [...unique.values()].filter((e) => !seen.has(e.key));
   // Newest first; posts without a date keep the feed's (or page's) own order.
   fresh.sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0));
-  const take = fresh.slice(0, source.last_ok_at === null ? FIRST_RUN_KEEP : MAX_NEW_PER_CHECK);
+  const take = fresh.slice(0, source.last_ok_at === null ? (source.start_count ?? FIRST_RUN_KEEP) : MAX_NEW_PER_CHECK);
 
   const settings = take.length ? await loadSettings(env) : null;
   const stmts: D1PreparedStatement[] = [];
@@ -452,7 +452,12 @@ export function parseOpml(opml: string): OpmlFeed[] {
   return out;
 }
 
-async function importOpml(env: Env, opml: string): Promise<OpmlImportResult> {
+/** How many latest posts a new source brings in: 0 to 50, the default when not given. */
+export function startCount(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? Math.min(Math.max(Math.round(v), 0), 50) : null;
+}
+
+async function importOpml(env: Env, opml: string, startWith: number | null): Promise<OpmlImportResult> {
   const feeds = parseOpml(opml).slice(0, 1000);
   const existing = await env.DB.prepare('SELECT feed_url FROM sources WHERE feed_url IS NOT NULL').all<{ feed_url: string }>();
   const have = new Set(existing.results.map((r) => r.feed_url));
@@ -470,8 +475,8 @@ async function importOpml(env: Env, opml: string): Promise<OpmlImportResult> {
     // Spread the first checks out (one every 20 seconds) so no single cron run gets them all.
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO sources (id, kind, name, url, feed_url, folder, category, created_at, next_check_at)
-         VALUES (?, 'feed', ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sources (id, kind, name, url, feed_url, folder, category, created_at, next_check_at, start_count)
+         VALUES (?, 'feed', ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         newId(),
         f.title.slice(0, 200),
@@ -481,6 +486,7 @@ async function importOpml(env: Env, opml: string): Promise<OpmlImportResult> {
         (f.folder && categories.get(f.folder.toLowerCase())) ?? null,
         t,
         t + stmts.length * 20_000,
+        startWith,
       ),
     );
   }
@@ -521,9 +527,9 @@ export function registerFeeds(app: App) {
   });
 
   app.post('/api/sources/opml', async (c) => {
-    const input = (await c.req.json().catch(() => null)) as { opml?: string } | null;
+    const input = (await c.req.json().catch(() => null)) as { opml?: string; startWith?: number } | null;
     if (!input?.opml || !/<opml[\s>]/i.test(input.opml)) return c.json({ error: "That file isn't an OPML export" }, 400);
-    return c.json(await importOpml(c.env, input.opml));
+    return c.json(await importOpml(c.env, input.opml, startCount(input.startWith)));
   });
 
   /** Follows a feed, or watches a website that has none. */
@@ -546,8 +552,8 @@ export function registerFeeds(app: App) {
     // Website watches always run on the PC: finding and extracting articles is too heavy for the free plan.
     const fetchVia = input.kind === 'site' || input.fetchVia === 'pc' ? 'pc' : 'cloud';
     await c.env.DB.prepare(
-      `INSERT INTO sources (id, kind, name, url, feed_url, fetch_via, render, link_hint, category, created_at, next_check_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO sources (id, kind, name, url, feed_url, fetch_via, render, link_hint, category, created_at, next_check_at, start_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         id,
@@ -561,6 +567,7 @@ export function registerFeeds(app: App) {
         input.category?.trim().slice(0, 40) || null,
         t,
         t,
+        startCount(input.startWith),
       )
       .run();
     const row = (await loadSourceRow(c.env, id))!;

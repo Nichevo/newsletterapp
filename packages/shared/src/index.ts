@@ -332,6 +332,16 @@ export interface SourceUpdate {
   linkHint?: string | null;
   checkMinutes?: number;
   paused?: boolean;
+  /**
+   * Feeds and websites only: follow it differently. 'feed' needs feedUrl; 'site'
+   * watches `url` (or the source's current site address). Items so far stay;
+   * the next check brings in only the latest few, like a new source.
+   */
+  followAs?: 'feed' | 'site';
+  url?: string;
+  feedUrl?: string;
+  /** With followAs: how many of its latest posts to bring in (0 = only new ones). Default 5. */
+  startWith?: number;
 }
 
 // ---------- Feeds and websites (Phase 3) ----------
@@ -376,6 +386,8 @@ export interface NewSourceInput {
   fetchVia?: FetchVia;
   render?: boolean;
   linkHint?: string | null;
+  /** How many of its latest posts to bring in now (0 = only posts from now on). Default 5. */
+  startWith?: number;
 }
 
 export interface NewSourceResult {

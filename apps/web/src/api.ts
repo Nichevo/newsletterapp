@@ -129,7 +129,7 @@ export const api = {
   sourceBulk: (id: string, action: 'read-all' | 'archive-all') => post<{ changed: number }>(`/api/sources/${id}/${action}`),
   discoverSource: (url: string) => post<DiscoverResult>('/api/sources/discover', { url }),
   addSource: (input: NewSourceInput) => post<NewSourceResult>('/api/sources', input),
-  importOpml: (opml: string) => post<OpmlImportResult>('/api/sources/opml', { opml }),
+  importOpml: (opml: string, startWith?: number) => post<OpmlImportResult>('/api/sources/opml', { opml, startWith }),
   checkSource: (id: string) => post<{ added: number; waitingForPc: boolean; source: Source }>(`/api/sources/${id}/check`),
 
   digests: () => get<Digest[]>('/api/digests'),

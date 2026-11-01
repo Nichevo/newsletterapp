@@ -258,6 +258,31 @@ function FollowSection() {
   );
 }
 
+const START_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: 'Nothing old, only new posts' },
+  { value: 1, label: 'The latest post' },
+  { value: 3, label: 'The latest 3 posts' },
+  { value: 5, label: 'The latest 5 posts' },
+  { value: 10, label: 'The latest 10 posts' },
+  { value: 20, label: 'The latest 20 posts' },
+];
+
+/** How many of a new source's latest posts to bring in straight away. */
+export function StartWithPicker({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  return (
+    <label className="inline" style={{ flexWrap: 'wrap', gap: 8 }}>
+      <span className="hint" style={{ margin: 0 }}>To start, bring in</span>
+      <select className="input" style={{ flex: '1 1 160px' }} value={value} onChange={(e) => onChange(Number(e.target.value))}>
+        {START_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function SourceFields({
   name,
   setName,
@@ -292,6 +317,7 @@ function SourceFields({
 function FeedOption({ feed, siteUrl, onDone }: { feed: DiscoveredFeed; siteUrl: string; onDone: (r: NewSourceResult) => void }) {
   const [name, setName] = useState(feed.title ?? new URL(feed.feedUrl).hostname);
   const [category, setCategory] = useState('');
+  const [startWith, setStartWith] = useState(5);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -299,7 +325,7 @@ function FeedOption({ feed, siteUrl, onDone }: { feed: DiscoveredFeed; siteUrl: 
     setBusy(true);
     setError(null);
     try {
-      onDone(await api.addSource({ kind: 'feed', url: feed.siteUrl ?? siteUrl, feedUrl: feed.feedUrl, name, category: category || null }));
+      onDone(await api.addSource({ kind: 'feed', url: feed.siteUrl ?? siteUrl, feedUrl: feed.feedUrl, name, category: category || null, startWith }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not follow it');
       setBusy(false);
@@ -328,6 +354,7 @@ function FeedOption({ feed, siteUrl, onDone }: { feed: DiscoveredFeed; siteUrl: 
         </span>
       )}
       <SourceFields name={name} setName={setName} category={category} setCategory={setCategory} />
+      <StartWithPicker value={startWith} onChange={setStartWith} />
       <button className="btn btn--primary" disabled={busy} onClick={() => void follow()}>
         Follow
       </button>
@@ -342,6 +369,7 @@ function PageOption({ found, onDone }: { found: DiscoverResult; onDone: (r: NewS
   const [category, setCategory] = useState('');
   const [hint, setHint] = useState('');
   const [render, setRender] = useState(page.scripted);
+  const [startWith, setStartWith] = useState(5);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -349,7 +377,7 @@ function PageOption({ found, onDone }: { found: DiscoverResult; onDone: (r: NewS
     setBusy(true);
     setError(null);
     try {
-      onDone(await api.addSource({ kind: 'site', url: page.url, name, category: category || null, render, linkHint: hint.trim() || null }));
+      onDone(await api.addSource({ kind: 'site', url: page.url, name, category: category || null, render, linkHint: hint.trim() || null, startWith }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not watch it');
       setBusy(false);
@@ -383,6 +411,7 @@ function PageOption({ found, onDone }: { found: DiscoverResult; onDone: (r: NewS
         Your PC checks the page every few hours and brings in each new article as a clean copy.
       </span>
       <SourceFields name={name} setName={setName} category={category} setCategory={setCategory} />
+      <StartWithPicker value={startWith} onChange={setStartWith} />
       <div className="field">
         <label htmlFor="link-hint">Only links containing (optional)</label>
         <input id="link-hint" className="input" placeholder="e.g. /blog/" value={hint} onChange={(e) => setHint(e.target.value)} />
@@ -402,6 +431,7 @@ function PageOption({ found, onDone }: { found: DiscoverResult; onDone: (r: NewS
 /** Feedly (or any reader) export: Organize → OPML. Folders become folders, and categories when the names match. */
 function OpmlSection() {
   const [busy, setBusy] = useState(false);
+  const [startWith, setStartWith] = useState(5);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -413,10 +443,10 @@ function OpmlSection() {
     setError(null);
     setResult(null);
     try {
-      const r = await api.importOpml(await file.text());
+      const r = await api.importOpml(await file.text(), startWith);
       setResult(
         `${r.added} feed${r.added === 1 ? '' : 's'} added${r.skipped ? `, ${r.skipped} you already follow` : ''}. ` +
-          (r.added > 0 ? 'Their latest posts arrive over the next hour or so.' : ''),
+          (r.added > 0 ? (startWith > 0 ? 'Their latest posts arrive over the next hour or so.' : 'New posts arrive from now on.') : ''),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed');
@@ -430,9 +460,10 @@ function OpmlSection() {
       <span className="label">Import from Feedly</span>
       <section className="card">
         <span className="hint" style={{ margin: 0 }}>
-          In Feedly, open Organize Sources and export OPML, then pick the file here. Each feed brings in its latest 5 posts, then new
-          ones as they appear.
+          In Feedly, open Organize Sources and export OPML, then pick the file here. Each feed brings in the latest posts you choose
+          below, then new ones as they appear.
         </span>
+        <StartWithPicker value={startWith} onChange={setStartWith} />
         <label className="btn" style={{ textAlign: 'center' }}>
           {busy ? 'Importing…' : 'Choose OPML file'}
           <input type="file" accept=".opml,.xml,text/xml,text/x-opml,application/xml" hidden disabled={busy} onChange={(e) => void onFile(e)} />

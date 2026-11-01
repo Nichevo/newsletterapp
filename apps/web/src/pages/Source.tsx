@@ -1,9 +1,10 @@
-import type { AiMode, AppSettings, FullTextMode, Source, SourceUpdate } from '@newsletterapp/shared';
+import type { AiMode, AppSettings, DiscoverResult, FullTextMode, Source, SourceUpdate } from '@newsletterapp/shared';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { shortTime } from '../format';
 import { IconBack } from '../icons';
+import { StartWithPicker } from './Add';
 
 const AI_LABEL: Record<AiMode, string> = { default: 'Default', on: 'On', off: 'Off' };
 
@@ -217,6 +218,16 @@ export function SourcePage() {
           </div>
 
           {isWeb && <FetchSection source={source} onUpdate={(p) => void update(p)} onCheck={() => void checkNow()} />}
+          {isWeb && <TroubleshootSection source={source} />}
+          {isWeb && (
+            <FollowSection
+              source={source}
+              onFollow={async (p) => {
+                await update(p);
+                await checkNow();
+              }}
+            />
+          )}
         </>
       )}
     </div>
@@ -316,6 +327,200 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
           <input type="checkbox" checked={source.render} onChange={(e) => onUpdate({ render: e.target.checked })} />
         </label>
         <span className="hint" style={{ margin: 0 }}>Your PC opens these pages in a hidden Edge or Chrome window. Slower, so only when needed.</span>
+      </section>
+    </div>
+  );
+}
+
+/** Not getting what you want? Find the site's feeds again, or switch between a feed and watching the page. */
+function FollowSection({ source, onFollow }: { source: Source; onFollow: (p: SourceUpdate) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [address, setAddress] = useState(source.url ?? source.feedUrl ?? '');
+  const [found, setFound] = useState<DiscoverResult | null>(null);
+  const [startWith, setStartWith] = useState(5);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function find() {
+    setBusy(true);
+    setError(null);
+    setFound(null);
+    try {
+      setFound(await api.discoverSource(address));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not look at that address');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function choose(p: SourceUpdate) {
+    setBusy(true);
+    await onFollow({ ...p, startWith });
+    setBusy(false);
+    setOpen(false);
+    setFound(null);
+  }
+
+  if (!open) {
+    return (
+      <div className="section">
+        <section className="card">
+          <span className="hint" style={{ margin: 0 }}>
+            Not getting what you want from this {source.kind === 'site' ? 'website watch' : 'feed'}? Switch it to{' '}
+            {source.kind === 'site' ? 'a feed' : 'watching the website'}, or point it at another address.
+          </span>
+          <button className="btn btn--small" style={{ alignSelf: 'flex-start' }} onClick={() => setOpen(true)}>
+            Change how it's followed
+          </button>
+        </section>
+      </div>
+    );
+  }
+
+  const isCurrentFeed = (feedUrl: string) => source.kind === 'feed' && source.feedUrl === feedUrl;
+  return (
+    <div className="section">
+      <span className="label">Change how it's followed</span>
+      <section className="card">
+        <div className="field">
+          <label htmlFor="follow-url">Website or feed address</label>
+          <input id="follow-url" className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
+        </div>
+        <div className="inline">
+          <button className="btn btn--small" disabled={busy || !address.trim()} onClick={() => void find()}>
+            {busy ? 'Looking…' : 'Look at this address'}
+          </button>
+          <button className="btn btn--small btn--ghost" onClick={() => setOpen(false)}>
+            Cancel
+          </button>
+        </div>
+        {error && <div className="error">{error}</div>}
+        {found && (
+          <>
+            {found.feeds.map((f) => (
+              <div key={f.feedUrl} className="inline" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <span className="hint" style={{ margin: 0, wordBreak: 'break-all' }}>
+                  Feed: {f.title ?? f.feedUrl}
+                  {f.title ? ` (${f.feedUrl})` : ''}
+                </span>
+                <button
+                  className="btn btn--small"
+                  disabled={busy || isCurrentFeed(f.feedUrl)}
+                  onClick={() => void choose({ followAs: 'feed', feedUrl: f.feedUrl, url: f.siteUrl ?? found.url })}
+                >
+                  {isCurrentFeed(f.feedUrl) ? 'Following' : 'Use this feed'}
+                </button>
+              </div>
+            ))}
+            {found.feeds.length === 0 && <span className="hint" style={{ margin: 0 }}>No feed found at this address.</span>}
+            {found.page && <WatchRow page={found.page} source={source} busy={busy} onChoose={(p) => void choose(p)} />}
+            <StartWithPicker value={startWith} onChange={setStartWith} />
+            <span className="hint" style={{ margin: 0 }}>
+              Items you already have stay. Posts you already have from the old address may show up once more if the new one names them
+              differently; pick &quot;Nothing old&quot; to avoid that.
+            </span>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function WatchRow({
+  page,
+  source,
+  busy,
+  onChoose,
+}: {
+  page: NonNullable<DiscoverResult['page']>;
+  source: Source;
+  busy: boolean;
+  onChoose: (p: SourceUpdate) => void;
+}) {
+  return (
+    <div className="inline" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <span className="hint" style={{ margin: 0, wordBreak: 'break-all' }}>
+        Watch the page {page.url}
+        {page.sample.length ? ` (${page.sample.length} articles found, e.g. "${page.sample[0]!.title}")` : ''}
+      </span>
+      <button
+        className="btn btn--small"
+        disabled={busy || (source.kind === 'site' && source.url === page.url)}
+        onClick={() => onChoose({ followAs: 'site', url: page.url, ...(page.scripted ? { render: true } : {}) })}
+      >
+        {source.kind === 'site' && source.url === page.url ? 'Watching' : 'Watch this page'}
+      </button>
+    </div>
+  );
+}
+
+/** Plain-words guide to the settings above, for a feed or website whose posts don't come out right. */
+function TroubleshootSection({ source }: { source: Source }) {
+  const [open, setOpen] = useState(false);
+  const feed = source.kind === 'feed';
+  const tips: { problem: string; fix: string }[] = feed
+    ? [
+        {
+          problem: 'Posts stop after the first paragraph, or say "read more".',
+          fix: 'Set Full articles to Always. Your PC then fetches each post from the website. Takes effect for new posts.',
+        },
+        {
+          problem: 'A full article comes out empty, jumbled, or only shows a cookie notice.',
+          fix: 'Switch on "Needs a browser" so your PC opens the page in Edge or Chrome first, then wait for the next post.',
+        },
+        {
+          problem: 'The check fails, or says the site turned Cloudflare away.',
+          fix: 'Set Fetched by to My PC, then press Check now. (The app also does this by itself after three refusals.)',
+        },
+        {
+          problem: 'Posts are missing, or you get the wrong section of the site.',
+          fix: 'Use "Change how it\'s followed" below: look at the site again and pick another of its feeds, or watch the page itself.',
+        },
+        {
+          problem: 'Not sure the app is the problem?',
+          fix: 'Open a post and tap Live page to compare it with the website. If the website itself is short, the post is too.',
+        },
+      ]
+    : [
+        {
+          problem: 'You get links that aren\'t articles (About, Contact, tags, other sections).',
+          fix: 'Fill in "Only links containing" with the part every article address shares, such as /blog/ or /news/.',
+        },
+        {
+          problem: 'Articles come out empty or jumbled, or nothing is found on the page.',
+          fix: 'Switch on "Needs a browser" so your PC opens the page in Edge or Chrome, then press Check now.',
+        },
+        {
+          problem: 'Nothing new arrives.',
+          fix: 'Press Check now and read the line under the address: it says when it last worked and any error. Your PC must be on, since websites are checked by your PC.',
+        },
+        {
+          problem: 'The site has a feed after all.',
+          fix: 'Use "Change how it\'s followed" below. A feed is usually quicker and tidier than watching the page.',
+        },
+      ];
+  return (
+    <div className="section">
+      <section className="card">
+        <button className="quick__toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Hide' : 'Not coming through right? How to fix it'}
+        </button>
+        {open && (
+          <>
+            {tips.map((t) => (
+              <div key={t.problem}>
+                <strong style={{ fontSize: 14 }}>{t.problem}</strong>
+                <span className="hint" style={{ display: 'block', margin: '2px 0 0' }}>
+                  {t.fix}
+                </span>
+              </div>
+            ))}
+            <span className="hint" style={{ margin: 0 }}>
+              Changes apply to posts that arrive after them; posts you already have stay as they are.
+            </span>
+          </>
+        )}
       </section>
     </div>
   );
