@@ -36,6 +36,8 @@ export interface ItemSummary {
   receivedAt: number;
   readAt: number | null;
   savedAt: number | null;
+  /** Starred as Interesting: it mattered (separate from Save for later). */
+  interestingAt: number | null;
   archivedAt: number | null;
   hasHtml: boolean;
   listUnsubscribe: string | null;
@@ -136,7 +138,7 @@ export interface BulkReadInput {
   action: 'read' | 'unread';
 }
 
-export type ItemView = 'inbox' | 'unread' | 'saved' | 'archived';
+export type ItemView = 'inbox' | 'unread' | 'saved' | 'interesting' | 'archived';
 
 /** Per-source AI switch. "default" follows the setting for the source's kind. */
 export type AiMode = 'default' | 'on' | 'off';
@@ -245,6 +247,8 @@ export type ReadingEventType =
   | 'mark_read'
   | 'save'
   | 'unsave'
+  | 'interesting'
+  | 'uninteresting'
   | 'archive'
   | 'unarchive'
   | 'link_click'
@@ -681,7 +685,7 @@ export interface ReadingStats {
   /** Received vs read, one row per local day, oldest first. */
   daily: { day: string; at: number; received: number; read: number }[];
   sources: ReadingSourceRow[];
-  categories: { category: string; issues: number; read: number; opened: number; finished: number }[];
+  categories: { category: string; issues: number; read: number; opened: number; finished: number; interesting: number }[];
   how: { via: Record<ReadVia, number>; device: Record<ReadDevice, number> };
   /** Unread items still in the inbox, by age. */
   backlog: { today: number; week: number; older: number };
@@ -695,6 +699,8 @@ export interface ReadingSourceRow {
   read: number;
   opened: number;
   finished: number;
+  /** Starred as Interesting. */
+  interesting: number;
   avgMinutes: number | null;
   lastReadAt: number | null;
 }

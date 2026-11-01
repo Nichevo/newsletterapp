@@ -6,7 +6,7 @@ import { EmailBody } from '../components/EmailBody';
 import { AiNotes, HighlightSheet, SelectionBar, TextBody, useArticleSelection } from '../components/Highlights';
 import { revealMark } from '../highlight';
 import { aiAttribution, longDate, readingMinutes, shortTime } from '../format';
-import { IconArchive, IconBack, IconBookmark, IconCheck, IconChevron, IconExternal, IconImage, IconThumbDown, IconThumbUp } from '../icons';
+import { IconArchive, IconBack, IconBookmark, IconCheck, IconChevron, IconExternal, IconImage, IconStar, IconThumbDown, IconThumbUp } from '../icons';
 import { getHideSponsored, getNotesPlace, getTextSize, imagesAllowed, setImagesAllowed, textSizePx, type AskOutputPref } from '../prefs';
 import { outlineOf } from '../quick';
 import { neighbours } from '../readingList';
@@ -97,7 +97,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
     [id],
   );
 
-  async function act(action: 'save' | 'unsave' | 'archive' | 'unarchive' | 'read' | 'unread') {
+  async function act(action: 'save' | 'unsave' | 'interesting' | 'uninteresting' | 'archive' | 'unarchive' | 'read' | 'unread') {
     if (!item) return;
     try {
       const updated = await api.itemAction(item.id, action);
@@ -153,6 +153,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             {item.readAt && <span className="chip chip--outline">{readLabel(item)}</span>}
             {item.toAddress && <span className="chip chip--outline">to {item.toAddress}</span>}
             {item.savedAt && <span className="chip chip--warn">Saved</span>}
+            {item.interestingAt && <span className="chip chip--warn">★ Interesting</span>}
             {item.category && <span className="chip chip--category">{item.category}</span>}
             {item.sponsored && <span className="chip chip--outline">Has a sponsored section</span>}
             {item.tags.map((t) => (
@@ -248,6 +249,15 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
         <button className={item?.savedAt ? 'active' : ''} disabled={!item} onClick={() => void act(item?.savedAt ? 'unsave' : 'save')}>
           <IconBookmark />
           {item?.savedAt ? 'Saved' : 'Save'}
+        </button>
+        <button
+          className={item?.interestingAt ? 'active' : ''}
+          disabled={!item}
+          title="Interesting: this was worth it. Helps the Top sort and digest learn what you value."
+          onClick={() => void act(item?.interestingAt ? 'uninteresting' : 'interesting')}
+        >
+          <IconStar filled={Boolean(item?.interestingAt)} />
+          {item?.interestingAt ? 'Starred' : 'Star'}
         </button>
         <button disabled={!item} onClick={() => void act(item?.status === 'archived' ? 'unarchive' : 'archive')}>
           <IconArchive />

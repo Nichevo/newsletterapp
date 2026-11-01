@@ -12,21 +12,24 @@ import { getSwipeReadSide } from '../prefs';
 import { todayLabel } from '../format';
 import { IconPlus, IconRefresh, IconSparkle } from '../icons';
 
-const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'archived'];
+const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'interesting', 'archived'];
+
+/** The inbox, or one of the Saved screens (Saved for later, Interesting), which show a fixed view. */
+type Mode = 'inbox' | 'saved' | 'interesting';
 const KINDS: ItemKind[] = ['newsletter', 'feed', 'site', 'ai'];
 
 /** The filter bar choices are remembered per screen on this device. */
-function storageKey(mode: 'inbox' | 'saved') {
+function storageKey(mode: Mode) {
   return `filters:${mode}`;
 }
 
-function loadFilters(mode: 'inbox' | 'saved'): Filters {
-  const fallback: Filters = { view: mode === 'saved' ? 'saved' : 'inbox', sort: 'newest', source: null, category: null, kind: null };
+function loadFilters(mode: Mode): Filters {
+  const fallback: Filters = { view: mode === 'inbox' ? 'inbox' : mode, sort: 'newest', source: null, category: null, kind: null };
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey(mode)) ?? 'null') as Partial<Filters> | null;
     if (!saved) return fallback;
     return {
-      view: mode === 'saved' ? 'saved' : VIEWS.includes(saved.view as ItemView) ? (saved.view as ItemView) : fallback.view,
+      view: mode !== 'inbox' ? mode : VIEWS.includes(saved.view as ItemView) ? (saved.view as ItemView) : fallback.view,
       sort: saved.sort === 'oldest' || saved.sort === 'top' ? saved.sort : 'newest',
       source: typeof saved.source === 'string' ? saved.source : null,
       category: typeof saved.category === 'string' ? saved.category : null,
@@ -37,7 +40,7 @@ function loadFilters(mode: 'inbox' | 'saved'): Filters {
   }
 }
 
-function saveFilters(mode: 'inbox' | 'saved', filters: Filters) {
+function saveFilters(mode: Mode, filters: Filters) {
   try {
     localStorage.setItem(storageKey(mode), JSON.stringify(filters));
   } catch {
@@ -51,7 +54,7 @@ export function InboxPage({
   counts,
   onChanged,
 }: {
-  mode: 'inbox' | 'saved';
+  mode: Mode;
   me: Me;
   counts: Counts;
   onChanged: () => void;
@@ -61,7 +64,7 @@ export function InboxPage({
     // A link like /?source=<id> (from Settings) opens the inbox on that source.
     const linked = searchParams.get('source');
     const stored = loadFilters(mode);
-    return linked ? { ...stored, view: mode === 'saved' ? 'saved' : 'inbox', source: linked, category: null, kind: null } : stored;
+    return linked ? { ...stored, view: mode === 'inbox' ? 'inbox' : mode, source: linked, category: null, kind: null } : stored;
   });
   const [items, setItems] = useState<ItemSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -238,17 +241,21 @@ export function InboxPage({
     ? listCounts.shown
     : mode === 'saved'
       ? counts.saved
-      : filters.view === 'unread'
+      : mode === 'interesting'
+        ? counts.interesting
+        : filters.view === 'unread'
         ? counts.unread
         : filters.view === 'inbox'
           ? counts.inbox
           : null;
   // Header: unread and shown for what the filters pick out (filtered figures come with the list).
-  const unreadShown = listCounts ? listCounts.unread : mode === 'inbox' && filters.view !== 'archived' ? counts.unread : null;
+  const unreadShown = listCounts ? listCounts.unread : mode === 'inbox' && (filters.view === 'inbox' || filters.view === 'unread') ? counts.unread : null;
   const eyebrow =
     mode === 'saved'
       ? `${counts.saved} saved for later`
-      : unreadShown !== null && total !== null
+      : mode === 'interesting'
+        ? `${counts.interesting} marked interesting`
+        : unreadShown !== null && total !== null
         ? filters.view === 'unread'
           ? `${unreadShown} unread`
           : `${unreadShown} unread · ${total} shown`
@@ -260,7 +267,7 @@ export function InboxPage({
       <header className="topbar">
         <div className="topbar__titles">
           <span className="topbar__eyebrow">{eyebrow}</span>
-          <h1>{mode === 'saved' ? 'Saved' : 'Inbox'}</h1>
+          <h1>{mode === 'inbox' ? 'Inbox' : 'Saved'}</h1>
         </div>
         <div className="topbar__actions">
           <DensityToggle />
@@ -275,7 +282,7 @@ export function InboxPage({
           </Link>
         </div>
       </header>
-      {mode === 'saved' && <SavedTabs current="saved" />}
+      {mode !== 'inbox' && <SavedTabs current={mode} />}
 
       <FilterBar
         filters={filters}
@@ -283,7 +290,7 @@ export function InboxPage({
         sources={sources}
         categories={categories}
         count={total}
-        fixedView={mode === 'saved'}
+        fixedView={mode !== 'inbox'}
         onBulk={bulk}
       />
 
@@ -330,6 +337,11 @@ export function InboxPage({
             <>
               <h2>Nothing saved yet</h2>
               <p>Swipe an item {readSide === 'right' ? 'left' : 'right'} in the inbox, or tap Save in the reader.</p>
+            </>
+          ) : mode === 'interesting' ? (
+            <>
+              <h2>Nothing starred yet</h2>
+              <p>Tap the star in the reader when something was worth it. Stars help the Top sort and the digest learn what you value.</p>
             </>
           ) : filters.view !== 'inbox' || filters.source || filters.category ? (
             <>

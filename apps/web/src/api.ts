@@ -85,7 +85,7 @@ const post = <T>(path: string, body?: unknown) =>
 
 export const api = {
   me: () => get<Me>('/api/me'),
-  counts: () => get<{ inbox: number; unread: number; saved: number; pendingSenders: number }>('/api/counts'),
+  counts: () => get<{ inbox: number; unread: number; saved: number; interesting: number; pendingSenders: number }>('/api/counts'),
 
   listItems: (params: {
     view: ItemView;
@@ -104,7 +104,7 @@ export const api = {
   },
   item: (id: string) => get<ItemSummary>(`/api/items/${id}`),
   itemBody: (id: string) => get<ItemBody>(`/api/items/${id}/body`),
-  itemAction: (id: string, action: 'read' | 'unread' | 'save' | 'unsave' | 'archive' | 'unarchive') =>
+  itemAction: (id: string, action: 'read' | 'unread' | 'save' | 'unsave' | 'interesting' | 'uninteresting' | 'archive' | 'unarchive') =>
     post<ItemSummary>(`/api/items/${id}/${action}`, action === 'read' ? { device: isPhone() } : undefined),
   bulkRead: (input: BulkReadInput) => post<{ changed: number }>('/api/items/bulk-read', { ...input, device: isPhone() }),
   rawUrl: (id: string) => `/api/items/${id}/raw`,
