@@ -74,7 +74,7 @@ const loadState = async (env: Env) => ({ ...NO_STATE, ...(await readJson<AiState
 
 // ---------- Which model does the work ----------
 
-const loadModelMode = async (env: Env): Promise<ModelMode> => ((await readJson<ModelMode>(env, 'model_mode')) === 'split' ? 'split' : 'first');
+export const loadModelMode = async (env: Env): Promise<ModelMode> => ((await readJson<ModelMode>(env, 'model_mode')) === 'split' ? 'split' : 'first');
 
 /**
  * When the work is split, the switched-on model with the fewest runs in the last
@@ -88,6 +88,24 @@ async function pickSplitModel(env: Env): Promise<ModelRef | null> {
        ON runs.provider = models.provider AND runs.model = models.name
      WHERE models.enabled = 1 AND models.installed = 1
      ORDER BY COALESCE(runs.n, 0), models.position LIMIT 1`,
+  )
+    .bind(now() - 86_400_000)
+    .first<ModelRef>();
+  return row ? { provider: row.provider, name: row.name } : null;
+}
+
+/**
+ * When the work is split, each highlight question goes to the switched-on model that
+ * answered fewest questions in the last day, so asks rotate between them too.
+ */
+export async function pickAskModel(env: Env): Promise<ModelRef | null> {
+  if ((await loadModelMode(env)) !== 'split') return null;
+  const row = await env.DB.prepare(
+    `SELECT models.provider, models.name FROM models
+     LEFT JOIN (SELECT provider, model, COUNT(*) AS n FROM asks INDEXED BY asks_done WHERE done_at IS NOT NULL AND done_at > ? GROUP BY provider, model) recent
+       ON recent.provider = models.provider AND recent.model = models.name
+     WHERE models.enabled = 1 AND models.installed = 1
+     ORDER BY COALESCE(recent.n, 0), models.position LIMIT 1`,
   )
     .bind(now() - 86_400_000)
     .first<ModelRef>();
