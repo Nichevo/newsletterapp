@@ -1,8 +1,8 @@
-import type { AiMode, AppSettings, DiscoverResult, FullTextMode, Source, SourceUpdate } from '@newsletterapp/shared';
+import type { AiMode, AppSettings, DiscoverResult, FullTextMode, Source, SourceActivity, SourceUpdate } from '@newsletterapp/shared';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
-import { nextTime, rhythmText, shortTime } from '../format';
+import { activityView, nextTime, rhythmText, shortTime } from '../format';
 import { IconBack } from '../icons';
 import { StartWithPicker } from './Add';
 
@@ -48,6 +48,14 @@ export function SourcePage() {
       setError(err instanceof Error ? err.message : 'Action failed');
     }
   }
+
+  const [activity, setActivity] = useState<SourceActivity | undefined>(undefined);
+  useEffect(() => {
+    api
+      .sourceActivity()
+      .then((rows) => setActivity(rows.find((r) => r.sourceId === id)))
+      .catch(() => undefined);
+  }, [id]);
 
   useEffect(() => {
     Promise.all([api.sources(), api.settings()])
@@ -121,6 +129,7 @@ export function SourcePage() {
               {source.unsubscribedAt ? ` · unsubscribed ${shortTime(source.unsubscribedAt)}` : ''}
               {source.pausedAt ? ` · paused since ${shortTime(source.pausedAt)}` : ''}
             </span>
+            {activity && <ActivityLine activity={activity} source={source} />}
             <div className="inline">
               <Link to={`/?source=${source.id}`} className="btn btn--small">
                 Show {noun}s
@@ -543,6 +552,16 @@ function RhythmNote({ source }: { source: Source }) {
     <span className="hint" style={{ margin: 0 }}>
       <strong>When it posts:</strong> {summary} {checking}
       {source.rhythm && source.rhythm.posts > 0 ? ` Learnt from its last ${source.rhythm.posts} posts.` : ''}
+    </span>
+  );
+}
+
+/** Items and reads per month over the last 90 days, and a warning when the source has gone quiet or unread. */
+function ActivityLine({ activity, source }: { activity: SourceActivity; source: Source }) {
+  const view = activityView(activity, source);
+  return (
+    <span className="hint" style={{ margin: 0 }}>
+      Last 90 days: {view.line}.{view.flag && !source.pausedAt ? <strong> {view.flag}.</strong> : null}
     </span>
   );
 }

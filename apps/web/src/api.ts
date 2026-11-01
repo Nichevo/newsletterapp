@@ -1,4 +1,5 @@
 import type {
+  SourceActivity,
   Address,
   AskPreset,
   AskPresetInput,
@@ -135,6 +136,7 @@ export const api = {
   addSource: (input: NewSourceInput) => post<NewSourceResult>('/api/sources', input),
   importOpml: (opml: string, startWith?: number) => post<OpmlImportResult>('/api/sources/opml', { opml, startWith }),
   checkAllSources: () => post<{ due: number; cloud: number; queued: number; added: number }>('/api/sources/check-all'),
+  sourceActivity: () => get<SourceActivity[]>('/api/sources/activity'),
   checkSource: (id: string) => post<{ added: number; waitingForPc: boolean; source: Source }>(`/api/sources/${id}/check`),
 
   digests: () => get<Digest[]>('/api/digests'),

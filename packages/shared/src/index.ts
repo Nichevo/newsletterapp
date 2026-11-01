@@ -691,6 +691,16 @@ export interface ReadingStats {
   backlog: { today: number; week: number; older: number };
 }
 
+/** How busy each source has been over the last 90 days, for Settings > Your sources and each source page. */
+export interface SourceActivity {
+  sourceId: string;
+  /** Days the rates are worked out over: 90, or fewer for a source added since. */
+  days: number;
+  items: number;
+  reads: number;
+  stars: number;
+}
+
 export interface ReadingSourceRow {
   id: string;
   name: string;

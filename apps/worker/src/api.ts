@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type {
   AiMode,
+  SourceActivity,
   Address,
   BulkReadInput,
   FullTextMode,
@@ -499,6 +500,35 @@ app.get('/api/sources', async (c) => {
      ) WHERE item_count > 0 OR kind != 'newsletter' ORDER BY kind = 'newsletter' DESC, COALESCE(last_received_at, created_at) DESC`,
   ).all<SourceRow & { item_count: number; last_received_at: number | null }>();
   return c.json(rows.results.map(toSource));
+});
+
+// Items, reads and stars per source over the last 90 days: one grouped read of
+// those 90 days' items, only when Your sources or a source page is open.
+app.get('/api/sources/activity', async (c) => {
+  const t = now();
+  const from = t - 90 * 86_400_000;
+  const [rows, created] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT source_id, COUNT(*) AS items, SUM(read_at IS NOT NULL) AS reads, SUM(interesting_at IS NOT NULL) AS stars, MIN(received_at) AS first
+       FROM items WHERE status IN ('inbox', 'archived') AND received_at >= ? AND source_id IS NOT NULL GROUP BY source_id`,
+    )
+      .bind(from)
+      .all<{ source_id: string; items: number; reads: number | null; stars: number | null; first: number }>(),
+    c.env.DB.prepare('SELECT id, created_at FROM sources').all<{ id: string; created_at: number }>(),
+  ]);
+  const byId = new Map(rows.results.map((r) => [r.source_id, r]));
+  const out: SourceActivity[] = created.results.map((s) => {
+    const r = byId.get(s.id);
+    return {
+      sourceId: s.id,
+      // A new source counts from when it was added, or from its first post if it brought older ones in.
+      days: Math.max(1, Math.min(90, Math.round((t - Math.max(from, Math.min(s.created_at, r?.first ?? s.created_at))) / 86_400_000))),
+      items: r?.items ?? 0,
+      reads: r?.reads ?? 0,
+      stars: r?.stars ?? 0,
+    };
+  });
+  return c.json(out);
 });
 
 // Mark all read / archive all for one newsletter.
