@@ -551,7 +551,7 @@ export function registerHighlights(app: App) {
     const waiting = rows.results.some((a) => a.status === 'pending' || a.status === 'working');
     const helper = waiting ? await readJson<{ lastSeenAt?: number }>(c.env, 'helper') : null;
     const body: FreeAskList = {
-      asks: rows.results.map((r) => ({ ...toAsk(r), text: r.text ?? null })),
+      asks: rows.results.map((r) => ({ ...toAsk(r), text: r.text ?? null, lookups: r.lookups })),
       helperLastSeenAt: helper?.lastSeenAt ?? null,
     };
     return c.json(body);
