@@ -76,7 +76,15 @@ Write-Host 'Checking the connection once...'
 & $node (Join-Path $dir 'newsletter-helper.mjs') --once
 if ($LASTEXITCODE -ne 0) { Write-Host 'The test run reported a problem; see the lines above.' -ForegroundColor Yellow }
 
-$action = New-ScheduledTaskAction -Execute $node -Argument "`"$(Join-Path $dir 'newsletter-helper.mjs')`"" -WorkingDirectory $dir
+$script = Join-Path $dir 'newsletter-helper.mjs'
+# Run with no console window at all (a visible node.exe window that gets closed stops the
+# helper). conhost --headless needs Windows 10 2004 or later; older Windows gets the window.
+$conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
+if ([Environment]::OSVersion.Version.Build -ge 19041 -and (Test-Path $conhost)) {
+  $action = New-ScheduledTaskAction -Execute $conhost -Argument "--headless `"$node`" `"$script`"" -WorkingDirectory $dir
+} else {
+  $action = New-ScheduledTaskAction -Execute $node -Argument "`"$script`"" -WorkingDirectory $dir
+}
 # At log on, and again every 5 minutes: Windows only restarts a task that failed to start,
 # not one that stopped later, so the repeat brings the helper back if it ever exits.
 # While it is running, the repeat does nothing (IgnoreNew).
