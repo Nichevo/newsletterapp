@@ -148,6 +148,21 @@ function askMessage(job: AskJob, c: LocalConfig, lookups: Lookups): string {
 }
 
 const NO_LOOKUPS: Lookups = { found: [], searches: 0, missing: [] };
+/** Lookups for one question never hold the queue up longer than this; the model answers without them. */
+const LOOKUP_LIMIT_MS = 3 * 60_000;
+const lookupFailed = (err: unknown): Lookups => ({
+  ...NO_LOOKUPS,
+  missing: [`lookups (${err instanceof Error ? err.message : String(err)})`],
+});
+function withinTime<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    p.finally(() => clearTimeout(timer)),
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what} took over ${Math.round(ms / 60_000)} minutes`)), ms);
+    }),
+  ]);
+}
 
 /** Extra instructions for a summary that comes with web search results. */
 const SEARCH_RULES = `
@@ -172,7 +187,8 @@ async function answerAsks(models: ModelRef[] = currentModels): Promise<void> {
         const provider = findProvider(providers, ref)!;
         const base = { askId: job.askId, provider: ref.provider, model: ref.name };
         log(`question "${job.quote.slice(0, 50)}": ${job.lookups && job.lookups !== 'none' ? `looking up (${job.lookups}) first` : 'no lookups'}`);
-        const lookups = job.lookups && job.lookups !== 'none' ? await askLookups(job, cfg).catch(() => NO_LOOKUPS) : NO_LOOKUPS;
+        const lookups =
+          job.lookups && job.lookups !== 'none' ? await withinTime(askLookups(job, cfg), LOOKUP_LIMIT_MS, 'lookups').catch(lookupFailed) : NO_LOOKUPS;
         if (lookups.missing.length) log(`couldn't use ${lookups.missing.join('; ')}`);
         const extra = {
           searches: lookups.searches,
@@ -240,7 +256,7 @@ async function summariseQueue(config: HelperConfig) {
     const provider = findProvider(providers, model)!;
     const base = { itemId: job.itemId, provider: model.provider, model: model.name, promptId: job.promptId, promptVersion: job.promptVersion };
     let res: Awaited<ReturnType<typeof app.result>>;
-    const lookups = job.search ? await summaryLookups(job, cfg).catch(() => NO_LOOKUPS) : NO_LOOKUPS;
+    const lookups = job.search ? await withinTime(summaryLookups(job, cfg), LOOKUP_LIMIT_MS, 'lookups').catch(() => NO_LOOKUPS) : NO_LOOKUPS;
     const searchText = lookupsText(lookups.found);
     try {
       const { output, seconds, watts } = await run(
