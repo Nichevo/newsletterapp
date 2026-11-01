@@ -116,10 +116,17 @@ function AskForm({ onSent }: { onSent: () => void }) {
             onChange={(e) => setQuestion(e.target.value)}
           />
         )}
-        <label className="switchrow">
-          <span style={{ fontSize: 15 }}>Look it up on the web and Wikipedia first</span>
-          <input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} />
-        </label>
+        <div className="switchrow">
+          <span style={{ fontSize: 15 }}>Search the web and Wikipedia first</span>
+          <div className="segmented" role="group" aria-label="Search the web first">
+            <button aria-pressed={web} onClick={() => setWeb(true)}>
+              On
+            </button>
+            <button aria-pressed={!web} onClick={() => setWeb(false)}>
+              Off
+            </button>
+          </div>
+        </div>
         <button className="btn btn--primary" disabled={!canSend} onClick={() => void send()}>
           {busy ? 'Sending…' : 'Ask'}
         </button>
@@ -169,6 +176,7 @@ function RecentAsks() {
             </strong>
             <span className="cardrow__sub">
               {STATUS[a.status] ?? a.status} · asked {shortTime(a.createdAt)}
+              {a.lookups === 'none' ? ' · web search off' : ''}
               {a.status === 'done' && a.model ? ` · ${a.model}${a.seconds ? ` in ${Math.round(a.seconds)}s` : ''}` : ''}
             </span>
             {a.status === 'done' && a.lookupNote && <span className="cardrow__sub">{a.lookupNote}.</span>}

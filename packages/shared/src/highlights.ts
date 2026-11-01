@@ -119,7 +119,7 @@ export interface NewFreeAskInput {
 
 /** GET /api/asks/free: your latest questions from the Ask the AI page, newest first. */
 export interface FreeAskList {
-  asks: (Ask & { text: string | null })[];
+  asks: (Ask & { text: string | null; lookups: LookupMode })[];
   helperLastSeenAt: number | null;
 }
 
