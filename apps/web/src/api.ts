@@ -4,6 +4,9 @@ import type {
   AskPresetInput,
   Highlight,
   HighlightAnchor,
+  HighlightList,
+  HighlightListQuery,
+  HighlightStats,
   ItemHighlights,
   NewAskInput,
   NewAskResult,
@@ -151,6 +154,12 @@ export const api = {
   deleteAiPrompt: (id: string) => request<{ ok: boolean }>(`/api/ai/prompts/${id}`, { method: 'DELETE' }),
   aiStats: (by: 'model' | 'source' | 'prompt') => get<AiStatsRow[]>(`/api/ai/stats?by=${by}`),
   readingStats: (days: number) => get<ReadingStats>(`/api/reading/stats?days=${days}`),
+  highlightList: (query: HighlightListQuery) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== '') q.set(k, String(v));
+    return get<HighlightList>(`/api/highlights?${q}`);
+  },
+  highlightStats: (days: number) => get<HighlightStats>(`/api/highlights/stats?days=${days}`),
   aiUsage: () => get<AiUsageView>('/api/ai/usage'),
   aiBacklog: () => get<AiBacklogView>('/api/ai/backlog'),
   saveAiUsageSettings: (s: Partial<AiUsageSettings>) => put<AiUsageSettings>('/api/ai/usage/settings', s),

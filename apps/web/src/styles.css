@@ -1810,3 +1810,68 @@ select {
     display: none;
   }
 }
+
+/* Saved > Highlights */
+a.pill {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.hlcard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hlcard__open {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.hlcard__quote {
+  margin: 0 0 4px;
+  font-size: 15px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.hlcard__quote mark {
+  background: rgba(250, 204, 21, 0.45);
+  color: inherit;
+  border-radius: 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+@media (prefers-color-scheme: dark) {
+  .hlcard__quote mark {
+    background: rgba(234, 179, 8, 0.35);
+  }
+}
+
+.hlcard__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hlcard__asks {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--teal-ink);
+}

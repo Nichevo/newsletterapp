@@ -6,6 +6,7 @@ import { TabBar } from './components/TabBar';
 import { AddPage } from './pages/Add';
 import { AiSettingsPage } from './pages/AiSettings';
 import { AiUsagePage } from './pages/AiUsage';
+import { HighlightsPage } from './pages/Highlights';
 import { HighlightPromptsPage } from './pages/HighlightPrompts';
 import { WebSearchPage } from './pages/WebSearch';
 import { DigestPage } from './pages/Digest';
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="/" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
         <Route path="/digest" element={<DigestPage />} />
         <Route path="/saved" element={<InboxPage key="saved" mode="saved" me={me} counts={counts} onChanged={refreshCounts} />} />
+        <Route path="/saved/highlights" element={<HighlightsPage />} />
         <Route path="/item/:id" element={<ReaderPage onChanged={refreshCounts} />} />
         <Route path="/senders" element={<SendersPage onChanged={refreshCounts} />} />
         <Route path="/add" element={<AddPage me={me} />} />

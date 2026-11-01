@@ -42,12 +42,12 @@ export function dayStart(day: string, timezone: string): number {
 }
 
 /** The day key `n` days before a given day key. */
-function shiftDay(day: string, n: number): string {
+export function shiftDay(day: string, n: number): string {
   const [y = 1970, m = 1, d = 1] = day.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d - n)).toISOString().slice(0, 10);
 }
 
-const CATEGORY_SQL = "COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]'), 'Other')";
+export const CATEGORY_SQL = "COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]'), 'Other')";
 
 export function registerReading(app: App) {
   app.get('/api/reading/stats', async (c) => {

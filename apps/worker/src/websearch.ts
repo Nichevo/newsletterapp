@@ -48,7 +48,7 @@ export async function loadWebSearch(env: Env): Promise<WebSearchSettings> {
   return normalizeWebSearch((await readJson<Partial<WebSearchSettings>>(env, SETTINGS_KEY)) ?? {});
 }
 
-async function loadUsage(env: Env): Promise<Usage> {
+export async function loadUsage(env: Env): Promise<Usage> {
   const u = await readJson<Usage>(env, USAGE_KEY);
   const month = monthOf();
   return u && u.month === month ? { month, asks: u.asks || 0, summaries: u.summaries || 0 } : { month, asks: 0, summaries: 0 };

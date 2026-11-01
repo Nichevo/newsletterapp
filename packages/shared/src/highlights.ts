@@ -371,3 +371,79 @@ export function markdownToText(md: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+// ---------- Highlights page and statistics ----------
+
+/** One highlight on the Highlights page, with the article it's in. */
+export interface HighlightListRow {
+  id: string;
+  itemId: string;
+  quote: string;
+  createdAt: number;
+  itemTitle: string;
+  sourceId: string | null;
+  sourceName: string | null;
+  category: string;
+  /** The prompts asked about it, oldest first ("Ask your own" shows as its question's label). */
+  asks: string[];
+}
+
+export interface HighlightListQuery {
+  /** Highlights made before this time (the `next` of the previous page). */
+  before?: number;
+  q?: string;
+  /** 'asked' = with at least one question; 'plain' = just highlighted. */
+  kind?: 'asked' | 'plain';
+  sourceId?: string;
+  category?: string;
+}
+
+export interface HighlightList {
+  highlights: HighlightListRow[];
+  /** Pass as `before` for the next page; null when there are no more. */
+  next: number | null;
+  /** Sources and categories that have highlights, for the filters. */
+  sources: { id: string; name: string; count: number }[];
+  categories: { category: string; count: number }[];
+}
+
+export interface HighlightStatsGroup {
+  key: string;
+  name: string;
+  highlights: number;
+  asks: number;
+}
+
+export interface HighlightPromptStats {
+  label: string;
+  asks: number;
+  failed: number;
+  up: number;
+  down: number;
+  medianSeconds: number | null;
+}
+
+export interface HighlightStats {
+  days: number;
+  totals: {
+    highlights: number;
+    /** Highlights with no question asked. */
+    plain: number;
+    asked: number;
+    asks: number;
+    /** Articles with at least one highlight. */
+    articles: number;
+    /** Highlights per 100 items read in the period, null when nothing was read. */
+    per100Read: number | null;
+  };
+  /** Last 28 days, by local day. */
+  daily: { day: string; at: number; highlights: number; asks: number }[];
+  bySource: HighlightStatsGroup[];
+  byCategory: HighlightStatsGroup[];
+  byPrompt: HighlightPromptStats[];
+  byModel: HighlightPromptStats[];
+  /** Where answers went. */
+  output: Record<AskOutput, number>;
+  mostHighlighted: { itemId: string; title: string; sourceName: string | null; highlights: number }[];
+  searches: { month: string; used: number; budget: number; asks: number; summaries: number };
+}
