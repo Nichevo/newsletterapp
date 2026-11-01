@@ -23,7 +23,7 @@ import {
   type PcOffMode,
 } from '@newsletterapp/shared';
 import type { Hono } from 'hono';
-import { readJson, writeJson } from './ai';
+import { pickAskModel, readJson, writeJson } from './ai';
 import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
 import { loadSettings } from './settings';
@@ -719,6 +719,8 @@ export function registerHighlights(app: App) {
     const jobs: AskJob[] = [];
     const wantsWeb = claimed.results.some((a) => a.lookups === 'web' || a.lookups === 'both');
     let searchesLeft = wantsWeb ? (await searchAllowance(c.env)).asks : 0;
+    // With "split the work between models" on, questions rotate between models too.
+    const model = claimed.results.length ? await pickAskModel(c.env) : null;
     for (const a of claimed.results.sort((x, y) => x.created_at - y.created_at)) {
       if (!a.item_id) {
         // Asked on its own: the pasted text stands in for both the article and the highlight.
@@ -737,6 +739,7 @@ export function registerHighlights(app: App) {
           question: a.question,
           lookups: a.lookups,
           searchAllowed: (a.lookups === 'web' || a.lookups === 'both') && searchesLeft > 0,
+          ...(model ? { model } : {}),
         });
         if (a.lookups === 'web' || a.lookups === 'both') searchesLeft -= 2;
         continue;
@@ -768,6 +771,7 @@ export function registerHighlights(app: App) {
         lookups: a.lookups,
         // A question with web search uses up to two searches.
         searchAllowed: (a.lookups === 'web' || a.lookups === 'both') && searchesLeft > 0,
+        ...(model ? { model } : {}),
       });
       if (a.lookups === 'web' || a.lookups === 'both') searchesLeft -= 2;
     }

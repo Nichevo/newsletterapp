@@ -299,6 +299,8 @@ async function fetchQueue(config: HelperConfig) {
     const { jobs } = await app.fetchClaim(5);
     if (jobs.length === 0) return;
     for (const job of jobs) {
+      // A question waiting shouldn't sit behind a run of slow web pages.
+      await checkAsks();
       const result = await runFetchJob(job, cfg);
       const res = await app.fetchResult(result);
       log(`${job.kind} ${job.url.slice(0, 80)}: ${result.ok ? (job.kind === 'article' ? 'article saved' : `${res.added ?? 0} new`) : result.error}`);
