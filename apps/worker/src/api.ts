@@ -39,7 +39,7 @@ import {
   type SourceRow,
 } from './db';
 import { buildDigestIfDue, topicsOf } from './digest';
-import { registerFeeds } from './feeds';
+import { normalizeUrl, registerFeeds } from './feeds';
 import { registerHighlights } from './highlights';
 import { registerHighlightPages } from './highlight-pages';
 import { registerWebSearch } from './websearch';
@@ -531,6 +531,40 @@ app.post('/api/sources/:id', async (c) => {
   if (input.linkHint !== undefined) set('link_hint = ?', input.linkHint?.trim().slice(0, 200) || null);
   if (typeof input.checkMinutes === 'number' && input.checkMinutes >= 15 && input.checkMinutes <= 10_080) {
     set('check_minutes = ?', Math.round(input.checkMinutes));
+  }
+  if (input.followAs !== undefined || input.url !== undefined || input.feedUrl !== undefined) {
+    // Change how a feed or website is followed: switch between the two, or point it at a new address.
+    const cur = await c.env.DB.prepare('SELECT kind, url, feed_url FROM sources WHERE id = ?')
+      .bind(id)
+      .first<{ kind: ItemKind; url: string | null; feed_url: string | null }>();
+    if (!cur || (cur.kind !== 'feed' && cur.kind !== 'site')) return c.json({ error: 'Only feeds and websites can change how they are followed' }, 400);
+    const kind = input.followAs ?? cur.kind;
+    if (kind !== 'feed' && kind !== 'site') return c.json({ error: 'bad followAs' }, 400);
+    const url = input.url !== undefined ? normalizeUrl(input.url) : cur.url;
+    const feedUrl = kind === 'feed' ? (input.feedUrl !== undefined ? normalizeUrl(input.feedUrl) : cur.feed_url) : cur.feed_url;
+    if (kind === 'site' && !url) return c.json({ error: 'A web address is required' }, 400);
+    if (kind === 'feed' && !feedUrl) return c.json({ error: 'A feed address is required' }, 400);
+    const dup = await c.env.DB.prepare(
+      kind === 'feed' ? "SELECT id FROM sources WHERE kind = 'feed' AND feed_url = ? AND id != ?" : "SELECT id FROM sources WHERE kind = 'site' AND url = ? AND id != ?",
+    )
+      .bind(kind === 'feed' ? feedUrl : url, id)
+      .first<{ id: string }>();
+    if (dup) return c.json({ error: 'You already follow this', sourceId: dup.id }, 409);
+    const changed = kind !== cur.kind || url !== cur.url || (kind === 'feed' && feedUrl !== cur.feed_url);
+    if (changed) {
+      set('kind = ?', kind);
+      set('url = ?', url);
+      set('feed_url = ?', feedUrl);
+      // Websites always run on the PC; a feed starts on Cloudflare again (it moves itself if turned away).
+      if (input.fetchVia === undefined) set('fetch_via = ?', kind === 'site' ? 'pc' : 'cloud');
+      // Start over like a new source: latest few posts only, checked straight away.
+      set('last_ok_at = ?', null);
+      set('etag = ?', null);
+      set('last_modified = ?', null);
+      set('last_error = ?', null);
+      set('error_count = ?', 0);
+      set('next_check_at = ?', now());
+    }
   }
   if (typeof input.paused === 'boolean') {
     // Resuming makes it due straight away.

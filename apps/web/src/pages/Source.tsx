@@ -1,4 +1,4 @@
-import type { AiMode, AppSettings, FullTextMode, Source, SourceUpdate } from '@newsletterapp/shared';
+import type { AiMode, AppSettings, DiscoverResult, FullTextMode, Source, SourceUpdate } from '@newsletterapp/shared';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
@@ -217,6 +217,15 @@ export function SourcePage() {
           </div>
 
           {isWeb && <FetchSection source={source} onUpdate={(p) => void update(p)} onCheck={() => void checkNow()} />}
+          {isWeb && (
+            <FollowSection
+              source={source}
+              onFollow={async (p) => {
+                await update(p);
+                await checkNow();
+              }}
+            />
+          )}
         </>
       )}
     </div>
@@ -317,6 +326,126 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
         </label>
         <span className="hint" style={{ margin: 0 }}>Your PC opens these pages in a hidden Edge or Chrome window. Slower, so only when needed.</span>
       </section>
+    </div>
+  );
+}
+
+/** Not getting what you want? Find the site's feeds again, or switch between a feed and watching the page. */
+function FollowSection({ source, onFollow }: { source: Source; onFollow: (p: SourceUpdate) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [address, setAddress] = useState(source.url ?? source.feedUrl ?? '');
+  const [found, setFound] = useState<DiscoverResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function find() {
+    setBusy(true);
+    setError(null);
+    setFound(null);
+    try {
+      setFound(await api.discoverSource(address));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not look at that address');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function choose(p: SourceUpdate) {
+    setBusy(true);
+    await onFollow(p);
+    setBusy(false);
+    setOpen(false);
+    setFound(null);
+  }
+
+  if (!open) {
+    return (
+      <div className="section">
+        <section className="card">
+          <span className="hint" style={{ margin: 0 }}>
+            Not getting what you want from this {source.kind === 'site' ? 'website watch' : 'feed'}? Switch it to{' '}
+            {source.kind === 'site' ? 'a feed' : 'watching the website'}, or point it at another address.
+          </span>
+          <button className="btn btn--small" style={{ alignSelf: 'flex-start' }} onClick={() => setOpen(true)}>
+            Change how it's followed
+          </button>
+        </section>
+      </div>
+    );
+  }
+
+  const isCurrentFeed = (feedUrl: string) => source.kind === 'feed' && source.feedUrl === feedUrl;
+  return (
+    <div className="section">
+      <span className="label">Change how it's followed</span>
+      <section className="card">
+        <div className="field">
+          <label htmlFor="follow-url">Website or feed address</label>
+          <input id="follow-url" className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
+        </div>
+        <div className="inline">
+          <button className="btn btn--small" disabled={busy || !address.trim()} onClick={() => void find()}>
+            {busy ? 'Looking…' : 'Look at this address'}
+          </button>
+          <button className="btn btn--small btn--ghost" onClick={() => setOpen(false)}>
+            Cancel
+          </button>
+        </div>
+        {error && <div className="error">{error}</div>}
+        {found && (
+          <>
+            {found.feeds.map((f) => (
+              <div key={f.feedUrl} className="inline" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <span className="hint" style={{ margin: 0, wordBreak: 'break-all' }}>
+                  Feed: {f.title ?? f.feedUrl}
+                  {f.title ? ` (${f.feedUrl})` : ''}
+                </span>
+                <button
+                  className="btn btn--small"
+                  disabled={busy || isCurrentFeed(f.feedUrl)}
+                  onClick={() => void choose({ followAs: 'feed', feedUrl: f.feedUrl, url: f.siteUrl ?? found.url })}
+                >
+                  {isCurrentFeed(f.feedUrl) ? 'Following' : 'Use this feed'}
+                </button>
+              </div>
+            ))}
+            {found.feeds.length === 0 && <span className="hint" style={{ margin: 0 }}>No feed found at this address.</span>}
+            {found.page && <WatchRow page={found.page} source={source} busy={busy} onChoose={(p) => void choose(p)} />}
+            <span className="hint" style={{ margin: 0 }}>
+              Items you already have stay. After switching, the next check brings in the latest few posts, like a newly added source.
+            </span>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function WatchRow({
+  page,
+  source,
+  busy,
+  onChoose,
+}: {
+  page: NonNullable<DiscoverResult['page']>;
+  source: Source;
+  busy: boolean;
+  onChoose: (p: SourceUpdate) => void;
+}) {
+  return (
+    <div className="inline" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <span className="hint" style={{ margin: 0, wordBreak: 'break-all' }}>
+        Watch the page {page.url}
+        {page.sample.length ? ` (${page.sample.length} articles found, e.g. "${page.sample[0]!.title}")` : ''}
+      </span>
+      <button
+        className="btn btn--small"
+        disabled={busy || (source.kind === 'site' && source.url === page.url)}
+        onClick={() => onChoose({ followAs: 'site', url: page.url, ...(page.scripted ? { render: true } : {}) })}
+      >
+        {source.kind === 'site' && source.url === page.url ? 'Watching' : 'Watch this page'}
+      </button>
     </div>
   );
 }
