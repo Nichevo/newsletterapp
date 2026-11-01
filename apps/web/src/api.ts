@@ -165,6 +165,7 @@ export const api = {
   saveAiUsageSettings: (s: Partial<AiUsageSettings>) => put<AiUsageSettings>('/api/ai/usage/settings', s),
   startTrial: (models: ModelRef[], count = 20) => post<{ id: string }>('/api/ai/trials', { models, count }),
   latestTrial: () => get<TrialView | null>('/api/ai/trials/latest'),
+  clearTrial: (id: string) => post<{ ok: true }>(`/api/ai/trials/${id}/clear`),
   rateTrial: (trialId: string, r: { itemId: string; provider: string; model: string; rating: 1 | -1 | 0 }) =>
     post<{ ok: boolean }>(`/api/ai/trials/${trialId}/rate`, r),
   modelMode: () => get<{ mode: ModelMode }>('/api/ai/model-mode'),
