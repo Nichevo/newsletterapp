@@ -18,6 +18,7 @@ import {
   type LookupMode,
   type NewAskInput,
   type NewAskResult,
+  type NewFreeAskInput,
   type PcOffMode,
 } from '@newsletterapp/shared';
 import type { Hono } from 'hono';
@@ -97,6 +98,8 @@ interface AskRow {
   done_at: number | null;
   deleted_at?: number | null;
   lookup_note?: string | null;
+  /** Asks on their own (no article): the text pasted in. item_id and highlight_id are '' then. */
+  text?: string | null;
 }
 
 function parseSources(raw: string | null): AskSource[] {
@@ -272,15 +275,17 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 function noteHtml(
   ask: AskRow,
   quote: string,
-  origin: { id: string; subject: string; source_name: string | null },
+  origin: { id: string; subject: string; source_name: string | null } | null,
   answer: string,
   sources: AskSource[],
   by: string,
 ) {
   const parts = [
-    `<p style="color:#5b636b;font-size:0.9em">From your highlight in <a href="/item/${esc(origin.id)}">${esc(origin.subject)}</a>${
-      origin.source_name ? ` · ${esc(origin.source_name)}` : ''
-    }</p>`,
+    origin
+      ? `<p style="color:#5b636b;font-size:0.9em">From your highlight in <a href="/item/${esc(origin.id)}">${esc(origin.subject)}</a>${
+          origin.source_name ? ` · ${esc(origin.source_name)}` : ''
+        }</p>`
+      : `<p style="color:#5b636b;font-size:0.9em">You asked about:</p>`,
     `<blockquote style="margin:0 0 1em;padding:0.4em 0.9em;border-left:3px solid #e0b34a;background:rgba(224,179,74,0.12)">${esc(quote)}</blockquote>`,
     ask.question ? `<p><strong>Your question:</strong> ${esc(ask.question)}</p>` : '',
     markdownToHtml(answer),
@@ -301,13 +306,15 @@ const shorten = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).t
 
 /** Writes the answer as a new inbox article from the "AI notes" source; returns its id. */
 async function createNoteItem(env: Env, ask: AskRow, quote: string, answer: string, sources: AskSource[], by: string, t: number) {
-  const origin = await env.DB.prepare(
+  const origin = !ask.item_id
+    ? null
+    : await env.DB.prepare(
     `SELECT items.id, items.subject, sources.name AS source_name, COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]')) AS category
      FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE items.id = ?`,
   )
     .bind(ask.item_id)
     .first<{ id: string; subject: string; source_name: string | null; category: string | null }>();
-  if (!origin) return null;
+  if (ask.item_id && !origin) return null;
   const sourceId = await aiSourceId(env);
   const id = newId();
   const key = `ai/${id}.html`;
@@ -329,8 +336,8 @@ async function createNoteItem(env: Env, ask: AskRow, quote: string, answer: stri
       t,
       shorten(plain, 200),
       plain.split(/\s+/).filter(Boolean).length,
-      origin.category,
-      origin.id,
+      origin?.category ?? null,
+      origin?.id ?? null,
     )
     .run();
   return id;
@@ -490,6 +497,37 @@ export function registerHighlights(app: App) {
     await c.env.DB.batch(stmts);
     const result: NewAskResult = { highlight, ask: toAsk(ask) };
     return c.json(result, 201);
+  });
+
+  /** A question on its own, not from an article: the answer always arrives as an "AI notes" article. */
+  app.post('/api/asks/free', async (c) => {
+    const input = (await c.req.json().catch(() => null)) as NewFreeAskInput | null;
+    const text = clip(input?.text, 4000).trim();
+    const question = clip(input?.question, 1000).trim() || null;
+    if (!text && !question) return c.json({ error: 'Type or paste something to ask about' }, 400);
+    const [settings, presets] = await Promise.all([loadSettings(c.env), input?.presetId ? loadPresets(c.env) : Promise.resolve([] as PresetRow[])]);
+    const preset = input?.presetId ? presets.find((p) => p.id === input.presetId) : null;
+    if (input?.presetId && !preset) return c.json({ error: 'unknown prompt' }, 400);
+    if (!preset && !question) return c.json({ error: 'pick a prompt or type a question' }, 400);
+    const lookups: LookupMode =
+      input?.lookups && LOOKUPS.includes(input.lookups) ? input.lookups : (preset?.lookups ?? 'both');
+    const prompt = fillAskPrompt(preset?.body ?? CUSTOM_ASK_PROMPT, {
+      quote: text || (question ?? ''),
+      context: '',
+      title: 'Your question',
+      source: '',
+      interests: settings.interests,
+      question,
+    });
+    const t = now();
+    const id = newId();
+    await c.env.DB.prepare(
+      `INSERT INTO asks (id, highlight_id, item_id, preset_id, label, preset_version, question, output, lookups, prompt, text, created_at)
+       VALUES (?, '', '', ?, ?, ?, ?, 'item', ?, ?, ?, ?)`,
+    )
+      .bind(id, preset?.id ?? null, preset?.label ?? 'Your question', preset?.version ?? null, preset ? null : question, lookups, prompt, text || question, t)
+      .run();
+    return c.json({ id }, 201);
   });
 
   app.post('/api/asks/:id/retry', async (c) => {
@@ -655,6 +693,27 @@ export function registerHighlights(app: App) {
     const wantsWeb = claimed.results.some((a) => a.lookups === 'web' || a.lookups === 'both');
     let searchesLeft = wantsWeb ? (await searchAllowance(c.env)).asks : 0;
     for (const a of claimed.results.sort((x, y) => x.created_at - y.created_at)) {
+      if (!a.item_id) {
+        // Asked on its own: the pasted text stands in for both the article and the highlight.
+        const text = a.text ?? '';
+        jobs.push({
+          askId: a.id,
+          itemId: '',
+          subject: 'Your question',
+          sourceName: 'You',
+          fromName: null,
+          html: null,
+          text,
+          prompt: a.prompt,
+          quote: clip(text, 2000),
+          context: '',
+          question: a.question,
+          lookups: a.lookups,
+          searchAllowed: (a.lookups === 'web' || a.lookups === 'both') && searchesLeft > 0,
+        });
+        if (a.lookups === 'web' || a.lookups === 'both') searchesLeft -= 2;
+        continue;
+      }
       const [item, hl] = await Promise.all([
         bodies(c.env, a.item_id),
         c.env.DB.prepare('SELECT quote, context FROM highlights WHERE id = ?')
@@ -712,8 +771,10 @@ export function registerHighlights(app: App) {
 
     let newItemId: string | null = null;
     if (ok && ask.output !== 'note' && !ask.new_item_id && !ask.deleted_at) {
-      const hl = await c.env.DB.prepare('SELECT quote FROM highlights WHERE id = ?').bind(ask.highlight_id).first<{ quote: string }>();
-      newItemId = await createNoteItem(c.env, ask, hl?.quote ?? '', answer, sources, `by ${model} via ${provider}`, t);
+      const hl = ask.highlight_id
+        ? await c.env.DB.prepare('SELECT quote FROM highlights WHERE id = ?').bind(ask.highlight_id).first<{ quote: string }>()
+        : null;
+      newItemId = await createNoteItem(c.env, ask, hl?.quote ?? ask.text ?? '', answer, sources, `by ${model} via ${provider}`, t);
     }
     const status: AskStatus = ok ? 'done' : ask.attempts >= MAX_ATTEMPTS ? 'failed' : 'pending';
     await countSearches(c.env, 'asks', r.searches);

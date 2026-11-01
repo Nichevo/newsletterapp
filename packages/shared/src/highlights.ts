@@ -106,6 +106,17 @@ export interface NewAskInput {
   output?: AskOutput | 'default';
 }
 
+/** A question on its own (Add > Ask the AI), answered as an "AI notes" article. */
+export interface NewFreeAskInput {
+  /** The text to ask about, e.g. a paragraph pasted from elsewhere. */
+  text?: string;
+  /** A preset, or null/absent with a question for "Ask your own". */
+  presetId?: string | null;
+  question?: string;
+  /** Absent = the preset's own setting (Wikipedia and web for your own question). */
+  lookups?: LookupMode;
+}
+
 export interface NewAskResult {
   highlight: Highlight;
   ask: Ask;
