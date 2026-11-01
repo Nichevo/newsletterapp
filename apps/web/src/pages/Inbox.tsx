@@ -10,7 +10,7 @@ import { FilterBar, type Filters } from '../components/FilterBar';
 import { ItemRow, type SwipeAction } from '../components/ItemRow';
 import { getSwipeReadSide } from '../prefs';
 import { todayLabel } from '../format';
-import { IconPlus, IconRefresh, IconSparkle } from '../icons';
+import { IconPlus, IconRefresh, IconSearch, IconSparkle } from '../icons';
 
 const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'interesting', 'archived'];
 
@@ -274,6 +274,9 @@ export function InboxPage({
           <button className="iconbtn" aria-label="Refresh" onClick={() => void load(false)}>
             <IconRefresh />
           </button>
+          <Link to="/search" className="iconbtn" aria-label="Search" title="Search">
+            <IconSearch />
+          </Link>
           <Link to="/ask" className="iconbtn" aria-label="Ask the AI" title="Ask the AI">
             <IconSparkle />
           </Link>

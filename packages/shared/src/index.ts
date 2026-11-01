@@ -144,6 +144,15 @@ export type ItemView = 'inbox' | 'unread' | 'saved' | 'interesting' | 'archived'
 export type AiMode = 'default' | 'on' | 'off';
 export type ItemSort = 'newest' | 'oldest' | 'top';
 
+/** Narrowing for the Search page; every field optional. */
+export type SearchState = 'unread' | 'read' | 'saved' | 'interesting' | 'archived';
+export interface SearchResponse {
+  items: ItemSummary[];
+  /** Matches in all, on the first page only. */
+  total?: number;
+  nextOffset: number | null;
+}
+
 /** Where a feed or website is fetched from: Cloudflare, or the helper on your PC. */
 export type FetchVia = 'cloud' | 'pc';
 

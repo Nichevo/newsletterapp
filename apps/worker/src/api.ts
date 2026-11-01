@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import type {
   AiMode,
+  SearchResponse,
+  SearchState,
   SourceActivity,
   Address,
   BulkReadInput,
@@ -192,6 +194,100 @@ app.get('/api/items', async (c) => {
     ...(counted ? { counts: { shown: counted.shown, unread: counted.unread ?? 0 } } : {}),
   };
   return c.json(body);
+});
+
+// ---------- Search ----------
+
+/** Turns what was typed into an FTS5 query: every word must match (as a prefix), "quoted words" as a phrase. */
+export function ftsQuery(q: string): string | null {
+  const parts: string[] = [];
+  const re = /"([^"]+)"|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(q)) !== null) {
+    const words = (m[1] ?? m[2] ?? '').replace(/[^\p{L}\p{N}\s'-]+/gu, ' ').trim();
+    if (!words) continue;
+    parts.push(m[1] ? `"${words.replace(/"/g, '')}"` : words.split(/\s+/).map((w) => `"${w.replace(/"/g, '')}"*`).join(' '));
+  }
+  return parts.length ? parts.slice(0, 12).join(' ') : null;
+}
+
+const SEARCH_STATE: Record<SearchState, string> = {
+  unread: "items.status = 'inbox' AND items.read_at IS NULL",
+  read: 'items.read_at IS NOT NULL',
+  saved: 'items.saved_at IS NOT NULL',
+  interesting: 'items.interesting_at IS NOT NULL',
+  archived: "items.status = 'archived'",
+};
+const SEARCH_PAGE = 30;
+
+app.get('/api/search', async (c) => {
+  const match = ftsQuery(c.req.query('q') ?? '');
+  const category = c.req.query('category');
+  const sourceId = c.req.query('source');
+  const kind = c.req.query('kind');
+  const state = c.req.query('state') as SearchState | undefined;
+  const since = Number(c.req.query('since') ?? 0) || 0;
+  const until = Number(c.req.query('until') ?? 0) || 0;
+  const sort = c.req.query('sort') === 'newest' || !match ? 'newest' : 'relevance';
+  const offset = Math.min(Math.max(Number(c.req.query('offset') ?? 0) || 0, 0), 600);
+  if (!match && !category && !sourceId && !state && !since) return c.json({ items: [], total: 0, nextOffset: null } satisfies SearchResponse);
+
+  const where: string[] = ["items.status IN ('inbox', 'archived')"];
+  const binds: unknown[] = [];
+  if (match) {
+    where.push('items_fts MATCH ?');
+    binds.push(match);
+  }
+  if (sourceId) {
+    where.push('items.source_id = ?');
+    binds.push(sourceId);
+  }
+  if (kind === 'newsletter' || kind === 'feed' || kind === 'site' || kind === 'ai') {
+    where.push('items.kind = ?');
+    binds.push(kind);
+  }
+  if (category) {
+    where.push("COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]')) = ?");
+    binds.push(category);
+  }
+  if (state && state in SEARCH_STATE) where.push(SEARCH_STATE[state]);
+  if (since) {
+    where.push('items.received_at >= ?');
+    binds.push(since);
+  }
+  if (until) {
+    where.push('items.received_at < ?');
+    binds.push(until);
+  }
+  const from = match ? `${ITEM_SELECT} JOIN items_fts ON items_fts.rowid = items.rowid` : ITEM_SELECT;
+  // Subject counts most, then the AI summary, tags and key points.
+  const orderBy =
+    sort === 'relevance' ? 'bm25(items_fts, 10, 3, 2, 2, 4, 3, 2, 3), items.received_at DESC' : 'items.received_at DESC, items.id DESC';
+  const countFrom = match
+    ? 'FROM items JOIN items_fts ON items_fts.rowid = items.rowid LEFT JOIN sources ON sources.id = items.source_id'
+    : 'FROM items LEFT JOIN sources ON sources.id = items.source_id';
+  try {
+    const [rows, settings, counted] = await Promise.all([
+      c.env.DB.prepare(`${from} WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
+        .bind(...binds, SEARCH_PAGE + 1, offset)
+        .all<ItemSelectRow>(),
+      loadSettings(c.env),
+      offset === 0
+        ? c.env.DB.prepare(`SELECT COUNT(*) AS n ${countFrom} WHERE ${where.join(' AND ')}`)
+            .bind(...binds)
+            .first<{ n: number }>()
+        : null,
+    ]);
+    const body: SearchResponse = {
+      items: rows.results.slice(0, SEARCH_PAGE).map((r) => toItemSummary(r, settings.aiByKind)),
+      ...(counted ? { total: counted.n } : {}),
+      nextOffset: rows.results.length > SEARCH_PAGE && offset + SEARCH_PAGE <= 600 ? offset + SEARCH_PAGE : null,
+    };
+    return c.json(body);
+  } catch (err) {
+    console.error('search failed', match, err);
+    return c.json({ error: 'That search could not be run; try plainer words' }, 400);
+  }
 });
 
 app.get('/api/items/:id', async (c) => {
