@@ -7,6 +7,7 @@ import type {
   Digest,
   ItemBody,
   ItemKind,
+  SummaryKind,
   ItemListResponse,
   ItemSort,
   ItemSummary,
@@ -39,6 +40,7 @@ import {
 } from './db';
 import { buildDigestIfDue, topicsOf } from './digest';
 import { registerFeeds } from './feeds';
+import { registerHighlights } from './highlights';
 import { registerReading } from './reading';
 import type { AppVariables, Env } from './env';
 import { newId, now, slugify } from './ids';
@@ -72,6 +74,8 @@ app.get('/api/me', (c) => {
 // AI queue, helper endpoints and AI settings. Registered before the generic
 // item action route so /api/items/:id/rate and friends match first.
 registerAi(app);
+// Highlights and highlight asks; before the generic item action route too.
+registerHighlights(app);
 // Feeds and websites: discovery, following, the Feedly import and the PC's fetch jobs.
 registerFeeds(app);
 registerUsage(app);
@@ -116,7 +120,7 @@ app.get('/api/items', async (c) => {
     where.push('items.source_id = ?');
     binds.push(sourceId);
   }
-  if (kind === 'newsletter' || kind === 'feed' || kind === 'site') {
+  if (kind === 'newsletter' || kind === 'feed' || kind === 'site' || kind === 'ai') {
     where.push('items.kind = ?');
     binds.push(kind);
   }
@@ -503,7 +507,7 @@ app.post('/api/sources/:id', async (c) => {
     const current = await c.env.DB.prepare('SELECT kind, ai_mode FROM sources WHERE id = ?').bind(id).first<{ kind: ItemKind; ai_mode: AiMode }>();
     if (current) {
       const { aiByKind } = await loadSettings(c.env);
-      const isOn = (mode: AiMode) => mode === 'on' || (mode === 'default' && aiByKind[current.kind]);
+      const isOn = (mode: AiMode) => mode === 'on' || (mode === 'default' && aiByKind[current.kind as SummaryKind]);
       if (!isOn(current.ai_mode) && isOn(input.aiMode)) {
         const back = input.aiBackdateDays;
         const t = now();
@@ -562,7 +566,7 @@ app.put('/api/settings', async (c) => {
   const settings = normalizeSettings(input, before);
   await saveSettings(c.env, settings);
   // A kind switched on here starts with new items only; a source's own page can go further back.
-  const switchedOn = (Object.keys(settings.aiByKind) as ItemKind[]).filter((k) => settings.aiByKind[k] && !before.aiByKind[k]);
+  const switchedOn = (Object.keys(settings.aiByKind) as SummaryKind[]).filter((k) => settings.aiByKind[k] && !before.aiByKind[k]);
   if (switchedOn.length) {
     await c.env.DB.batch(
       switchedOn.map((k) => c.env.DB.prepare("UPDATE sources SET ai_since = ? WHERE kind = ? AND ai_mode = 'default'").bind(now(), k)),

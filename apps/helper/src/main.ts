@@ -1,4 +1,4 @@
-import { HELPER_VERSION, type HelperConfig, type HelperJob, type ModelRef, type TrialResultInput } from '@newsletterapp/shared';
+import { HELPER_VERSION, type AskJob, type HelperConfig, type HelperJob, type ModelRef, type TrialResultInput } from '@newsletterapp/shared';
 import { writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -11,11 +11,14 @@ import { findProvider, providersFrom, type Provider } from './providers';
 import { currentLoad, powerMeter } from './system';
 import { itemText, parseOutput } from './text';
 
-// The PC helper: every minute it checks in with the app, does any feed,
-// website or full-article fetches the app has queued for the PC, then
-// summarises a few waiting items with the first switched-on model (or the
-// one the app names, when it splits the work) and posts the results. It only
-// ever makes outbound requests.
+// The PC helper: every minute it checks in with the app, answers any
+// questions about highlighted text first, does any feed, website or
+// full-article fetches the app has queued for the PC, then summarises a few
+// waiting items with the first switched-on model (or the one the app names,
+// when it splits the work) and posts the results. Between those rounds it
+// checks for new highlight questions every few seconds, and between
+// summaries too, so an answer doesn't wait behind a long batch. It only ever
+// makes outbound requests.
 
 const cfg = loadConfig();
 const app = new AppClient(cfg);
@@ -56,13 +59,86 @@ class RunError extends Error {
 
 /** Runs one item, timing it and measuring the GPU's draw; a failure still reports the time it took. */
 async function run(provider: Provider, model: string, prompt: string, user: string) {
+  const { reply, seconds, watts } = await runText(provider, model, prompt, user, true);
+  try {
+    return { output: parseOutput(reply), seconds, watts };
+  } catch (err) {
+    throw new RunError(err instanceof Error ? err.message : String(err), seconds, watts);
+  }
+}
+
+/** One model call, timed and metered; `json` asks for the summary JSON, otherwise plain text. */
+async function runText(provider: Provider, model: string, prompt: string, user: string, json: boolean) {
   const started = performance.now();
   const meter = powerMeter();
   try {
-    const reply = await provider.complete(model, prompt, user);
-    return { output: parseOutput(reply), seconds: (performance.now() - started) / 1000, watts: meter.stop() };
+    const reply = await provider.complete(model, prompt, user, { json });
+    return { reply, seconds: (performance.now() - started) / 1000, watts: meter.stop() };
   } catch (err) {
     throw new RunError(err instanceof Error ? err.message : String(err), (performance.now() - started) / 1000, meter.stop());
+  }
+}
+
+// ---------- Questions about highlighted text ----------
+
+/** The model list from the latest check-in, so asks between rounds know which model to use. */
+let currentModels: ModelRef[] = [];
+let askPollSeconds = 10;
+let lastPeek = 0;
+
+function askMessage(job: AskJob, c: LocalConfig): string {
+  return [
+    `Sender: ${job.sourceName ?? job.fromName ?? 'unknown'}`,
+    `Subject: ${job.subject}`,
+    '',
+    'Article:',
+    itemText(job.html, job.text, c.maxChars),
+    '',
+    `Highlighted passage: "${job.quote}"`,
+    ...(job.question ? [`Question: ${job.question}`] : []),
+  ].join('\n');
+}
+
+const stripThinking = (s: string) => s.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+/** Answers waiting highlight asks with the first switched-on model. Never throws. */
+async function answerAsks(models: ModelRef[] = currentModels): Promise<void> {
+  const model = (models.length ? models : currentModels).find((m) => findProvider(providers, m));
+  if (!model) return;
+  try {
+    for (let round = 0; round < 5; round++) {
+      const { jobs } = await app.askClaim(2);
+      if (jobs.length === 0) return;
+      for (const job of jobs) {
+        const ref = job.model && findProvider(providers, job.model) ? job.model : model;
+        const provider = findProvider(providers, ref)!;
+        const base = { askId: job.askId, provider: ref.provider, model: ref.name };
+        try {
+          const { reply, seconds, watts } = await runText(provider, ref.name, job.prompt, askMessage(job, cfg), false);
+          const answer = stripThinking(reply);
+          await app.askResult({ ...base, ok: answer.length > 0, seconds, watts, answer, error: answer ? undefined : 'The model returned an empty answer' });
+          log(`answered "${job.quote.slice(0, 50)}" with ${ref.name} in ${seconds.toFixed(1)}s`);
+        } catch (err) {
+          const { error, seconds, watts } = failure(err);
+          log(`ask failed "${job.quote.slice(0, 50)}" with ${ref.name}: ${error}`);
+          await app.askResult({ ...base, ok: false, seconds, watts, error });
+        }
+      }
+    }
+  } catch (err) {
+    log('highlight asks failed:', err);
+  }
+}
+
+/** A quick, cheap check for new asks (at most every few seconds), answering any that are waiting. */
+async function checkAsks(): Promise<void> {
+  if (Date.now() - lastPeek < askPollSeconds * 1000) return;
+  lastPeek = Date.now();
+  try {
+    const { waiting } = await app.askPeek();
+    if (waiting > 0) await answerAsks();
+  } catch (err) {
+    log('ask check failed:', err);
   }
 }
 
@@ -82,6 +158,8 @@ async function summariseQueue(config: HelperConfig) {
 
   const { jobs } = await app.claim(config.batchSize);
   for (const [i, job] of jobs.entries()) {
+    // A question asked while this batch runs goes first.
+    if (i > 0) await checkAsks();
     // When the app splits the work between models it names one per job; otherwise use the first.
     const model = job.model && findProvider(providers, job.model) ? job.model : first;
     const provider = findProvider(providers, model)!;
@@ -161,6 +239,11 @@ async function tick(): Promise<number> {
   if (config.latestHelperVersion && config.latestHelperVersion !== HELPER_VERSION && !once) {
     await selfUpdate(config.latestHelperVersion).catch((err: unknown) => log('update failed, carrying on:', err));
   }
+  currentModels = config.models;
+  askPollSeconds = config.askPollSeconds ?? askPollSeconds;
+  // Questions about highlights come first: someone is waiting for those.
+  if (config.asksWaiting && !config.paused) await answerAsks(config.models);
+  lastPeek = Date.now();
   if (config.trialId) await runTrial(config.trialId);
   // Fetch problems must not hold up the summaries.
   await fetchQueue(config).catch((err: unknown) => log('fetch jobs failed:', err));
@@ -179,7 +262,12 @@ async function main() {
       if (once) process.exitCode = 1;
     }
     if (once) return;
-    await new Promise((r) => setTimeout(r, wait * 1000));
+    // Wait for the next round, checking for highlight asks every few seconds meanwhile.
+    const nextRound = Date.now() + wait * 1000;
+    while (Date.now() < nextRound) {
+      await new Promise((r) => setTimeout(r, Math.min(askPollSeconds * 1000, Math.max(nextRound - Date.now(), 0))));
+      if (Date.now() < nextRound - 1000) await checkAsks();
+    }
   }
 }
 

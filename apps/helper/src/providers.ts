@@ -9,8 +9,15 @@ import { OUTPUT_SCHEMA } from './text';
 export interface Provider {
   name: string;
   listModels(): Promise<{ name: string; sizeBytes?: number }[]>;
-  /** Returns the model's raw reply; the caller parses the JSON. */
-  complete(model: string, system: string, user: string): Promise<string>;
+  /**
+   * Returns the model's raw reply. Summaries ask for the summary JSON (the
+   * default); highlight asks pass `json: false` for a plain-text answer.
+   */
+  complete(model: string, system: string, user: string, opts?: CompleteOptions): Promise<string>;
+}
+
+export interface CompleteOptions {
+  json?: boolean;
 }
 
 const TIMEOUT_MS = 5 * 60_000;
@@ -40,12 +47,13 @@ export function ollama(baseUrl: string): Provider {
       // Embedding-only models can't write summaries.
       return r.models.filter((m) => !/embed/i.test(m.name)).map((m) => ({ name: m.name, sizeBytes: m.size }));
     },
-    async complete(model, system, user) {
+    async complete(model, system, user, opts) {
+      const json = opts?.json !== false;
       const r = await postJson<{ message?: { content?: string } }>(`${baseUrl}/api/chat`, {
         model,
         stream: false,
-        format: OUTPUT_SCHEMA,
-        options: { temperature: 0.2, num_ctx: 16384 },
+        ...(json ? { format: OUTPUT_SCHEMA } : {}),
+        options: { temperature: json ? 0.2 : 0.3, num_ctx: 16384 },
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user },
@@ -65,13 +73,14 @@ export function openaiCompatible(name: string, baseUrl: string, apiKey?: string)
       const r = await getJson<{ data: { id: string }[] }>(`${base}/models`, headers);
       return r.data.map((m) => ({ name: m.id }));
     },
-    async complete(model, system, user) {
+    async complete(model, system, user, opts) {
+      const json = opts?.json !== false;
       const r = await postJson<{ choices?: { message?: { content?: string } }[] }>(
         `${base}/chat/completions`,
         {
           model,
-          temperature: 0.2,
-          response_format: { type: 'json_object' },
+          temperature: json ? 0.2 : 0.3,
+          ...(json ? { response_format: { type: 'json_object' } } : {}),
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: user },

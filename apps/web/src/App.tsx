@@ -6,6 +6,7 @@ import { TabBar } from './components/TabBar';
 import { AddPage } from './pages/Add';
 import { AiSettingsPage } from './pages/AiSettings';
 import { AiUsagePage } from './pages/AiUsage';
+import { HighlightPromptsPage } from './pages/HighlightPrompts';
 import { DigestPage } from './pages/Digest';
 import { InboxPage } from './pages/Inbox';
 import { ReaderPage } from './pages/Reader';
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="/source/:id" element={<SourcePage />} />
         <Route path="/settings/ai" element={<AiSettingsPage />} />
         <Route path="/settings/ai/usage" element={<AiUsagePage />} />
+        <Route path="/settings/ai/highlights" element={<HighlightPromptsPage />} />
         <Route path="/settings/sources" element={<SourcesPage />} />
         <Route path="/stats" element={<StatsPage />} />
         <Route path="/stats/reading" element={<ReadingStatsPage />} />

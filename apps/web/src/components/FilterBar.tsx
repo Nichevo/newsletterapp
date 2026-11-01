@@ -10,7 +10,7 @@ export interface Filters {
   kind: ItemKind | null;
 }
 
-export const KIND_LABEL: Record<ItemKind, string> = { newsletter: 'Newsletters', feed: 'Feeds', site: 'Websites' };
+export const KIND_LABEL: Record<ItemKind, string> = { newsletter: 'Newsletters', feed: 'Feeds', site: 'Websites', ai: 'AI notes' };
 
 const VIEW_LABEL: Record<ItemView, string> = {
   inbox: 'All',

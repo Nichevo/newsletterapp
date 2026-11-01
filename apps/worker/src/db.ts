@@ -6,6 +6,7 @@ import type {
   Address,
   AuthResult,
   ItemKind,
+  SummaryKind,
   ItemStatus,
   ItemSummary,
   Sender,
@@ -115,6 +116,9 @@ export interface ItemRow {
   why_it_matters: string | null;
   thin_content: number;
   ai_run_id: string | null;
+  highlight_count?: number | null;
+  note_count?: number | null;
+  origin_item_id?: string | null;
 }
 
 /** Extra columns joined in by the item queries (source and the AI run that wrote the summary). */
@@ -164,11 +168,11 @@ export function isOneClick(header: string | null, post: string | null): boolean 
  * AI status, so the app doesn't show it as waiting for the PC. (Items stay
  * queued, so switching AI on later picks them up.)
  */
-export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<ItemKind, boolean>): ItemSummary {
+export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<SummaryKind, boolean>): ItemSummary {
   const aiCategory = parseList(row.ai_category)[0] ?? null;
   const mode = row.source_ai_mode ?? 'default';
   const beforeCutoff = row.source_ai_since != null && Math.max(row.created_at, row.received_at) < row.source_ai_since;
-  const aiOff = aiByKind !== undefined && (mode === 'off' || (mode === 'default' && !aiByKind[row.kind]) || beforeCutoff);
+  const aiOff = aiByKind !== undefined && (mode === 'off' || (mode === 'default' && !aiByKind[row.kind as SummaryKind]) || beforeCutoff);
   const aiStatus = aiOff && (row.ai_status === 'pending' || row.ai_status === null) ? null : row.ai_status;
   return {
     id: row.id,
@@ -216,6 +220,9 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<ItemK
           }
         : null,
     score: row.score,
+    highlightCount: row.highlight_count ?? 0,
+    noteCount: row.note_count ?? 0,
+    originItemId: row.origin_item_id ?? null,
   };
 }
 

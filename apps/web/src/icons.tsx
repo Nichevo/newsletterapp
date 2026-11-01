@@ -133,3 +133,17 @@ export const IconDensity = ({ density, ...p }: Props & { density: 'compact' | 'c
     )}
   </svg>
 );
+/** A highlighter pen. */
+export const IconHighlight = (p: Props) => (
+  <svg {...base(p)}>
+    <path d="M15 4l5 5-8.5 8.5H6.5v-5z" />
+    <path d="M4 20h8" />
+  </svg>
+);
+/** A sparkle, for things the AI wrote. */
+export const IconSparkle = (p: Props) => (
+  <svg {...base(p)}>
+    <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" />
+    <path d="M19 16l.7 1.8 1.8.7-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7z" />
+  </svg>
+);

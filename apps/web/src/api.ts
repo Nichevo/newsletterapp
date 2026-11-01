@@ -1,5 +1,13 @@
 import type {
   Address,
+  AskPreset,
+  AskPresetInput,
+  Highlight,
+  HighlightAnchor,
+  ItemHighlights,
+  NewAskInput,
+  NewAskResult,
+  PcOffMode,
   Digest,
   DiscoverResult,
   ItemKind,
@@ -154,6 +162,22 @@ export const api = {
   rateItem: (id: string, rating: 1 | -1 | 0) => post<{ ok: boolean }>(`/api/items/${id}/rate`, { rating }),
   redoItem: (id: string) => post<{ ok: boolean }>(`/api/items/${id}/redo`),
   aiAdvice: (id: string) => get<{ suggestOff: boolean }>(`/api/items/${id}/ai-advice`),
+
+  // Highlights and questions to the AI about them
+  highlights: (itemId: string) => get<ItemHighlights>(`/api/items/${itemId}/highlights`),
+  addHighlight: (itemId: string, anchor: HighlightAnchor) => post<Highlight>(`/api/items/${itemId}/highlights`, anchor),
+  deleteHighlight: (id: string) => request<{ ok: boolean }>(`/api/highlights/${id}`, { method: 'DELETE' }),
+  ask: (input: NewAskInput) => post<NewAskResult>('/api/asks', input),
+  retryAsk: (id: string) => post<{ ok: boolean }>(`/api/asks/${id}/retry`),
+  rateAsk: (id: string, rating: 1 | -1 | 0) => post<{ ok: boolean }>(`/api/asks/${id}/rate`, { rating }),
+  deleteAsk: (id: string) => request<{ ok: boolean }>(`/api/asks/${id}`, { method: 'DELETE' }),
+  askPresets: () => get<AskPreset[]>('/api/ask-presets'),
+  saveAskPreset: (id: string, p: AskPresetInput) => put<AskPreset>(`/api/ask-presets/${id}`, p),
+  addAskPreset: (p: AskPresetInput) => post<AskPreset>('/api/ask-presets', p),
+  resetAskPreset: (id: string) => post<AskPreset>(`/api/ask-presets/${id}/reset`),
+  deleteAskPreset: (id: string) => request<{ ok: boolean }>(`/api/ask-presets/${id}`, { method: 'DELETE' }),
+  orderAskPresets: (ids: string[]) => put<AskPreset[]>('/api/ask-presets/order', ids),
+  pcOffMode: () => get<{ mode: PcOffMode }>('/api/ai/pc-off'),
 
   quickBackfill: () => post<{ done: number; remaining: number }>('/api/maintenance/quick-backfill'),
 };

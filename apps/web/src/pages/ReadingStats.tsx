@@ -15,7 +15,7 @@ const ago = (at: number | null) => {
 
 const VIA_LABEL = { reader: 'Read in the reader', swipe: 'Swiped or marked read', digest: 'Marked read from the digest', bulk: 'Marked read in bulk' } as const;
 const DEVICE_LABEL = { phone: 'On the phone', desktop: 'On a PC' } as const;
-const KIND_LABEL = { newsletter: 'Newsletters', feed: 'Feeds', site: 'Websites' } as const;
+const KIND_LABEL = { newsletter: 'Newsletters', feed: 'Feeds', site: 'Websites', ai: 'AI notes' } as const;
 
 /** What arrives, what gets read, and where the time goes. */
 export function ReadingStatsPage() {

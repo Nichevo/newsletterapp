@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, type AppSettings, type DigestOptions, type ItemKind } from '@newsletterapp/shared';
+import { DEFAULT_SETTINGS, type AppSettings, type DigestOptions, type SummaryKind } from '@newsletterapp/shared';
 import type { Env } from './env';
 import { now } from './ids';
 
@@ -47,7 +47,7 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     : base.keywordRules;
   const aiByKind = { ...base.aiByKind };
   if (input.aiByKind && typeof input.aiByKind === 'object') {
-    for (const kind of Object.keys(aiByKind) as ItemKind[]) {
+    for (const kind of Object.keys(aiByKind) as SummaryKind[]) {
       const v = input.aiByKind[kind];
       if (typeof v === 'boolean') aiByKind[kind] = v;
     }

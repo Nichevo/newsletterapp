@@ -1,5 +1,7 @@
 import DOMPurify from 'dompurify';
+import type { Highlight } from '@newsletterapp/shared';
 import { useEffect, useRef } from 'react';
+import { applyMarks, MARK_CSS } from '../highlight';
 
 const BASE_CSS = `
   :host { display: block; color: inherit; line-height: 1.5; overflow-wrap: anywhere; }
@@ -17,6 +19,9 @@ const BASE_CSS = `
 `;
 
 const REMOTE = /^(https?:)?\/\//i;
+
+/** A link to a page of this app, e.g. an AI note's link back to its article. */
+const isInternal = (href: string | null) => Boolean(href && /^\/item\/[\w-]+$/.test(href));
 
 /**
  * Hover text (the title attribute) never shows on a phone, and for comics such
@@ -79,6 +84,12 @@ export function EmailBody({
   hideSponsored = false,
   onSponsored,
   onLinkClick,
+  highlights,
+  activeHighlight = null,
+  onRoot,
+  onHighlightTap,
+  onInternalLink,
+  onMissing,
 }: {
   html: string;
   loadImages: boolean;
@@ -89,8 +100,20 @@ export function EmailBody({
   /** How many sponsored blocks were found, hidden or not. */
   onSponsored?: (count: number) => void;
   onLinkClick?: (href: string) => void;
+  /** Saved highlights to mark in the text. */
+  highlights?: Highlight[];
+  activeHighlight?: string | null;
+  /** The shadow root the article is drawn in, for reading selections. */
+  onRoot?: (root: ShadowRoot) => void;
+  onHighlightTap?: (id: string) => void;
+  /** Links to another page of this app (AI notes link back to their article). */
+  onInternalLink?: (path: string) => void;
+  /** Highlights that couldn't be found in this version of the text. */
+  onMissing?: (ids: string[]) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const marks = useRef<{ highlights: Highlight[]; active: string | null }>({ highlights: [], active: null });
+  marks.current = { highlights: highlights ?? [], active: activeHighlight };
 
   useEffect(() => {
     const host = hostRef.current;
@@ -124,6 +147,10 @@ export function EmailBody({
       }
     }
     for (const a of fragment.querySelectorAll('a')) {
+      if (isInternal(a.getAttribute('href'))) {
+        a.removeAttribute('target');
+        continue;
+      }
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer nofollow');
     }
@@ -134,22 +161,45 @@ export function EmailBody({
     else host.setAttribute('data-show-sponsored', '');
 
     const style = document.createElement('style');
-    style.textContent = `${BASE_CSS}\n:host { font-size: ${fontSize}px; }`;
+    style.textContent = `${BASE_CSS}\n${MARK_CSS}\n:host { font-size: ${fontSize}px; }`;
     root.replaceChildren(style, fragment);
+    onMissing?.(applyMarks(root, marks.current.highlights, marks.current.active));
+    onRoot?.(root);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [html, loadImages, fontSize, hideSponsored]);
 
+  // Marks again when the highlights change, without redrawing the article.
+  const key = (highlights ?? []).map((h) => h.id).join(',');
+  useEffect(() => {
+    const root = hostRef.current?.shadowRoot;
+    if (root) onMissing?.(applyMarks(root, marks.current.highlights, marks.current.active));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, activeHighlight]);
+
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !onLinkClick) return;
+    if (!host) return;
     const handler = (e: Event) => {
       const path = e.composedPath();
       const anchor = path.find((n): n is HTMLAnchorElement => n instanceof HTMLAnchorElement);
-      if (anchor?.href) onLinkClick(anchor.href);
+      const href = anchor?.getAttribute('href') ?? null;
+      if (anchor && isInternal(href) && onInternalLink) {
+        e.preventDefault();
+        onInternalLink(href!);
+        return;
+      }
+      if (anchor?.href) {
+        onLinkClick?.(anchor.href);
+        return;
+      }
+      const mark = path.find((n): n is HTMLElement => n instanceof HTMLElement && n.tagName === 'MARK' && Boolean(n.dataset.hl));
+      // A tap that ends a selection isn't a tap on the highlight.
+      const sel = document.getSelection();
+      if (mark && onHighlightTap && (!sel || sel.isCollapsed)) onHighlightTap(mark.dataset.hl!);
     };
     host.addEventListener('click', handler);
     return () => host.removeEventListener('click', handler);
-  }, [onLinkClick]);
+  }, [onLinkClick, onHighlightTap, onInternalLink]);
 
   return <div ref={hostRef} />;
 }

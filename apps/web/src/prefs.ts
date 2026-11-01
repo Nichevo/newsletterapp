@@ -61,6 +61,29 @@ export function setSwipeReadSide(side: SwipeReadSide) {
   write('inbox:swipeReadSide', side);
 }
 
+/** Where the AI notes card sits in the reader: under the summary at the top, or after the article. */
+export type NotesPlace = 'top' | 'bottom';
+
+export function getNotesPlace(): NotesPlace {
+  return read('reader:notesPlace') === 'bottom' ? 'bottom' : 'top';
+}
+
+export function setNotesPlace(place: NotesPlace) {
+  write('reader:notesPlace', place);
+}
+
+/** Where a highlight ask's answer goes when picked from the bar: the prompt's own default, or a fixed choice. */
+export type AskOutputPref = 'default' | 'note' | 'item' | 'both';
+
+export function getAskOutput(): AskOutputPref {
+  const v = read('reader:askOutput');
+  return v === 'note' || v === 'item' || v === 'both' ? v : 'default';
+}
+
+export function setAskOutput(v: AskOutputPref) {
+  write('reader:askOutput', v);
+}
+
 /** Newsletters whose images load without asking, by source id. */
 export function imagesAllowed(sourceId: string | null): boolean {
   return sourceId !== null && read(`images:${sourceId}`) === '1';
