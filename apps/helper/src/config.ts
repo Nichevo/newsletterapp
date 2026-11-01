@@ -18,6 +18,8 @@ export interface LocalConfig {
   maxChars: number;
   /** Edge or Chrome for pages built by JavaScript; found on its own when left out. */
   browserPath?: string;
+  /** Brave Search API key, for web lookups. Optional; stays on this PC. */
+  braveApiKey?: string;
 }
 
 /** %LOCALAPPDATA%\NewsletterHelper on Windows, ~/.newsletter-helper elsewhere. */
@@ -50,5 +52,6 @@ export function loadConfig(): LocalConfig {
     anthropicApiKey: raw.anthropicApiKey,
     maxChars: raw.maxChars ?? 24_000,
     browserPath: raw.browserPath,
+    braveApiKey: typeof raw.braveApiKey === 'string' && raw.braveApiKey.trim() ? raw.braveApiKey.trim() : undefined,
   };
 }

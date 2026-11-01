@@ -258,6 +258,12 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
             <span className="cardrow__sub">Define, More info, Example and the rest: edit, reorder, switch off, add your own</span>
           </div>
         </Link>
+        <Link to="/settings/ai/web-search" className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">Web search</span>
+            <span className="cardrow__sub">Brave search for highlight questions and, if you want, summaries; monthly budget</span>
+          </div>
+        </Link>
         <div className="cardrow">
           <div className="cardrow__main">
             <span className="cardrow__title">When the PC is off</span>

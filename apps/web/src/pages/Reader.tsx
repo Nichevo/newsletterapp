@@ -513,6 +513,25 @@ function AiSummary({ item, onItem }: { item: ItemSummary; onItem: (i: ItemSummar
           <strong>Why it matters:</strong> {item.whyItMatters}
         </p>
       )}
+      {item.background && (
+        <p className="ai__why">
+          <strong>Background:</strong> {item.background}
+        </p>
+      )}
+      {item.coverage.length > 0 && (
+        <div className="ai__why">
+          <strong>Other coverage:</strong>
+          <ul className="quick__list">
+            {item.coverage.map((c) => (
+              <li key={c.url}>
+                <a href={c.url} target="_blank" rel="noopener noreferrer nofollow">
+                  {c.title}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="ai__foot">
         {item.ai && <p className="attribution">{aiAttribution(item.ai)}</p>}
         <div className="inline">

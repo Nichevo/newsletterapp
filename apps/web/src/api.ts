@@ -7,6 +7,8 @@ import type {
   ItemHighlights,
   NewAskInput,
   NewAskResult,
+  WebSearchSettings,
+  WebSearchView,
   PcOffMode,
   Digest,
   DiscoverResult,
@@ -177,6 +179,8 @@ export const api = {
   resetAskPreset: (id: string) => post<AskPreset>(`/api/ask-presets/${id}/reset`),
   deleteAskPreset: (id: string) => request<{ ok: boolean }>(`/api/ask-presets/${id}`, { method: 'DELETE' }),
   orderAskPresets: (ids: string[]) => put<AskPreset[]>('/api/ask-presets/order', ids),
+  webSearch: () => get<WebSearchView>('/api/ai/web-search'),
+  saveWebSearch: (s: Partial<WebSearchSettings>) => put<WebSearchSettings>('/api/ai/web-search', s),
   pcOffMode: () => get<{ mode: PcOffMode }>('/api/ai/pc-off'),
 
   quickBackfill: () => post<{ done: number; remaining: number }>('/api/maintenance/quick-backfill'),

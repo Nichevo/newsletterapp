@@ -146,6 +146,18 @@ async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResu
   return { jobId: job.id, ok: true, article: extractArticle(page.body, page.url) };
 }
 
+/** The readable text of a web page, for lookups. Opens it in a browser only when it was built by JavaScript. */
+export async function fetchArticleText(url: string, cfg: LocalConfig): Promise<{ title: string | null; text: string; url: string }> {
+  let page = await get(url, cfg);
+  if (page.status >= 400 || looksBlocked(page.status, page.body)) throw new Error(`the site answered ${page.status}`);
+  let article = extractArticle(page.body, page.url);
+  if (article.wordCount < 80 && looksScripted(page.body)) {
+    page = await get(url, cfg, { render: true });
+    article = extractArticle(page.body, page.url);
+  }
+  return { title: article.title, text: article.text, url: page.url };
+}
+
 export async function runFetchJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult> {
   try {
     if (job.kind === 'feed') return await feedJob(job, cfg);

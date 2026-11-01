@@ -119,6 +119,8 @@ export interface ItemRow {
   highlight_count?: number | null;
   note_count?: number | null;
   origin_item_id?: string | null;
+  background?: string | null;
+  coverage?: string | null;
 }
 
 /** Extra columns joined in by the item queries (source and the AI run that wrote the summary). */
@@ -132,6 +134,16 @@ export interface ItemJoined {
   run_prompt_version?: number | null;
   run_seconds?: number | null;
   run_rating?: number | null;
+}
+
+function parseCoverage(raw: string | null): { title: string; url: string }[] {
+  if (!raw) return [];
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((c): c is { title: string; url: string } => Boolean(c) && typeof c.url === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 export function parseList(raw: string | null): string[] {
@@ -223,6 +235,8 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<Summa
     highlightCount: row.highlight_count ?? 0,
     noteCount: row.note_count ?? 0,
     originItemId: row.origin_item_id ?? null,
+    background: row.background ?? null,
+    coverage: parseCoverage(row.coverage ?? null),
   };
 }
 

@@ -25,6 +25,7 @@ import { readJson, writeJson } from './ai';
 import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
 import { loadSettings } from './settings';
+import { countSearches, searchAllowance } from './websearch';
 
 // Highlights, and questions to the AI about highlighted text ("asks"). The
 // reader highlights a passage and picks a prompt; the PC helper answers it
@@ -95,6 +96,7 @@ interface AskRow {
   created_at: number;
   done_at: number | null;
   deleted_at?: number | null;
+  lookup_note?: string | null;
 }
 
 function parseSources(raw: string | null): AskSource[] {
@@ -124,6 +126,7 @@ const toAsk = (r: AskRow): Ask => ({
   error: r.error,
   rating: r.rating === 1 || r.rating === -1 ? r.rating : null,
   seconds: r.seconds,
+  lookupNote: r.lookup_note ?? null,
   newItemId: r.new_item_id,
   createdAt: r.created_at,
   doneAt: r.done_at,
@@ -649,6 +652,8 @@ export function registerHighlights(app: App) {
       .bind(t, t - LEASE_MS, max)
       .all<AskRow>();
     const jobs: AskJob[] = [];
+    const wantsWeb = claimed.results.some((a) => a.lookups === 'web' || a.lookups === 'both');
+    let searchesLeft = wantsWeb ? (await searchAllowance(c.env)).asks : 0;
     for (const a of claimed.results.sort((x, y) => x.created_at - y.created_at)) {
       const [item, hl] = await Promise.all([
         bodies(c.env, a.item_id),
@@ -675,7 +680,10 @@ export function registerHighlights(app: App) {
         context: hl.context ?? '',
         question: a.question,
         lookups: a.lookups,
+        // A question with web search uses up to two searches.
+        searchAllowed: (a.lookups === 'web' || a.lookups === 'both') && searchesLeft > 0,
       });
+      if (a.lookups === 'web' || a.lookups === 'both') searchesLeft -= 2;
     }
     return c.json({ jobs });
   });
@@ -708,10 +716,12 @@ export function registerHighlights(app: App) {
       newItemId = await createNoteItem(c.env, ask, hl?.quote ?? '', answer, sources, `by ${model} via ${provider}`, t);
     }
     const status: AskStatus = ok ? 'done' : ask.attempts >= MAX_ATTEMPTS ? 'failed' : 'pending';
+    await countSearches(c.env, 'asks', r.searches);
+    const lookupNote = ok && typeof r.lookupNote === 'string' && r.lookupNote.trim() ? r.lookupNote.trim().slice(0, 300) : null;
     await c.env.DB.batch([
       c.env.DB.prepare(
         `UPDATE asks SET status = ?, provider = ?, model = ?, answer = ?, sources = ?, error = ?, seconds = ?, watts = ?, done_at = ?,
-           claimed_at = NULL, new_item_id = COALESCE(new_item_id, ?) WHERE id = ?`,
+           claimed_at = NULL, new_item_id = COALESCE(new_item_id, ?), lookup_note = ? WHERE id = ?`,
       ).bind(
         status,
         provider,
@@ -723,6 +733,7 @@ export function registerHighlights(app: App) {
         watts,
         t,
         newItemId,
+        lookupNote,
         ask.id,
       ),
       countsStmt(c.env, ask.item_id),
