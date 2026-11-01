@@ -218,6 +218,7 @@ export function SourcePage() {
           </div>
 
           {isWeb && <FetchSection source={source} onUpdate={(p) => void update(p)} onCheck={() => void checkNow()} />}
+          {isWeb && <TroubleshootSection source={source} />}
           {isWeb && (
             <FollowSection
               source={source}
@@ -450,6 +451,77 @@ function WatchRow({
       >
         {source.kind === 'site' && source.url === page.url ? 'Watching' : 'Watch this page'}
       </button>
+    </div>
+  );
+}
+
+/** Plain-words guide to the settings above, for a feed or website whose posts don't come out right. */
+function TroubleshootSection({ source }: { source: Source }) {
+  const [open, setOpen] = useState(false);
+  const feed = source.kind === 'feed';
+  const tips: { problem: string; fix: string }[] = feed
+    ? [
+        {
+          problem: 'Posts stop after the first paragraph, or say "read more".',
+          fix: 'Set Full articles to Always. Your PC then fetches each post from the website. Takes effect for new posts.',
+        },
+        {
+          problem: 'A full article comes out empty, jumbled, or only shows a cookie notice.',
+          fix: 'Switch on "Needs a browser" so your PC opens the page in Edge or Chrome first, then wait for the next post.',
+        },
+        {
+          problem: 'The check fails, or says the site turned Cloudflare away.',
+          fix: 'Set Fetched by to My PC, then press Check now. (The app also does this by itself after three refusals.)',
+        },
+        {
+          problem: 'Posts are missing, or you get the wrong section of the site.',
+          fix: 'Use "Change how it\'s followed" below: look at the site again and pick another of its feeds, or watch the page itself.',
+        },
+        {
+          problem: 'Not sure the app is the problem?',
+          fix: 'Open a post and tap Live page to compare it with the website. If the website itself is short, the post is too.',
+        },
+      ]
+    : [
+        {
+          problem: 'You get links that aren\'t articles (About, Contact, tags, other sections).',
+          fix: 'Fill in "Only links containing" with the part every article address shares, such as /blog/ or /news/.',
+        },
+        {
+          problem: 'Articles come out empty or jumbled, or nothing is found on the page.',
+          fix: 'Switch on "Needs a browser" so your PC opens the page in Edge or Chrome, then press Check now.',
+        },
+        {
+          problem: 'Nothing new arrives.',
+          fix: 'Press Check now and read the line under the address: it says when it last worked and any error. Your PC must be on, since websites are checked by your PC.',
+        },
+        {
+          problem: 'The site has a feed after all.',
+          fix: 'Use "Change how it\'s followed" below. A feed is usually quicker and tidier than watching the page.',
+        },
+      ];
+  return (
+    <div className="section">
+      <section className="card">
+        <button className="quick__toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Hide' : 'Not coming through right? How to fix it'}
+        </button>
+        {open && (
+          <>
+            {tips.map((t) => (
+              <div key={t.problem}>
+                <strong style={{ fontSize: 14 }}>{t.problem}</strong>
+                <span className="hint" style={{ display: 'block', margin: '2px 0 0' }}>
+                  {t.fix}
+                </span>
+              </div>
+            ))}
+            <span className="hint" style={{ margin: 0 }}>
+              Changes apply to posts that arrive after them; posts you already have stay as they are.
+            </span>
+          </>
+        )}
+      </section>
     </div>
   );
 }
