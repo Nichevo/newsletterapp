@@ -136,6 +136,9 @@ export const api = {
   addSource: (input: NewSourceInput) => post<NewSourceResult>('/api/sources', input),
   importOpml: (opml: string, startWith?: number) => post<OpmlImportResult>('/api/sources/opml', { opml, startWith }),
   checkAllSources: () => post<{ due: number; cloud: number; queued: number; added: number }>('/api/sources/check-all'),
+  exportMeta: () => get<{ exportedAt: number; sources: unknown[]; settings: unknown; highlights: unknown[] }>('/api/export/meta'),
+  exportItems: (after: number) => get<{ items: Record<string, unknown>[]; next: number | null }>(`/api/export/items?after=${after}`),
+  exportEvents: (after: number) => get<{ events: Record<string, unknown>[]; next: number | null }>(`/api/export/events?after=${after}`),
   sourceActivity: () => get<SourceActivity[]>('/api/sources/activity'),
   checkSource: (id: string) => post<{ added: number; waitingForPc: boolean; source: Source }>(`/api/sources/${id}/check`),
 

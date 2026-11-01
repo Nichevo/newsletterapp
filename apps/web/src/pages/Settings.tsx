@@ -94,6 +94,7 @@ export function SettingsPage({ me }: { me: Me }) {
             sub="What gets summarised, models, prompts, highlight prompts, web search, usage limits and cost"
           />
           <MenuRow to="/stats" title="Statistics" sub="What arrives and what you read; how the AI summaries are doing" />
+          <MenuRow to="/settings/export" title="Backup and export" sub="Your feeds as OPML, newsletters as CSV, or everything as JSON" />
         </div>
       </div>
 

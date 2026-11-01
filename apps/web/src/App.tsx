@@ -16,6 +16,7 @@ import { ReaderPage } from './pages/Reader';
 import { SendersPage } from './pages/Senders';
 import { SettingsPage } from './pages/Settings';
 import { SourcePage } from './pages/Source';
+import { ExportPage } from './pages/Export';
 import { SourcesPage } from './pages/Sources';
 import { ReadingStatsPage } from './pages/ReadingStats';
 import { StatsPage } from './pages/Stats';
@@ -81,6 +82,7 @@ export default function App() {
         <Route path="/settings/ai/highlights" element={<HighlightPromptsPage />} />
         <Route path="/settings/ai/web-search" element={<WebSearchPage />} />
         <Route path="/settings/sources" element={<SourcesPage />} />
+        <Route path="/settings/export" element={<ExportPage />} />
         <Route path="/stats" element={<ReadingStatsPage />} />
         <Route path="/stats/reading" element={<ReadingStatsPage />} />
         <Route path="/stats/ai" element={<StatsPage />} />
