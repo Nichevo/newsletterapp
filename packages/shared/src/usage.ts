@@ -136,4 +136,10 @@ export interface AiBacklogView {
   waitsDaily: WaitBucket[];
   /** When the 15-minute snapshots started; earlier periods have no backlog figure. */
   snapshotsSince: number | null;
+  /**
+   * The last 24 clock hours: items that joined the queue, how many of those are
+   * already summarised, and summaries finished for items that joined earlier
+   * (an overnight backlog, or items let back in when AI was switched on).
+   */
+  last24: { joined: number; joinedDone: number; earlierDone: number };
 }

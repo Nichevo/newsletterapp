@@ -145,8 +145,6 @@ function KeepingUpSection() {
   const waitHours = data.waitsHourly.slice(-hours);
   const waitDays = data.waitsDaily.slice(-days);
   const last24 = data.waitsHourly.slice(-24);
-  const done24 = last24.reduce((s, b) => s + b.done, 0);
-  const arrived24 = last24.reduce((s, b) => s + b.arrived, 0);
   const oldest = data.now.oldestAt !== null ? (Date.now() - data.now.oldestAt) / 60_000 : null;
   const medianOf = (b: WaitBucket[]) => {
     // Weighted by the number of summaries: good enough for a headline figure.
@@ -177,9 +175,12 @@ function KeepingUpSection() {
             <div className="stat">
               <span className="label">Last 24 h</span>
               <strong>
-                {done24} of {arrived24}
+                {data.last24.joinedDone} of {data.last24.joined}
               </strong>
-              <span className="cardrow__sub">summarised of joined</span>
+              <span className="cardrow__sub">
+                that joined are summarised
+                {data.last24.earlierDone > 0 && `, plus ${data.last24.earlierDone} that joined earlier`}
+              </span>
             </div>
             <div className="stat">
               <span className="label">Typical wait, 24 h</span>
