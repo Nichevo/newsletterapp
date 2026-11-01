@@ -560,7 +560,7 @@ app.post('/api/sources/:id', async (c) => {
   if (input.linkHint !== undefined) set('link_hint = ?', input.linkHint?.trim().slice(0, 200) || null);
   if (typeof input.checkMinutes === 'number' && input.checkMinutes >= 15 && input.checkMinutes <= 10_080) {
     set('check_minutes = ?', Math.round(input.checkMinutes));
-  }
+  } else if (input.checkMinutes === null) set('check_minutes = ?', null);
   if (input.followAs !== undefined || input.url !== undefined || input.feedUrl !== undefined) {
     // Change how a feed or website is followed: switch between the two, or point it at a new address.
     const cur = await c.env.DB.prepare('SELECT kind, url, feed_url FROM sources WHERE id = ?')

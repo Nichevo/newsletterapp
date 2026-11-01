@@ -2,7 +2,7 @@ import type { Source } from '@newsletterapp/shared';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { shortTime } from '../format';
+import { nextTime, rhythmText, shortTime } from '../format';
 import { IconBack } from '../icons';
 
 /** Every source you receive or follow, grouped by kind. Each row opens the source's own page. */
@@ -20,6 +20,23 @@ export function SourcesPage() {
 
   const newsletters = sources?.filter((s) => s.kind === 'newsletter') ?? [];
   const others = sources?.filter((s) => s.kind !== 'newsletter') ?? [];
+  const [checking, setChecking] = useState<string | null>(null);
+
+  const checkAll = async () => {
+    setChecking('Checking…');
+    try {
+      const r = await api.checkAllSources();
+      const left = Math.max(r.due - r.cloud - r.queued, 0);
+      setChecking(
+        `${r.added} new post${r.added === 1 ? '' : 's'} so far` +
+          (r.queued ? `, ${r.queued} sent to your PC` : '') +
+          (left ? `; the other ${left} follow over the next hour.` : '.'),
+      );
+      setSources(await api.sources());
+    } catch (err) {
+      setChecking(err instanceof Error ? err.message : 'Could not check');
+    }
+  };
 
   return (
     <div className="page">
@@ -47,6 +64,19 @@ export function SourcesPage() {
 
       <SourceList title="Newsletters you receive" sources={newsletters} noun="issue" />
       <SourceList title="Feeds and websites you follow" sources={others} noun="post" />
+      {others.length > 0 && (
+        <div className="section">
+          <div className="inline">
+            <button className="btn btn--small" onClick={checkAll} disabled={checking === 'Checking…'}>
+              Check all now
+            </button>
+          </div>
+          <span className="hint">
+            {checking ??
+              'Feeds set to Auto are checked around the times they usually post (and at least daily). This checks every feed and website straight away.'}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -70,6 +100,13 @@ function SourceList({ title, sources, noun }: { title: string; sources: Source[]
                 {s.aiMode !== 'default' ? ` · AI ${s.aiMode}` : ''}
                 {s.pausedAt ? ' · paused' : s.lastError ? ' · last check failed' : ''}
               </span>
+              {s.kind === 'feed' && !s.pausedAt && (
+                <span className="cardrow__sub">
+                  {rhythmText(s.rhythm, s.checkMinutes === null).summary}
+                  {s.checkMinutes !== null ? ' Fixed interval.' : ''}
+                  {s.nextCheckAt ? ` Next check ${nextTime(s.nextCheckAt)}.` : ''}
+                </span>
+              )}
             </div>
           </Link>
         ))}

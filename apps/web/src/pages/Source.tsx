@@ -2,7 +2,7 @@ import type { AiMode, AppSettings, DiscoverResult, FullTextMode, Source, SourceU
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
-import { shortTime } from '../format';
+import { nextTime, rhythmText, shortTime } from '../format';
 import { IconBack } from '../icons';
 import { StartWithPicker } from './Add';
 
@@ -251,7 +251,7 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
           {source.pausedAt
             ? 'Paused.'
             : source.lastCheckedAt
-              ? `Last checked ${shortTime(source.lastCheckedAt)}${source.nextCheckAt ? `, next ${shortTime(source.nextCheckAt)}` : ''}.`
+              ? `Last checked ${shortTime(source.lastCheckedAt)}${source.nextCheckAt ? `, next ${nextTime(source.nextCheckAt)}` : ''}.`
               : 'Not checked yet.'}
         </span>
         {source.lastError && (
@@ -270,12 +270,22 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
       <section className="card">
         <span className="label">Check every</span>
         <div className="segmented" role="group" aria-label="Check every">
+          {source.kind === 'feed' && (
+            <button aria-pressed={source.checkMinutes === null} onClick={() => onUpdate({ checkMinutes: null })}>
+              Auto
+            </button>
+          )}
           {EVERY.map((e) => (
-            <button key={e.minutes} aria-pressed={minutes === e.minutes} onClick={() => onUpdate({ checkMinutes: e.minutes })}>
+            <button
+              key={e.minutes}
+              aria-pressed={(source.kind !== 'feed' || source.checkMinutes !== null) && minutes === e.minutes}
+              onClick={() => onUpdate({ checkMinutes: e.minutes })}
+            >
               {e.label}
             </button>
           ))}
         </div>
+        {source.kind === 'feed' && <RhythmNote source={source} />}
         {source.kind === 'feed' && (
           <>
             <span className="label">Fetched by</span>
@@ -523,5 +533,16 @@ function TroubleshootSection({ source }: { source: Source }) {
         )}
       </section>
     </div>
+  );
+}
+
+/** What the app has learnt about when this feed posts, and how that sets its checks. */
+function RhythmNote({ source }: { source: Source }) {
+  const { summary, checking } = rhythmText(source.rhythm, source.checkMinutes === null);
+  return (
+    <span className="hint" style={{ margin: 0 }}>
+      <strong>When it posts:</strong> {summary} {checking}
+      {source.rhythm && source.rhythm.posts > 0 ? ` Learnt from its last ${source.rhythm.posts} posts.` : ''}
+    </span>
   );
 }

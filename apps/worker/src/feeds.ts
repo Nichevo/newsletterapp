@@ -26,6 +26,7 @@ import { htmlToText, snippetOf } from './html';
 import { newId, now } from './ids';
 import { categoryFromRules, quickSummary } from './quick';
 import { loadSettings } from './settings';
+import { nextCheckAt, refreshRhythm, rhythmStale } from './rhythm';
 
 // Phase 3: RSS/Atom/JSON feeds and website watches.
 //
@@ -211,13 +212,19 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
 
 // ---------- Checking one source ----------
 
-async function recordOk(env: Env, source: SourceRow, f: { etag?: string | null; lastModified?: string | null }) {
+async function recordOk(env: Env, source: SourceRow, f: { etag?: string | null; lastModified?: string | null }, added = 0) {
   const t = now();
+  let rhythm = source.rhythm;
+  // Feeds re-learn when they post (and weekly otherwise): one small indexed read.
+  if (source.kind === 'feed' && (added > 0 || rhythmStale(rhythm, t))) {
+    const { timezone } = await loadSettings(env);
+    rhythm = JSON.stringify(await refreshRhythm(env, source.id, timezone, t));
+  }
   await env.DB.prepare(
     `UPDATE sources SET last_checked_at = ?1, last_ok_at = ?1, next_check_at = ?2, last_error = NULL, error_count = 0,
        etag = COALESCE(?3, etag), last_modified = COALESCE(?4, last_modified) WHERE id = ?5`,
   )
-    .bind(t, t + interval(source), f.etag ?? null, f.lastModified ?? null, source.id)
+    .bind(t, nextCheckAt({ ...source, rhythm }, t, interval(source)), f.etag ?? null, f.lastModified ?? null, source.id)
     .run();
 }
 
@@ -258,7 +265,7 @@ export async function checkCloudFeed(env: Env, source: SourceRow): Promise<numbe
     return 0;
   }
   const added = await storeEntries(env, source, feed.entries);
-  await recordOk(env, source, f);
+  await recordOk(env, source, f, added);
   return added;
 }
 
@@ -576,6 +583,14 @@ export function registerFeeds(app: App) {
     return c.json(body, 201);
   });
 
+  // Every feed and website is due now: this run checks the first batch and the rest follow over the next few runs.
+  app.post('/api/sources/check-all', async (c) => {
+    const t = now();
+    const r = await c.env.DB.prepare("UPDATE sources SET next_check_at = ? WHERE kind IN ('feed', 'site') AND paused_at IS NULL").bind(t).run();
+    const result = await runFeedChecks(c.env);
+    return c.json({ due: r.meta.changes ?? 0, ...result });
+  });
+
   app.post('/api/sources/:id/check', async (c) => {
     const row = await loadSourceRow(c.env, c.req.param('id'));
     if (!row || (row.kind !== 'feed' && row.kind !== 'site')) return c.json({ error: 'not found' }, 404);
@@ -680,7 +695,7 @@ export function registerFeeds(app: App) {
       if (!r.ok) await recordFailure(c.env, source, error, Boolean(r.blocked));
       else {
         if (!r.notModified) added = await storeEntries(c.env, source, (r.entries ?? []).slice(0, 60), (r.seenKeys ?? []).slice(0, 500));
-        await recordOk(c.env, source, { etag: r.etag, lastModified: r.lastModified });
+        await recordOk(c.env, source, { etag: r.etag, lastModified: r.lastModified }, added);
       }
     }
     await c.env.DB.prepare('DELETE FROM fetch_jobs WHERE id = ?').bind(job.id).run();
