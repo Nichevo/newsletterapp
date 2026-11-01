@@ -186,6 +186,7 @@ async function answerAsks(models: ModelRef[] = currentModels): Promise<void> {
         const ref = job.model && findProvider(providers, job.model) ? job.model : model;
         const provider = findProvider(providers, ref)!;
         const base = { askId: job.askId, provider: ref.provider, model: ref.name };
+        doing(`question "${job.quote.slice(0, 50)}"`);
         log(`question "${job.quote.slice(0, 50)}": ${job.lookups && job.lookups !== 'none' ? `looking up (${job.lookups}) first` : 'no lookups'}`);
         const lookups =
           job.lookups && job.lookups !== 'none' ? await withinTime(askLookups(job, cfg), LOOKUP_LIMIT_MS, 'lookups').catch(lookupFailed) : NO_LOOKUPS;
@@ -252,6 +253,7 @@ async function summariseQueue(config: HelperConfig) {
     // A question asked while this batch runs goes first.
     if (i > 0) await checkAsks();
     // When the app splits the work between models it names one per job; otherwise use the first.
+    doing(`summarising "${job.subject.slice(0, 60)}"`);
     const model = job.model && findProvider(providers, job.model) ? job.model : first;
     const provider = findProvider(providers, model)!;
     const base = { itemId: job.itemId, provider: model.provider, model: model.name, promptId: job.promptId, promptVersion: job.promptVersion };
@@ -301,6 +303,7 @@ async function fetchQueue(config: HelperConfig) {
     for (const job of jobs) {
       // A question waiting shouldn't sit behind a run of slow web pages.
       await checkAsks();
+      doing(`fetching ${job.kind} ${job.url.slice(0, 80)}`);
       const result = await runFetchJob(job, cfg);
       const res = await app.fetchResult(result);
       log(`${job.kind} ${job.url.slice(0, 80)}: ${result.ok ? (job.kind === 'article' ? 'article saved' : `${res.added ?? 0} new`) : result.error}`);
@@ -316,6 +319,7 @@ async function runTrial(trialId: string) {
     const provider = findProvider(providers, ref);
     const results: TrialResultInput[] = [];
     for (const item of trial.items) {
+      doing(`test run: ${ref.name} on ${item.itemId}`);
       if (!provider) {
         results.push({ itemId: item.itemId, provider: ref.provider, model: ref.name, seconds: 0, error: `${ref.provider} is not set up on this PC` });
         continue;
@@ -342,8 +346,26 @@ async function selfUpdate(version: string) {
   process.exit(UPDATED_EXIT_CODE);
 }
 
+/** What the helper is doing right now, for the watchdog's log line. */
+let step = 'starting';
+let stepSince = Date.now();
+const doing = (what: string) => {
+  step = what;
+  stepSince = Date.now();
+};
+/** No single step should take this long; past it the worker restarts (the supervisor starts it again). */
+const STUCK_MS = 12 * 60_000;
+if (!once) {
+  setInterval(() => {
+    if (Date.now() - stepSince < STUCK_MS) return;
+    log(`stuck for ${Math.round((Date.now() - stepSince) / 60_000)} min on: ${step}; restarting`);
+    process.exit(1);
+  }, 60_000).unref();
+}
+
 async function tick(): Promise<number> {
   restartIfStale();
+  doing('checking in with the app');
   const config = await heartbeat();
   if (config.latestHelperVersion && config.latestHelperVersion !== HELPER_VERSION && !once) {
     await selfUpdate(config.latestHelperVersion).catch((err: unknown) => log('update failed, carrying on:', err));
@@ -351,12 +373,17 @@ async function tick(): Promise<number> {
   currentModels = config.models;
   askPollSeconds = config.askPollSeconds ?? askPollSeconds;
   // Questions about highlights come first: someone is waiting for those.
+  doing('answering questions');
   if (config.asksWaiting && !config.paused) await answerAsks(config.models);
   lastPeek = Date.now();
+  doing('test run');
   if (config.trialId) await runTrial(config.trialId);
   // Fetch problems must not hold up the summaries.
+  doing('fetching feeds and pages');
   await fetchQueue(config).catch((err: unknown) => log('fetch jobs failed:', err));
+  doing('summarising');
   await summariseQueue(config);
+  doing('waiting for the next round');
   return config.pollSeconds;
 }
 
