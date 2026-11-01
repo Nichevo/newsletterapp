@@ -171,7 +171,9 @@ async function answerAsks(models: ModelRef[] = currentModels): Promise<void> {
         const ref = job.model && findProvider(providers, job.model) ? job.model : model;
         const provider = findProvider(providers, ref)!;
         const base = { askId: job.askId, provider: ref.provider, model: ref.name };
+        log(`question "${job.quote.slice(0, 50)}": ${job.lookups && job.lookups !== 'none' ? `looking up (${job.lookups}) first` : 'no lookups'}`);
         const lookups = job.lookups && job.lookups !== 'none' ? await askLookups(job, cfg).catch(() => NO_LOOKUPS) : NO_LOOKUPS;
+        if (lookups.missing.length) log(`couldn't use ${lookups.missing.join('; ')}`);
         const extra = {
           searches: lookups.searches,
           sources: toSources(lookups.found),
