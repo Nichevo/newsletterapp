@@ -122,6 +122,18 @@ export interface ItemBody {
 export interface ItemListResponse {
   items: ItemSummary[];
   nextCursor: string | null;
+  /**
+   * First page with a type, category or source filter only: how many items match
+   * the filters, and how many of those are unread. Without filters the app uses
+   * the inbox totals it already has.
+   */
+  counts?: { shown: number; unread: number };
+}
+
+/** Marks a set of items read or unread at once (the inbox's "Mark these read", and its Undo). */
+export interface BulkReadInput {
+  ids: string[];
+  action: 'read' | 'unread';
 }
 
 export type ItemView = 'inbox' | 'unread' | 'saved' | 'archived';

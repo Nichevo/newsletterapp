@@ -340,6 +340,11 @@ select {
   font: 500 13px var(--font);
 }
 
+.pill--more {
+  border-style: dashed;
+  color: var(--muted, var(--ink));
+}
+
 .pill[aria-pressed='true'] {
   background: var(--ink);
   border-color: var(--ink);
@@ -632,6 +637,8 @@ select {
 .loadmore {
   padding: 16px;
   display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
   justify-content: center;
 }
 
@@ -1874,4 +1881,15 @@ a.pill {
   gap: 4px;
   font-size: 13px;
   color: var(--teal-ink);
+}
+
+/* Inbox: mark the loaded items read, with an undo in the toast */
+.toast__undo {
+  margin-left: 12px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: 600 14px var(--font);
+  text-decoration: underline;
+  cursor: pointer;
 }

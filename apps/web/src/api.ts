@@ -2,6 +2,7 @@ import type {
   Address,
   AskPreset,
   AskPresetInput,
+  BulkReadInput,
   Highlight,
   HighlightAnchor,
   HighlightList,
@@ -104,6 +105,7 @@ export const api = {
   itemBody: (id: string) => get<ItemBody>(`/api/items/${id}/body`),
   itemAction: (id: string, action: 'read' | 'unread' | 'save' | 'unsave' | 'archive' | 'unarchive') =>
     post<ItemSummary>(`/api/items/${id}/${action}`, action === 'read' ? { device: isPhone() } : undefined),
+  bulkRead: (input: BulkReadInput) => post<{ changed: number }>('/api/items/bulk-read', { ...input, device: isPhone() }),
   rawUrl: (id: string) => `/api/items/${id}/raw`,
   related: (id: string) => get<RelatedItem[]>(`/api/items/${id}/related`),
   unsubscribe: (id: string) => post<UnsubscribeResult>(`/api/items/${id}/unsubscribe`),
