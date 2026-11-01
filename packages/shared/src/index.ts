@@ -630,7 +630,11 @@ export interface ReadingStats {
   /** The last 7 days at a glance. */
   glance: {
     received: number;
+    /** Of the items that arrived in the 7 days, how many are read. */
     read: number;
+    /** Older items marked read in the 7 days, and how many of those by Mark all read. */
+    readOlder: number;
+    readOlderBulk: number;
     /** Minutes spent in the reader. */
     minutes: number;
     /** Items opened in the reader, and how many of those were scrolled at least 70% through. */
