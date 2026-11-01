@@ -46,7 +46,7 @@ export function AiUsagePage() {
       .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load'));
   }, []);
 
-  useVisiblePolling(refresh, 60_000);
+  useVisiblePolling(refresh, 5 * 60_000);
 
   async function save(next: { limits?: AiLimits; cost?: AiCostSettings }, message: string) {
     try {

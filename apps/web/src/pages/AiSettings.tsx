@@ -18,13 +18,22 @@ export function AiSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
-  const refresh = useCallback(() => {
+  // Only the status box needs to stay live; the model list and usage are loaded
+  // when the page opens and after each change (they cost many more database reads).
+  const refreshStatus = useCallback(() => {
     api.aiStatus().then(setStatus).catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load'));
+  }, []);
+  const refreshRest = useCallback(() => {
     api.aiModels().then(setModels).catch(() => undefined);
     api.aiUsage().then(setUsage).catch(() => undefined);
   }, []);
+  const refresh = useCallback(() => {
+    refreshStatus();
+    refreshRest();
+  }, [refreshStatus, refreshRest]);
 
-  useVisiblePolling(refresh, 30_000);
+  useVisiblePolling(refreshStatus, 60_000);
+  useVisiblePolling(refreshRest, null);
 
   async function act(fn: () => Promise<unknown>, message?: string) {
     try {
@@ -411,7 +420,9 @@ function TrialSection({ models }: { models: ModelInfo[] }) {
   const load = useCallback(() => {
     api.latestTrial().then(setTrial).catch(() => undefined);
   }, []);
-  useVisiblePolling(load, 20_000);
+  // Follow a test run while it's going; otherwise load once.
+  const active = trial !== null && trial.status !== 'done';
+  useVisiblePolling(load, active ? 20_000 : null);
 
   async function start() {
     const chosen = installed.filter((m) => picked.includes(key(m)));
