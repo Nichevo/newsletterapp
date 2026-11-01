@@ -76,8 +76,9 @@ export default function App() {
         <Route path="/settings/ai/highlights" element={<HighlightPromptsPage />} />
         <Route path="/settings/ai/web-search" element={<WebSearchPage />} />
         <Route path="/settings/sources" element={<SourcesPage />} />
-        <Route path="/stats" element={<StatsPage />} />
+        <Route path="/stats" element={<ReadingStatsPage />} />
         <Route path="/stats/reading" element={<ReadingStatsPage />} />
+        <Route path="/stats/ai" element={<StatsPage />} />
         <Route path="*" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
       </Routes>
       {!isReader && <TabBar pendingSenders={counts.pendingSenders} />}
