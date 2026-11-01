@@ -77,11 +77,21 @@ Write-Host 'Checking the connection once...'
 if ($LASTEXITCODE -ne 0) { Write-Host 'The test run reported a problem; see the lines above.' -ForegroundColor Yellow }
 
 $action = New-ScheduledTaskAction -Execute $node -Argument "`"$(Join-Path $dir 'newsletter-helper.mjs')`"" -WorkingDirectory $dir
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+# At log on, and again every 5 minutes: Windows only restarts a task that failed to start,
+# not one that stopped later, so the repeat brings the helper back if it ever exits.
+# While it is running, the repeat does nothing (IgnoreNew).
+$triggers = @(
+  (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME),
+  (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 5))
+)
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) `
-  -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -Hidden
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
+  -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew -Hidden
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $triggers -Settings $settings -Force | Out-Null
 Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+# Stopping the task leaves the helper's worker process running, so stop any copy still going.
+Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -like '*newsletter-helper.mjs*' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-ScheduledTask -TaskName $taskName
 
 Write-Host ''
