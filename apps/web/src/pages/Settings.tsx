@@ -2,7 +2,6 @@ import type { AppSettings, DigestOptions, Me, Source, SummaryKind } from '@newsl
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { shortTime } from '../format';
 import {
   DENSITIES,
   TEXT_SIZES,
@@ -22,13 +21,12 @@ import {
 } from '../prefs';
 import { useDensity, useViewOptions } from '../components/DensityToggle';
 
-export function SettingsPage({ me }: { me: Me }) {
-  const [sources, setSources] = useState<Source[]>([]);
+/** Loads the app settings and saves changes optimistically; shared by Settings and its sub-pages. */
+export function useAppSettings() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.sources().then(setSources).catch(() => undefined);
     api
       .settings()
       .then(setSettings)
@@ -47,6 +45,28 @@ export function SettingsPage({ me }: { me: Me }) {
     }
   }
 
+  return { settings, save, error };
+}
+
+function MenuRow({ to, title, sub }: { to: string; title: string; sub: string }) {
+  return (
+    <Link to={to} className="cardrow">
+      <div className="cardrow__main">
+        <span className="cardrow__title">{title}</span>
+        <span className="cardrow__sub">{sub}</span>
+      </div>
+    </Link>
+  );
+}
+
+export function SettingsPage({ me }: { me: Me }) {
+  const [sources, setSources] = useState<Source[]>([]);
+  const { settings, save, error } = useAppSettings();
+
+  useEffect(() => {
+    api.sources().then(setSources).catch(() => undefined);
+  }, []);
+
   return (
     <div className="page">
       <header className="topbar">
@@ -56,20 +76,24 @@ export function SettingsPage({ me }: { me: Me }) {
       </header>
 
       <div className="section">
-        <span className="label">Sources</span>
         <div className="card card--list">
-          <Link to="/add" className="cardrow">
-            <div className="cardrow__main">
-              <span className="cardrow__title">Add a source</span>
-              <span className="cardrow__sub">Follow a site or feed, import from Feedly, or create a newsletter address</span>
-            </div>
-          </Link>
-          <Link to="/senders" className="cardrow">
-            <div className="cardrow__main">
-              <span className="cardrow__title">Senders</span>
-              <span className="cardrow__sub">Allow or block who can reach your inbox</span>
-            </div>
-          </Link>
+          <MenuRow
+            to="/settings/sources"
+            title="Your sources"
+            sub={
+              sources.length === 0
+                ? 'Newsletters, feeds and websites appear here once something arrives; categories and keyword rules'
+                : `${sources.length} source${sources.length === 1 ? '' : 's'} · when each posts, pause, history · categories and keyword rules`
+            }
+          />
+          <MenuRow to="/add" title="Add a source" sub="Follow a site or feed, import from Feedly, or create a newsletter address" />
+          <MenuRow to="/senders" title="Senders" sub="Allow or block who can reach your inbox" />
+          <MenuRow
+            to="/settings/ai"
+            title="PC helper and AI"
+            sub="What gets summarised, models, prompts, highlight prompts, web search, usage limits and cost"
+          />
+          <MenuRow to="/stats" title="Statistics" sub="What arrives and what you read; how the AI summaries are doing" />
         </div>
       </div>
 
@@ -77,23 +101,6 @@ export function SettingsPage({ me }: { me: Me }) {
 
       <ReadingSection />
       {settings && <DigestSection settings={settings} onSave={save} />}
-      {settings && <CategoriesSection settings={settings} onSave={save} />}
-      {settings && <AiSection settings={settings} onSave={save} />}
-
-      <div className="section">
-        <div className="card card--list">
-          <Link to="/settings/sources" className="cardrow">
-            <div className="cardrow__main">
-              <span className="cardrow__title">Your sources</span>
-              <span className="cardrow__sub">
-                {sources.length === 0
-                  ? 'Newsletters, feeds and websites appear here once something arrives'
-                  : `${sources.length} source${sources.length === 1 ? '' : 's'} · category, AI mode, pause and history for each`}
-              </span>
-            </div>
-          </Link>
-        </div>
-      </div>
 
       <div className="section">
         <span className="label">Account</span>
@@ -113,15 +120,11 @@ export function SettingsPage({ me }: { me: Me }) {
           </a>
         </div>
       </div>
-
-      <p className="hint" style={{ padding: '0 16px' }}>
-        Quick summaries are on. AI summaries come from the PC helper once it is set up. Feeds and websites come later.
-      </p>
     </div>
   );
 }
 
-function CategoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
+export function CategoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
   const [name, setName] = useState('');
   const [words, setWords] = useState('');
   const [ruleCategory, setRuleCategory] = useState(settings.categories[0] ?? '');
@@ -211,7 +214,7 @@ function CategoriesSection({ settings, onSave }: { settings: AppSettings; onSave
 
 const KIND_LABEL: Record<SummaryKind, string> = { newsletter: 'Newsletters', feed: 'RSS feeds', site: 'Websites' };
 
-function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
+export function AiSummariesSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
   const [interests, setInterests] = useState(settings.interests);
 
   return (
@@ -230,7 +233,8 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
         ))}
         <span className="hint">
           Which items go to the AI on your PC. Switching a kind on summarises new items only; to go back further, switch AI on
-          from a source’s own page. Each source can override this. Everything always gets the quick summary.
+          from a source’s own page. Each source can override this. Everything always gets the quick summary. When the PC is off,
+          summaries and highlight questions wait until it’s back.
         </span>
         <div className="field">
           <label htmlFor="interests">Your interests</label>
@@ -245,50 +249,6 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
           <span className="hint">Used for the “why it matters” line in AI summaries.</span>
         </div>
       </section>
-      <div className="card card--list">
-        <Link to="/settings/ai" className="cardrow">
-          <div className="cardrow__main">
-            <span className="cardrow__title">PC helper, models and prompts</span>
-            <span className="cardrow__sub">Status, which models to use, the summary prompt, test runs, setup</span>
-          </div>
-        </Link>
-        <Link to="/settings/ai/highlights" className="cardrow">
-          <div className="cardrow__main">
-            <span className="cardrow__title">Highlight prompts</span>
-            <span className="cardrow__sub">Define, More info, Example and the rest: edit, reorder, switch off, add your own</span>
-          </div>
-        </Link>
-        <Link to="/settings/ai/web-search" className="cardrow">
-          <div className="cardrow__main">
-            <span className="cardrow__title">Web search</span>
-            <span className="cardrow__sub">Brave search for highlight questions and, if you want, summaries; monthly budget</span>
-          </div>
-        </Link>
-        <div className="cardrow">
-          <div className="cardrow__main">
-            <span className="cardrow__title">When the PC is off</span>
-            <span className="cardrow__sub">Wait for the PC. Summaries and highlight questions wait until it’s back (a Cloudflare AI choice may come later).</span>
-          </div>
-        </div>
-        <Link to="/stats/reading" className="cardrow">
-          <div className="cardrow__main">
-            <span className="cardrow__title">Reading statistics</span>
-            <span className="cardrow__sub">What arrives, what you read, streak, backlog, by newsletter and category</span>
-          </div>
-        </Link>
-        <Link to="/stats" className="cardrow">
-          <div className="cardrow__main">
-            <span className="cardrow__title">AI statistics</span>
-            <span className="cardrow__sub">Summary value by model, newsletter and prompt, month by month</span>
-          </div>
-        </Link>
-        <Link to="/settings/ai/usage" className="cardrow">
-          <div className="cardrow__main">
-            <span className="cardrow__title">AI usage and cost</span>
-            <span className="cardrow__sub">Limits on PC run time, usage graphs, electricity and wear cost</span>
-          </div>
-        </Link>
-      </div>
     </div>
   );
 }

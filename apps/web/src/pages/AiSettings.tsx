@@ -1,6 +1,7 @@
 import type { AiStatusView, AiUsageView, AppSettings, ModelInfo, ModelMode, ModelRef, PromptInfo, Source, TrialView } from '@newsletterapp/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { AiSummariesSection, useAppSettings } from './Settings';
 import { api } from '../api';
 import { useVisiblePolling } from '../poll';
 import { relativeTime } from '../format';
@@ -17,6 +18,7 @@ export function AiSettingsPage() {
   const [usage, setUsage] = useState<AiUsageView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const { settings, save: saveSettings } = useAppSettings();
 
   // Only the status box needs to stay live; the model list and usage are loaded
   // when the page opens and after each change (they cost many more database reads).
@@ -52,7 +54,7 @@ export function AiSettingsPage() {
           <button className="iconbtn" aria-label="Back" onClick={() => navigate(-1)}>
             <IconBack />
           </button>
-          <h1>AI</h1>
+          <h1>PC helper and AI</h1>
         </div>
       </header>
 
@@ -65,7 +67,8 @@ export function AiSettingsPage() {
 
       {usage?.now.limited && <LimitNotice usage={usage} />}
       {status && <StatusSection status={status} onAct={act} />}
-      {usage && <UsageLink usage={usage} />}
+      <MoreLinks usage={usage} />
+      {settings && <AiSummariesSection settings={settings} onSave={saveSettings} />}
       <ModelsSection models={models} onChange={setModels} onAct={act} />
       <PromptsSection />
       <TrialSection models={models} />
@@ -146,14 +149,15 @@ function StatusSection({ status, onAct }: { status: AiStatusView; onAct: (fn: ()
   );
 }
 
-function UsageLink({ usage }: { usage: AiUsageView }) {
-  const { limits, cost } = usage.settings;
-  const caps = [
-    limits.perHourMinutes !== null && `${limits.perHourMinutes} min/hour`,
-    limits.perDayMinutes !== null && `${limits.perDayMinutes} min/day`,
-    limits.perSessionMinutes !== null && `${limits.perSessionMinutes} min/session`,
-  ].filter(Boolean);
-  const today = usage.totals.today;
+function MoreLinks({ usage }: { usage: AiUsageView | null }) {
+  const caps = usage
+    ? [
+        usage.settings.limits.perHourMinutes !== null && `${usage.settings.limits.perHourMinutes} min/hour`,
+        usage.settings.limits.perDayMinutes !== null && `${usage.settings.limits.perDayMinutes} min/day`,
+        usage.settings.limits.perSessionMinutes !== null && `${usage.settings.limits.perSessionMinutes} min/session`,
+      ].filter(Boolean)
+    : [];
+  const today = usage?.totals.today;
   return (
     <div className="section">
       <div className="card card--list">
@@ -161,9 +165,30 @@ function UsageLink({ usage }: { usage: AiUsageView }) {
           <div className="cardrow__main">
             <span className="cardrow__title">Usage limits and cost</span>
             <span className="cardrow__sub">
-              Today {minutesLabel(today.minutes)} · about {cost.currency}
-              {(today.electricity + today.wear).toFixed(2)} · {caps.length ? `limits ${caps.join(', ')}` : 'no limits set'}
+              {usage && today
+                ? `Today ${minutesLabel(today.minutes)} · about ${usage.settings.cost.currency}${(today.electricity + today.wear).toFixed(2)} · ${
+                    caps.length ? `limits ${caps.join(', ')}` : 'no limits set'
+                  }`
+                : 'Limits on PC run time, usage graphs, electricity and wear cost'}
             </span>
+          </div>
+        </Link>
+        <Link to="/settings/ai/web-search" className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">Web search</span>
+            <span className="cardrow__sub">Brave search for highlight questions and, if you want, summaries; monthly budget</span>
+          </div>
+        </Link>
+        <Link to="/settings/ai/highlights" className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">Highlight prompts</span>
+            <span className="cardrow__sub">Define, More info, Example and the rest: edit, reorder, switch off, add your own</span>
+          </div>
+        </Link>
+        <Link to="/stats/ai" className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">AI statistics</span>
+            <span className="cardrow__sub">Is the PC keeping up, thumbs by model, summary value month by month</span>
           </div>
         </Link>
       </div>
@@ -623,7 +648,7 @@ function SetupSection() {
         </ol>
         <span className="hint">
           The secret stays in a file on your PC that only your Windows account can read. The helper only makes outbound requests and updates
-          itself when the app ships a new version. <Link to="/stats">See statistics</Link>.
+          itself when the app ships a new version. <Link to="/stats/ai">See statistics</Link>.
         </span>
       </section>
     </div>

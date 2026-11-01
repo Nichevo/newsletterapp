@@ -4,12 +4,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { nextTime, rhythmText, shortTime } from '../format';
 import { IconBack } from '../icons';
+import { CategoriesSection, useAppSettings } from './Settings';
 
 /** Every source you receive or follow, grouped by kind. Each row opens the source's own page. */
 export function SourcesPage() {
   const navigate = useNavigate();
   const [sources, setSources] = useState<Source[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { settings, save } = useAppSettings();
 
   useEffect(() => {
     api
@@ -77,6 +79,8 @@ export function SourcesPage() {
           </span>
         </div>
       )}
+
+      {settings && <CategoriesSection settings={settings} onSave={save} />}
     </div>
   );
 }

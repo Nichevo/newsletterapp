@@ -6,6 +6,7 @@ import { BarChart, dayName, dayTick, hourTick, RangeSwitch, shortDate } from '..
 import { RatingChart, type RatingBucket } from '../components/RatingChart';
 import { HighlightAiStats } from '../components/HighlightStats';
 import { IconBack } from '../icons';
+import { StatsTabs } from '../components/StatsTabs';
 
 type Grouping = 'model' | 'source' | 'prompt';
 const GROUP_LABEL: Record<Grouping, string> = { model: 'Model', source: 'Newsletter', prompt: 'Prompt' };
@@ -36,9 +37,10 @@ export function StatsPage() {
           <button className="iconbtn" aria-label="Back" onClick={() => navigate(-1)}>
             <IconBack />
           </button>
-          <h1>AI statistics</h1>
+          <h1>Statistics</h1>
         </div>
       </header>
+      <StatsTabs current="ai" />
 
       <KeepingUpSection />
       <RatingsSection />

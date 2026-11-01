@@ -5,6 +5,7 @@ import { api } from '../api';
 import { dayTick, RangeSwitch, shortDate } from '../components/BarChart';
 import { HighlightReadingStats } from '../components/HighlightStats';
 import { IconBack } from '../icons';
+import { StatsTabs } from '../components/StatsTabs';
 
 const pct = (n: number, of: number) => (of > 0 ? `${Math.round((100 * n) / of)}%` : '–');
 const minutes = (m: number) => (m < 90 ? `${m} min` : `${(m / 60).toFixed(1)} h`);
@@ -39,9 +40,10 @@ export function ReadingStatsPage() {
           <button className="iconbtn" aria-label="Back" onClick={() => navigate(-1)}>
             <IconBack />
           </button>
-          <h1>Reading statistics</h1>
+          <h1>Statistics</h1>
         </div>
       </header>
+      <StatsTabs current="reading" />
 
       {error && <div className="error">{error}</div>}
       {data && (
