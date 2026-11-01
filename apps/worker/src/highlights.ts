@@ -18,6 +18,7 @@ import {
   type LookupMode,
   type NewAskInput,
   type NewAskResult,
+  type FreeAskList,
   type NewFreeAskInput,
   type PcOffMode,
 } from '@newsletterapp/shared';
@@ -540,6 +541,20 @@ export function registerHighlights(app: App) {
       .bind(id, preset?.id ?? null, preset?.label ?? 'Your question', preset?.version ?? null, preset ? null : question, lookups, prompt, text || question, t)
       .run();
     return c.json({ id }, 201);
+  });
+
+  // Latest questions from the Ask the AI page (item_id '' marks them), for their status there.
+  app.get('/api/asks/free', async (c) => {
+    const rows = await c.env.DB.prepare(
+      "SELECT * FROM asks INDEXED BY asks_item WHERE item_id = '' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 10",
+    ).all<AskRow>();
+    const waiting = rows.results.some((a) => a.status === 'pending' || a.status === 'working');
+    const helper = waiting ? await readJson<{ lastSeenAt?: number }>(c.env, 'helper') : null;
+    const body: FreeAskList = {
+      asks: rows.results.map((r) => ({ ...toAsk(r), text: r.text ?? null })),
+      helperLastSeenAt: helper?.lastSeenAt ?? null,
+    };
+    return c.json(body);
   });
 
   app.post('/api/asks/:id/retry', async (c) => {
