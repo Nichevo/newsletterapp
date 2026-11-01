@@ -42,6 +42,7 @@ import {
 } from './db';
 import { buildDigestIfDue, topicsOf } from './digest';
 import { normalizeUrl, registerFeeds, startCount } from './feeds';
+import { registerExport } from './export';
 import { registerHighlights } from './highlights';
 import { registerHighlightPages } from './highlight-pages';
 import { registerWebSearch } from './websearch';
@@ -84,6 +85,7 @@ registerHighlightPages(app);
 registerWebSearch(app);
 // Feeds and websites: discovery, following, the Feedly import and the PC's fetch jobs.
 registerFeeds(app);
+registerExport(app);
 registerUsage(app);
 registerBacklog(app);
 registerReading(app);
