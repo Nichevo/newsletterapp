@@ -461,12 +461,24 @@ function TrialSection({ models }: { models: ModelInfo[] }) {
           Start test run
         </button>
       </section>
-      {trial && <TrialResults trial={trial} onTrial={setTrial} />}
+      {trial && (
+        <TrialResults
+          trial={trial}
+          onTrial={setTrial}
+          onClear={() => {
+            setTrial(null);
+            api.clearTrial(trial.id).catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : 'Could not clear');
+              load();
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function TrialResults({ trial, onTrial }: { trial: TrialView; onTrial: (t: TrialView) => void }) {
+function TrialResults({ trial, onTrial, onClear }: { trial: TrialView; onTrial: (t: TrialView) => void; onClear: () => void }) {
   const [open, setOpen] = useState<string | null>(trial.items[0]?.id ?? null);
   const resultsOf = (m: ModelRef) => trial.results.filter((r) => r.provider === m.provider && r.model === m.name);
   const tally = trial.models.map((m) => {
@@ -500,6 +512,11 @@ function TrialResults({ trial, onTrial }: { trial: TrialView; onTrial: (t: Trial
       <strong style={{ fontSize: 14 }}>
         Test run {relativeTime(trial.createdAt)} · {trial.status === 'done' ? 'finished' : trial.status === 'running' ? `running, ${done} of ${total}` : 'waiting for your PC'}
       </strong>
+      {trial.status === 'done' && (
+        <button className="btn btn--small btn--ghost" style={{ alignSelf: 'flex-start' }} onClick={onClear} title="Thumbs and timings are kept for AI statistics">
+          Clear this test run
+        </button>
+      )}
       <div className="inline" style={{ flexWrap: 'wrap' }}>
         {tally.map(({ model: m, up, down }) => (
           <span key={m.name} className={`chip ${leader === m ? 'chip--leader' : 'chip--outline'}`}>

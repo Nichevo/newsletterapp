@@ -754,6 +754,15 @@ export function registerAi(app: App) {
     return c.json({ id }, 201);
   });
 
+  /** Hides a finished test run from Settings > AI. Its timings and thumbs stay, for AI usage and the thumbs-by-model charts. */
+  app.post('/api/ai/trials/:id/clear', async (c) => {
+    const trial = await c.env.DB.prepare('SELECT status FROM trials WHERE id = ?').bind(c.req.param('id')).first<{ status: string }>();
+    if (!trial) return c.json({ error: 'not found' }, 404);
+    if (trial.status !== 'done') return c.json({ error: 'Only a finished test run can be cleared' }, 409);
+    await writeJson(c.env, 'trial_cleared', c.req.param('id'));
+    return c.json({ ok: true });
+  });
+
   app.get('/api/ai/trials/latest', async (c) => {
     const trial = await c.env.DB.prepare('SELECT * FROM trials ORDER BY created_at DESC LIMIT 1').first<{
       id: string;
@@ -762,7 +771,8 @@ export function registerAi(app: App) {
       models: string;
       item_ids: string;
     }>();
-    if (!trial) return c.json(null);
+    // A finished run you cleared stays out of sight until the next one starts.
+    if (!trial || trial.id === (await readJson<string>(c.env, 'trial_cleared'))) return c.json(null);
     const ids = JSON.parse(trial.item_ids) as string[];
     const [items, results] = await Promise.all([
       ids.length
