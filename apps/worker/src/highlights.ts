@@ -18,6 +18,7 @@ import {
   type LookupMode,
   type NewAskInput,
   type NewAskResult,
+  type FreeAskList,
   type NewFreeAskInput,
   type PcOffMode,
 } from '@newsletterapp/shared';
@@ -279,6 +280,7 @@ function noteHtml(
   answer: string,
   sources: AskSource[],
   by: string,
+  lookupNote: string | null = null,
 ) {
   const parts = [
     origin
@@ -298,6 +300,8 @@ function noteHtml(
         .join('')}</ul>`,
     );
   }
+  // Lookups that were asked for but couldn't run (no Brave key, budget used up, a site down) are said plainly.
+  if (lookupNote) parts.push(`<p style="color:#8a5a00;font-size:0.9em">${esc(lookupNote)}.</p>`);
   parts.push(`<p style="font-style:italic;color:#5b636b;font-size:0.85em">${esc(ask.label)} · ${esc(by)}</p>`);
   return parts.filter(Boolean).join('\n');
 }
@@ -305,7 +309,16 @@ function noteHtml(
 const shorten = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
 /** Writes the answer as a new inbox article from the "AI notes" source; returns its id. */
-async function createNoteItem(env: Env, ask: AskRow, quote: string, answer: string, sources: AskSource[], by: string, t: number) {
+async function createNoteItem(
+  env: Env,
+  ask: AskRow,
+  quote: string,
+  answer: string,
+  sources: AskSource[],
+  by: string,
+  t: number,
+  lookupNote: string | null = null,
+) {
   const origin = !ask.item_id
     ? null
     : await env.DB.prepare(
@@ -319,7 +332,7 @@ async function createNoteItem(env: Env, ask: AskRow, quote: string, answer: stri
   const id = newId();
   const key = `ai/${id}.html`;
   const plain = markdownToText(answer);
-  await env.RAW.put(key, noteHtml(ask, quote, origin, answer, sources, by), { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
+  await env.RAW.put(key, noteHtml(ask, quote, origin, answer, sources, by, lookupNote), { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
   await env.DB.prepare(
     `INSERT INTO items (id, source_id, kind, status, subject, from_name, snippet, received_at, html_key, has_html, created_at,
        preheader, word_count, category, origin_item_id)
@@ -528,6 +541,20 @@ export function registerHighlights(app: App) {
       .bind(id, preset?.id ?? null, preset?.label ?? 'Your question', preset?.version ?? null, preset ? null : question, lookups, prompt, text || question, t)
       .run();
     return c.json({ id }, 201);
+  });
+
+  // Latest questions from the Ask the AI page (item_id '' marks them), for their status there.
+  app.get('/api/asks/free', async (c) => {
+    const rows = await c.env.DB.prepare(
+      "SELECT * FROM asks INDEXED BY asks_item WHERE item_id = '' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 10",
+    ).all<AskRow>();
+    const waiting = rows.results.some((a) => a.status === 'pending' || a.status === 'working');
+    const helper = waiting ? await readJson<{ lastSeenAt?: number }>(c.env, 'helper') : null;
+    const body: FreeAskList = {
+      asks: rows.results.map((r) => ({ ...toAsk(r), text: r.text ?? null })),
+      helperLastSeenAt: helper?.lastSeenAt ?? null,
+    };
+    return c.json(body);
   });
 
   app.post('/api/asks/:id/retry', async (c) => {
@@ -769,16 +796,16 @@ export function registerHighlights(app: App) {
     const seconds = Number.isFinite(r.seconds) ? Math.round(r.seconds * 10) / 10 : null;
     const watts = Number.isFinite(r.watts) && r.watts! > 0 ? Math.round(r.watts!) : null;
 
+    const lookupNote = ok && typeof r.lookupNote === 'string' && r.lookupNote.trim() ? r.lookupNote.trim().slice(0, 300) : null;
     let newItemId: string | null = null;
     if (ok && ask.output !== 'note' && !ask.new_item_id && !ask.deleted_at) {
       const hl = ask.highlight_id
         ? await c.env.DB.prepare('SELECT quote FROM highlights WHERE id = ?').bind(ask.highlight_id).first<{ quote: string }>()
         : null;
-      newItemId = await createNoteItem(c.env, ask, hl?.quote ?? ask.text ?? '', answer, sources, `by ${model} via ${provider}`, t);
+      newItemId = await createNoteItem(c.env, ask, hl?.quote ?? ask.text ?? '', answer, sources, `by ${model} via ${provider}`, t, lookupNote);
     }
     const status: AskStatus = ok ? 'done' : ask.attempts >= MAX_ATTEMPTS ? 'failed' : 'pending';
     await countSearches(c.env, 'asks', r.searches);
-    const lookupNote = ok && typeof r.lookupNote === 'string' && r.lookupNote.trim() ? r.lookupNote.trim().slice(0, 300) : null;
     await c.env.DB.batch([
       c.env.DB.prepare(
         `UPDATE asks SET status = ?, provider = ?, model = ?, answer = ?, sources = ?, error = ?, seconds = ?, watts = ?, done_at = ?,

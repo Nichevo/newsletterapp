@@ -65,7 +65,15 @@ function renderInBrowser(url: string, cfg: LocalConfig): Promise<Page> {
     url,
   ];
   return new Promise((resolve, reject) => {
-    execFile(browser, args, { timeout: 90_000, maxBuffer: 40_000_000, windowsHide: true }, (err, stdout) => {
+    // execFile's own timeout only kills the first browser process; the browser's helper
+    // processes can keep the output pipe open so the callback never comes. So give up
+    // on our own after a while too, or the whole helper waits forever.
+    const giveUp = setTimeout(() => {
+      child.kill();
+      reject(new Error('The browser took too long to open the page'));
+    }, 100_000);
+    const child = execFile(browser, args, { timeout: 90_000, maxBuffer: 40_000_000, windowsHide: true }, (err, stdout) => {
+      clearTimeout(giveUp);
       if (err && !stdout) return reject(new Error(`The browser could not open the page: ${err.message}`.slice(0, 300)));
       resolve({ status: 200, url, body: stdout, etag: null, lastModified: null });
     });

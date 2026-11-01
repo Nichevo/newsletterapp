@@ -13,9 +13,14 @@ const args = process.argv.slice(2);
 
 function supervise() {
   const self = fileURLToPath(import.meta.url);
-  const child = spawn(process.execPath, [self, '--worker', ...args], { stdio: 'inherit', windowsHide: true });
+  // The worker checks this process is still alive, and stops if it isn't (see restartIfStale in main.ts).
+  const child = spawn(process.execPath, [self, '--worker', ...args], {
+    stdio: 'inherit',
+    windowsHide: true,
+    env: { ...process.env, HELPER_SUPERVISOR_PID: String(process.pid) },
+  });
   child.on('exit', (code) => {
-    if (code === UPDATED_EXIT_CODE) return supervise();
+    if (code === UPDATED_EXIT_CODE) return supervise(); // after a self-update or a config change
     log(`helper stopped (exit ${code ?? 'signal'}); starting it again in a minute`);
     setTimeout(supervise, 60_000);
   });

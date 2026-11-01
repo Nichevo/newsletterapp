@@ -1,6 +1,6 @@
 import { SavedTabs } from './Highlights';
-import type { ItemKind, ItemSummary, ItemView, Me, Source } from '@newsletterapp/shared';
-import { useCallback, useEffect, useState } from 'react';
+import type { ItemKind, ItemListResponse, ItemSummary, ItemView, Me, Source } from '@newsletterapp/shared';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { rememberList } from '../readingList';
 import { api } from '../api';
@@ -70,6 +70,16 @@ export function InboxPage({
   const [sources, setSources] = useState<Source[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [aiPaused, setAiPaused] = useState<string | null>(null);
+  const [listCounts, setListCounts] = useState<ItemListResponse['counts'] | null>(null);
+  const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
+  const toastTimer = useRef<number | undefined>(undefined);
+
+  function showToast(text: string, undo?: () => void) {
+    window.clearTimeout(toastTimer.current);
+    setToast({ text, undo });
+    toastTimer.current = window.setTimeout(() => setToast(null), 6000);
+  }
+  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
   const load = useCallback(
     async (append: boolean) => {
@@ -79,6 +89,7 @@ export function InboxPage({
         const res = await api.listItems({ ...filters, cursor: append ? cursor : null });
         setItems((prev) => (append ? [...prev, ...res.items] : res.items));
         setCursor(res.nextCursor);
+        if (!append) setListCounts(res.counts ?? null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not load');
       } finally {
@@ -149,8 +160,49 @@ export function InboxPage({
     }
   }
 
+  async function markUnread(item: ItemSummary) {
+    if (!item.readAt) return;
+    patch({ ...item, readAt: null });
+    try {
+      patch(await api.itemAction(item.id, 'unread'));
+      onChanged();
+    } catch {
+      patch(item);
+    }
+  }
+
+  /** Marks every loaded, unread item read, with an Undo that puts back exactly those. */
+  async function markShownRead() {
+    const ids = items.filter((i) => !i.readAt).map((i) => i.id);
+    if (!ids.length) return;
+    const before = items;
+    const at = Date.now();
+    setItems((prev) => prev.map((i) => (ids.includes(i.id) ? { ...i, readAt: at } : i)));
+    try {
+      await api.bulkRead({ ids, action: 'read' });
+      onChanged();
+      showToast(`Marked ${ids.length} read`, () => {
+        setToast(null);
+        setItems((prev) => prev.map((i) => (ids.includes(i.id) ? { ...i, readAt: null } : i)));
+        api
+          .bulkRead({ ids, action: 'unread' })
+          .then(() => {
+            onChanged();
+            void load(false);
+          })
+          .catch(() => showToast('Could not undo'));
+      });
+      if (filters.view === 'unread') void load(false);
+    } catch (err) {
+      setItems(before);
+      setError(err instanceof Error ? err.message : 'Action failed');
+    }
+  }
+
   const readSide = getSwipeReadSide();
-  const readAction: SwipeAction = { run: markRead, label: 'Mark read', kind: 'read' };
+  // On an item already read, the read swipe flips to Mark unread.
+  const readAction = (item: ItemSummary): SwipeAction =>
+    item.readAt ? { run: markUnread, label: 'Mark unread', kind: 'read' } : { run: markRead, label: 'Mark read', kind: 'read' };
   const saveAction = (item: ItemSummary): SwipeAction => ({
     run: toggleSave,
     label: item.savedAt ? 'Remove from saved' : 'Save for later',
@@ -182,13 +234,32 @@ export function InboxPage({
     }
   }
 
-  const total = mode === 'saved' ? counts.saved : filters.view === 'unread' ? counts.unread : filters.view === 'inbox' ? counts.inbox : null;
+  const total = listCounts
+    ? listCounts.shown
+    : mode === 'saved'
+      ? counts.saved
+      : filters.view === 'unread'
+        ? counts.unread
+        : filters.view === 'inbox'
+          ? counts.inbox
+          : null;
+  // Header: unread and shown for what the filters pick out (filtered figures come with the list).
+  const unreadShown = listCounts ? listCounts.unread : mode === 'inbox' && filters.view !== 'archived' ? counts.unread : null;
+  const eyebrow =
+    mode === 'saved'
+      ? `${counts.saved} saved for later`
+      : unreadShown !== null && total !== null
+        ? filters.view === 'unread'
+          ? `${unreadShown} unread`
+          : `${unreadShown} unread · ${total} shown`
+        : todayLabel();
+  const unreadLoaded = items.filter((i) => !i.readAt).length;
 
   return (
     <div className="page">
       <header className="topbar">
         <div className="topbar__titles">
-          <span className="topbar__eyebrow">{mode === 'saved' ? `${counts.saved} saved for later` : todayLabel()}</span>
+          <span className="topbar__eyebrow">{eyebrow}</span>
           <h1>{mode === 'saved' ? 'Saved' : 'Inbox'}</h1>
         </div>
         <div className="topbar__actions">
@@ -247,8 +318,8 @@ export function InboxPage({
           <ItemRow
             key={item.id}
             item={item}
-            left={readSide === 'left' ? readAction : saveAction(item)}
-            right={readSide === 'right' ? readAction : saveAction(item)}
+            left={readSide === 'left' ? readAction(item) : saveAction(item)}
+            right={readSide === 'right' ? readAction(item) : saveAction(item)}
           />
         ))}
       </div>
@@ -281,11 +352,28 @@ export function InboxPage({
       )}
 
       {loading && <div className="spinner">Loading…</div>}
-      {!loading && cursor && (
+      {!loading && (cursor || (mode === 'inbox' && unreadLoaded > 1)) && (
         <div className="loadmore">
-          <button className="btn" onClick={() => void load(true)}>
-            Load more
-          </button>
+          {mode === 'inbox' && unreadLoaded > 1 && (
+            <button className="btn" onClick={() => void markShownRead()}>
+              Mark these {unreadLoaded} read
+            </button>
+          )}
+          {cursor && (
+            <button className="btn" onClick={() => void load(true)}>
+              Load more
+            </button>
+          )}
+        </div>
+      )}
+      {toast && (
+        <div className="toast" role="status">
+          {toast.text}
+          {toast.undo && (
+            <button className="toast__undo" onClick={toast.undo}>
+              Undo
+            </button>
+          )}
         </div>
       )}
     </div>

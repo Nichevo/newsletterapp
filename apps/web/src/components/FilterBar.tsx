@@ -41,9 +41,21 @@ export function FilterBar({
   onBulk?: (sourceId: string, action: 'read-all' | 'archive-all') => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [allSources, setAllSources] = useState(false);
   const sourceName = filters.source ? (sources.find((s) => s.id === filters.source)?.name ?? 'One source') : 'All sources';
-  // With a type picked, only that type's sources are offered (a Feedly import can add hundreds).
-  const shownSources = filters.kind ? sources.filter((s) => s.kind === filters.kind || s.id === filters.source) : sources;
+  // With a type or category picked, only matching sources are offered (a Feedly import can add hundreds).
+  // Sources with no category of their own stay in, since their items get categories from AI tags.
+  const matchingSources = sources.filter(
+    (s) =>
+      s.id === filters.source ||
+      ((!filters.kind || s.kind === filters.kind) && (!filters.category || s.category === filters.category || s.category === null)),
+  );
+  // The list stays folded to the chosen source until asked for, so the panel isn't a wall of chips.
+  const SOURCE_PREVIEW = 8;
+  const folded = !allSources && matchingSources.length > SOURCE_PREVIEW;
+  const shownSources = folded
+    ? matchingSources.filter((s, i) => i < SOURCE_PREVIEW || s.id === filters.source)
+    : matchingSources;
   const summary = [
     fixedView ? null : VIEW_LABEL[filters.view],
     filters.kind ? KIND_LABEL[filters.kind] : null,
@@ -135,6 +147,11 @@ export function FilterBar({
                   {s.name}
                 </button>
               ))}
+              {matchingSources.length > SOURCE_PREVIEW && (
+                <button className="pill pill--more" onClick={() => setAllSources((v) => !v)} aria-expanded={!folded}>
+                  {folded ? `Show all ${matchingSources.length}` : 'Show fewer'}
+                </button>
+              )}
             </div>
           </div>
           <div className="filterbar__group">

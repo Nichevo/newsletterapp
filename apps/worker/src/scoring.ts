@@ -1,3 +1,4 @@
+import { readJson, writeJson } from './ai';
 import type { Env } from './env';
 import { now } from './ids';
 
@@ -90,10 +91,22 @@ export function scoreFor(row: ScoreRow, affinity: number | undefined, at: number
   return Math.max(0, Math.min(100, score));
 }
 
+/**
+ * Source affinity looks back 90 days, so it barely moves within a day: work it out
+ * once a day and keep it, rather than reading 90 days of items and events every hour.
+ */
+async function cachedAffinity(env: Env, at: number): Promise<Map<string, number>> {
+  const saved = await readJson<{ at: number; affinity: Record<string, number> }>(env, 'source_affinity');
+  if (saved && at - saved.at < DAY) return new Map(Object.entries(saved.affinity));
+  const fresh = await sourceAffinity(env, at - AFFINITY_DAYS * DAY);
+  await writeJson(env, 'source_affinity', { at, affinity: Object.fromEntries(fresh) });
+  return fresh;
+}
+
 /** Rescores items from the last week. Cheap: one grouped query plus one small update per item. */
 export async function scoreRecentItems(env: Env): Promise<number> {
   const at = now();
-  const affinity = await sourceAffinity(env, at - AFFINITY_DAYS * DAY);
+  const affinity = await cachedAffinity(env, at);
   const rows = await env.DB.prepare(
     `SELECT id, source_id, received_at, why_it_matters, key_points, thin_content, sponsored, word_count, saved_at, ai_status
      FROM items WHERE received_at >= ? AND status IN ('inbox', 'archived')`,

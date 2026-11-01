@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type {
   AiMode,
   Address,
+  BulkReadInput,
   FullTextMode,
   AppSettings,
   Digest,
@@ -132,6 +133,13 @@ app.get('/api/items', async (c) => {
     where.push("COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]')) = ?");
     binds.push(category);
   }
+  // Counts for the inbox header, before the cursor narrows the query: only when filtered
+  // (the unfiltered totals come from /api/counts) and only on the first page.
+  const countSql =
+    !cursor && (sourceId || kind || category)
+      ? `SELECT COUNT(*) AS shown, SUM(items.read_at IS NULL) AS unread FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE ${where.join(' AND ')}`
+      : null;
+  const countBinds = [...binds];
   // Cursors are "<received_at>:<id>", or "<score>:<received_at>:<id>" for the Top sort.
   if (cursor) {
     const parts = cursor.split(':');
@@ -159,11 +167,12 @@ app.get('/api/items', async (c) => {
     sort === 'top'
       ? 'COALESCE(items.score, 0) DESC, items.received_at DESC, items.id DESC'
       : `items.received_at ${order}, items.id ${order}`;
-  const [rows, settings] = await Promise.all([
+  const [rows, settings, counted] = await Promise.all([
     c.env.DB.prepare(`${ITEM_SELECT} WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ?`)
       .bind(...binds, limit + 1)
       .all<ItemSelectRow>(),
     loadSettings(c.env),
+    countSql ? c.env.DB.prepare(countSql).bind(...countBinds).first<{ shown: number; unread: number | null }>() : null,
   ]);
 
   const page = rows.results.slice(0, limit);
@@ -176,6 +185,7 @@ app.get('/api/items', async (c) => {
           ? `${last.score ?? 0}:${last.received_at}:${last.id}`
           : `${last.received_at}:${last.id}`
         : null,
+    ...(counted ? { counts: { shown: counted.shown, unread: counted.unread ?? 0 } } : {}),
   };
   return c.json(body);
 });
@@ -322,6 +332,25 @@ const ITEM_ACTIONS: Record<ItemAction, { sql: string; event: ReadingEventType | 
   archive: { sql: "UPDATE items SET status = 'archived', archived_at = ?1 WHERE id = ?2 AND status = 'inbox'", event: 'archive' },
   unarchive: { sql: "UPDATE items SET status = 'inbox', archived_at = NULL WHERE id = ?2 AND ?1 > 0 AND status = 'archived'", event: 'unarchive' },
 };
+
+/** Marks the listed items read (as "bulk") or unread again, e.g. the inbox's "Mark these read" and its Undo. */
+app.post('/api/items/bulk-read', async (c) => {
+  const input = (await c.req.json().catch(() => null)) as (BulkReadInput & { device?: unknown }) | null;
+  const ids = Array.isArray(input?.ids) ? input.ids.filter((x): x is string => typeof x === 'string').slice(0, 500) : [];
+  if (!ids.length || (input!.action !== 'read' && input!.action !== 'unread')) return c.json({ error: 'ids and action required' }, 400);
+  if (input!.action === 'read') return c.json({ changed: await markRead(c.env, ids, 'bulk', deviceOf(c, input!.device)) });
+  let changed = 0;
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    const r = await c.env.DB.prepare(
+      `UPDATE items SET read_at = NULL, read_via = NULL, read_device = NULL WHERE read_at IS NOT NULL AND id IN (${chunk.map(() => '?').join(',')})`,
+    )
+      .bind(...chunk)
+      .run();
+    changed += r.meta.changes ?? 0;
+  }
+  return c.json({ changed });
+});
 
 app.post('/api/items/:id/:action', async (c) => {
   const action = c.req.param('action') as ItemAction | 'events';

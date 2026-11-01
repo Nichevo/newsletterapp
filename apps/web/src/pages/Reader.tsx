@@ -6,7 +6,7 @@ import { EmailBody } from '../components/EmailBody';
 import { AiNotes, HighlightSheet, SelectionBar, TextBody, useArticleSelection } from '../components/Highlights';
 import { revealMark } from '../highlight';
 import { aiAttribution, longDate, readingMinutes, shortTime } from '../format';
-import { IconArchive, IconBack, IconBookmark, IconChevron, IconExternal, IconImage, IconThumbDown, IconThumbUp } from '../icons';
+import { IconArchive, IconBack, IconBookmark, IconCheck, IconChevron, IconExternal, IconImage, IconThumbDown, IconThumbUp } from '../icons';
 import { getHideSponsored, getNotesPlace, getTextSize, imagesAllowed, setImagesAllowed, textSizePx, type AskOutputPref } from '../prefs';
 import { outlineOf } from '../quick';
 import { neighbours } from '../readingList';
@@ -97,7 +97,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
     [id],
   );
 
-  async function act(action: 'save' | 'unsave' | 'archive' | 'unarchive') {
+  async function act(action: 'save' | 'unsave' | 'archive' | 'unarchive' | 'read' | 'unread') {
     if (!item) return;
     try {
       const updated = await api.itemAction(item.id, action);
@@ -252,6 +252,10 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
         <button disabled={!item} onClick={() => void act(item?.status === 'archived' ? 'unarchive' : 'archive')}>
           <IconArchive />
           {item?.status === 'archived' ? 'Unarchive' : 'Archive'}
+        </button>
+        <button disabled={!item} onClick={() => void act(item?.readAt ? 'unread' : 'read')}>
+          <IconCheck />
+          {item?.readAt ? 'Mark unread' : 'Mark read'}
         </button>
         {item?.originItemId ? (
           <Link to={`/item/${item.originItemId}`}>

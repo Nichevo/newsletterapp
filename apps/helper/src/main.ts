@@ -1,10 +1,10 @@
 import { HELPER_VERSION, type AskJob, type HelperConfig, type HelperJob, type ModelRef, type TrialResultInput } from '@newsletterapp/shared';
-import { writeFileSync } from 'node:fs';
+import { statSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { AppClient } from './app';
 import { UPDATED_EXIT_CODE } from './constants';
-import { loadConfig, type LocalConfig } from './config';
+import { configPath, loadConfig, type LocalConfig } from './config';
 import { askLookups, lookupsText, summaryLookups, toSources, type Lookups } from './lookups';
 import { runFetchJob } from './fetch';
 import { log } from './log';
@@ -25,6 +25,38 @@ const cfg = loadConfig();
 const app = new AppClient(cfg);
 const providers = providersFrom(cfg);
 const once = process.argv.includes('--once');
+const configMtime = () => {
+  try {
+    return statSync(configPath()).mtimeMs;
+  } catch {
+    return 0;
+  }
+};
+const startedConfig = configMtime();
+const supervisorPid = Number(process.env.HELPER_SUPERVISOR_PID) || null;
+
+/**
+ * Stops this worker when it would otherwise run on with stale settings: the
+ * config file changed (e.g. a Brave key was added by re-running the installer),
+ * so the supervisor starts it again with the new one; or the supervisor itself
+ * is gone (Windows stops a scheduled task's own process but not its children),
+ * so a leftover copy doesn't carry on beside the new one.
+ */
+function restartIfStale() {
+  if (once) return;
+  if (supervisorPid) {
+    try {
+      process.kill(supervisorPid, 0);
+    } catch {
+      log('supervisor is gone; this leftover copy is stopping');
+      process.exit(0);
+    }
+  }
+  if (configMtime() !== startedConfig) {
+    log('config changed; restarting to pick it up');
+    process.exit(UPDATED_EXIT_CODE);
+  }
+}
 
 async function heartbeat(): Promise<HelperConfig> {
   const models: { provider: string; name: string; sizeBytes?: number }[] = [];
@@ -116,6 +148,21 @@ function askMessage(job: AskJob, c: LocalConfig, lookups: Lookups): string {
 }
 
 const NO_LOOKUPS: Lookups = { found: [], searches: 0, missing: [] };
+/** Lookups for one question never hold the queue up longer than this; the model answers without them. */
+const LOOKUP_LIMIT_MS = 3 * 60_000;
+const lookupFailed = (err: unknown): Lookups => ({
+  ...NO_LOOKUPS,
+  missing: [`lookups (${err instanceof Error ? err.message : String(err)})`],
+});
+function withinTime<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    p.finally(() => clearTimeout(timer)),
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what} took over ${Math.round(ms / 60_000)} minutes`)), ms);
+    }),
+  ]);
+}
 
 /** Extra instructions for a summary that comes with web search results. */
 const SEARCH_RULES = `
@@ -139,7 +186,10 @@ async function answerAsks(models: ModelRef[] = currentModels): Promise<void> {
         const ref = job.model && findProvider(providers, job.model) ? job.model : model;
         const provider = findProvider(providers, ref)!;
         const base = { askId: job.askId, provider: ref.provider, model: ref.name };
-        const lookups = job.lookups && job.lookups !== 'none' ? await askLookups(job, cfg).catch(() => NO_LOOKUPS) : NO_LOOKUPS;
+        log(`question "${job.quote.slice(0, 50)}": ${job.lookups && job.lookups !== 'none' ? `looking up (${job.lookups}) first` : 'no lookups'}`);
+        const lookups =
+          job.lookups && job.lookups !== 'none' ? await withinTime(askLookups(job, cfg), LOOKUP_LIMIT_MS, 'lookups').catch(lookupFailed) : NO_LOOKUPS;
+        if (lookups.missing.length) log(`couldn't use ${lookups.missing.join('; ')}`);
         const extra = {
           searches: lookups.searches,
           sources: toSources(lookups.found),
@@ -206,7 +256,7 @@ async function summariseQueue(config: HelperConfig) {
     const provider = findProvider(providers, model)!;
     const base = { itemId: job.itemId, provider: model.provider, model: model.name, promptId: job.promptId, promptVersion: job.promptVersion };
     let res: Awaited<ReturnType<typeof app.result>>;
-    const lookups = job.search ? await summaryLookups(job, cfg).catch(() => NO_LOOKUPS) : NO_LOOKUPS;
+    const lookups = job.search ? await withinTime(summaryLookups(job, cfg), LOOKUP_LIMIT_MS, 'lookups').catch(() => NO_LOOKUPS) : NO_LOOKUPS;
     const searchText = lookupsText(lookups.found);
     try {
       const { output, seconds, watts } = await run(
@@ -291,6 +341,7 @@ async function selfUpdate(version: string) {
 }
 
 async function tick(): Promise<number> {
+  restartIfStale();
   const config = await heartbeat();
   if (config.latestHelperVersion && config.latestHelperVersion !== HELPER_VERSION && !once) {
     await selfUpdate(config.latestHelperVersion).catch((err: unknown) => log('update failed, carrying on:', err));
