@@ -91,10 +91,14 @@ export function registerReading(app: App) {
     const [week, timeRow, openRow] = await Promise.all([
       db
         .prepare(
-          `SELECT SUM(received_at >= ?1 AND status != 'dropped') AS received, SUM(read_at >= ?1) AS read FROM items WHERE (received_at >= ?1 OR read_at >= ?1) AND kind != 'ai'`,
+          `SELECT SUM(received_at >= ?1 AND status != 'dropped') AS received,
+             SUM(received_at >= ?1 AND status != 'dropped' AND read_at IS NOT NULL) AS read,
+             SUM(received_at < ?1 AND read_at >= ?1) AS read_older,
+             SUM(received_at < ?1 AND read_at >= ?1 AND read_via = 'bulk') AS read_older_bulk
+           FROM items WHERE (received_at >= ?1 OR read_at >= ?1) AND kind != 'ai'`,
         )
         .bind(weekFrom)
-        .first<{ received: number | null; read: number | null }>(),
+        .first<{ received: number | null; read: number | null; read_older: number | null; read_older_bulk: number | null }>(),
       db.prepare("SELECT SUM(value) AS seconds FROM events WHERE type = 'read_time' AND at >= ?").bind(weekFrom).first<{ seconds: number | null }>(),
       db
         .prepare(
@@ -190,6 +194,8 @@ export function registerReading(app: App) {
       glance: {
         received: week?.received ?? 0,
         read: week?.read ?? 0,
+        readOlder: week?.read_older ?? 0,
+        readOlderBulk: week?.read_older_bulk ?? 0,
         minutes: Math.round((timeRow?.seconds ?? 0) / 60),
         opened: openRow?.opened ?? 0,
         finished: openRow?.finished ?? 0,

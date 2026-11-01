@@ -84,7 +84,11 @@ function Glance({ data: { glance } }: { data: ReadingStats }) {
             <strong>
               {glance.read} of {glance.received}
             </strong>
-            <span className="cardrow__sub">items that arrived</span>
+            <span className="cardrow__sub">
+              items that arrived
+              {glance.readOlder > 0 &&
+                `, plus ${glance.readOlder} older${glance.readOlderBulk > 0 ? ` (${glance.readOlderBulk} by Mark all read)` : ''}`}
+            </span>
           </div>
           <div className="stat">
             <span className="label">Reading time</span>

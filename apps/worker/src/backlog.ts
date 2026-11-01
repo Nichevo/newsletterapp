@@ -158,6 +158,16 @@ export function registerBacklog(app: App) {
     const hourly = series(HOUR, 7 * 24, localHour, (d) => `${pad(d.getUTCHours())}:00`);
     const daily = series(DAY, 90, localDay, (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`);
 
+    const from24 = (Math.floor(t / HOUR) - 23) * HOUR;
+    let joinedDone = 0;
+    let earlierDone = 0;
+    for (const w of waits.results) {
+      if (w.at < from24) continue;
+      if (w.at - w.wait_seconds * 1000 >= from24) joinedDone++;
+      else earlierDone++;
+    }
+    const joined = arrivals.results.reduce((s, a) => s + (a.h * HOUR >= from24 ? a.n : 0), 0);
+
     const view: AiBacklogView = {
       now: { waiting: q?.waiting ?? 0, working: q?.working ?? 0, oldestAt: q?.oldest_at ?? null },
       hourly: hourly.points,
@@ -165,6 +175,7 @@ export function registerBacklog(app: App) {
       waitsHourly: hourly.buckets,
       waitsDaily: daily.buckets,
       snapshotsSince: snaps.results[0]?.at ?? null,
+      last24: { joined, joinedDone, earlierDone },
     };
     return c.json(view);
   });
