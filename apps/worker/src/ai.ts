@@ -25,6 +25,7 @@ import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
 import { fetchJobsWaiting } from './feeds';
 import { ASK_POLL_SECONDS, asksWaiting } from './highlights';
+import { countSearches, searchAllowance, summarySearches } from './websearch';
 import { loadSettings } from './settings';
 import { jobsThatFit, limitState } from './usage';
 
@@ -171,6 +172,16 @@ export function cleanOutput(o: unknown, categories: string[]): AiOutput | null {
       .filter((c): c is string => Boolean(c)),
     topics: strList(r.topics, 3, 40),
     thin_content: r.thin_content === true,
+    ...(typeof r.background === 'string' && r.background.trim() ? { background: r.background.trim().slice(0, 500) } : {}),
+    ...(Array.isArray(r.coverage)
+      ? {
+          coverage: (r.coverage as unknown[])
+            .filter((x): x is { title?: unknown; url: string } => Boolean(x) && typeof (x as { url?: unknown }).url === 'string')
+            .filter((x) => /^https?:\/\//i.test(x.url))
+            .slice(0, 5)
+            .map((x) => ({ title: typeof x.title === 'string' ? x.title.trim().slice(0, 200) : x.url, url: x.url.slice(0, 1000) })),
+        }
+      : {}),
   };
 }
 
@@ -250,6 +261,8 @@ export function registerAi(app: App) {
       models: hb.models.slice(0, 100),
       providerErrors: Array.isArray(hb.providerErrors) ? hb.providerErrors.slice(0, 10) : [],
       load: hb.load ?? {},
+      // Only helpers from 0.2.4 say whether they have a search key; older ones leave it out.
+      ...('webSearch' in hb ? { webSearch: hb.webSearch === 'brave' ? 'brave' : null } : {}),
       lastSeenAt: t,
       modelsSyncedAt: syncModels ? t : (before?.modelsSyncedAt ?? 0),
     });
@@ -339,9 +352,14 @@ export function registerAi(app: App) {
       .all<JobRow>();
     const prompts = await loadPrompts(c.env);
     const model = (await loadModelMode(c.env)) === 'split' ? await pickSplitModel(c.env) : null;
+    const allowance = await searchAllowance(c.env);
+    let searchesLeft = allowance.summaries;
     const jobs: HelperJob[] = await Promise.all(
       rows.results.map(async (r) => {
         const prompt = pickPrompt(prompts, r.source_id, r.rules_category);
+        // Web search only where it's switched on for the source or category, while the month's budget lasts.
+        const search = searchesLeft > 0 && summarySearches(allowance.settings, r.source_id, r.rules_category);
+        if (search) searchesLeft -= 1;
         return {
           itemId: r.id,
           subject: r.subject,
@@ -354,6 +372,7 @@ export function registerAi(app: App) {
           promptVersion: prompt.version,
           categories: settings.categories,
           ...(model ? { model } : {}),
+          ...(search ? { search: true } : {}),
         };
       }),
     );
@@ -371,6 +390,7 @@ export function registerAi(app: App) {
     const settings = await loadSettings(c.env);
     const output = r.ok ? cleanOutput(r.output, settings.categories) : null;
     const ok = output !== null;
+    await countSearches(c.env, 'summaries', r.searches);
     const error = ok ? null : String(r.error || (r.ok ? 'The model returned an unusable answer' : 'Unknown error')).slice(0, 500);
     const t = now();
     const runId = newId();
@@ -402,7 +422,7 @@ export function registerAi(app: App) {
       stmts.push(
         c.env.DB.prepare(
           `UPDATE items SET ai_status = 'done', ai_error = NULL, ai_run_id = ?, summary = ?, key_points = ?,
-             why_it_matters = ?, ai_category = ?, tags = ?, thin_content = ? WHERE id = ?`,
+             why_it_matters = ?, ai_category = ?, tags = ?, thin_content = ?, background = ?, coverage = ? WHERE id = ?`,
         ).bind(
           runId,
           output.summary,
@@ -411,6 +431,8 @@ export function registerAi(app: App) {
           JSON.stringify(output.category),
           JSON.stringify(output.topics),
           output.thin_content ? 1 : 0,
+          output.background || null,
+          output.coverage?.length ? JSON.stringify(output.coverage) : null,
           item.id,
         ),
       );

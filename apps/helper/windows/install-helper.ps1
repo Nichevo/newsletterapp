@@ -4,7 +4,8 @@
 #   powershell -ExecutionPolicy Bypass -File install-helper.ps1
 #
 # It copies newsletter-helper.mjs to %LOCALAPPDATA%\NewsletterHelper, asks for
-# the app address and the Cloudflare Access service token, writes config.json
+# the app address, the Cloudflare Access service token and (optionally) a Brave
+# Search API key for web lookups, writes config.json
 # there, and adds a scheduled task that starts the helper hidden when you log
 # in (and restarts it if it stops). Run it again to change any of these.
 
@@ -46,6 +47,14 @@ $secret = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropSer
 if (-not $secret -and $existing) { $secret = $existing.clientSecret }
 if (-not $appUrl -or -not $clientId -or -not $secret) { throw 'App address, Client ID and Client Secret are all needed.' }
 
+# Optional: the Brave Search API key for web lookups (the same one Open WebUI uses works). It stays on this PC.
+$hasBrave = $existing -and $existing.braveApiKey
+$braveHint = if ($hasBrave) { 'Enter keeps the saved one, "none" removes it' } else { 'optional, Enter to skip' }
+$braveSecure = Read-Host "Brave Search API key for web lookups ($braveHint)" -AsSecureString
+$brave = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($braveSecure)).Trim()
+if (-not $brave -and $hasBrave) { $brave = $existing.braveApiKey }
+if ($brave -eq 'none') { $brave = $null }
+
 $config = [ordered]@{
   appUrl            = $appUrl.TrimEnd('/')
   clientId          = $clientId
@@ -55,6 +64,8 @@ $config = [ordered]@{
 }
 if ($existing -and $existing.openaiCompatible) { $config.openaiCompatible = @($existing.openaiCompatible) }
 if ($existing -and $existing.anthropicApiKey) { $config.anthropicApiKey = $existing.anthropicApiKey }
+if ($existing -and $existing.browserPath) { $config.browserPath = $existing.browserPath }
+if ($brave) { $config.braveApiKey = $brave }
 # WriteAllText writes UTF-8 without the BOM that Windows PowerShell 5 adds.
 [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 5))
 

@@ -1,6 +1,6 @@
 import type { AskOutput, AskPreset, LookupMode } from '@newsletterapp/shared';
 import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { IconBack, IconChevron } from '../icons';
 
@@ -140,8 +140,8 @@ export function HighlightPromptsPage() {
             </button>
           )}
           <span className="hint">
-            Lookups (web search and Wikipedia) arrive in the next update. Until then every prompt answers from the article and the model’s
-            own knowledge.
+            Lookups run on your PC before the model answers. Wikipedia and the article’s links are free. Web search uses the Brave key on
+            your PC and counts toward the monthly budget in <Link to="/settings/ai/web-search">Web search</Link>.
           </span>
         </div>
       )}

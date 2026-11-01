@@ -41,6 +41,7 @@ import {
 import { buildDigestIfDue, topicsOf } from './digest';
 import { registerFeeds } from './feeds';
 import { registerHighlights } from './highlights';
+import { registerWebSearch } from './websearch';
 import { registerReading } from './reading';
 import type { AppVariables, Env } from './env';
 import { newId, now, slugify } from './ids';
@@ -76,6 +77,7 @@ app.get('/api/me', (c) => {
 registerAi(app);
 // Highlights and highlight asks; before the generic item action route too.
 registerHighlights(app);
+registerWebSearch(app);
 // Feeds and websites: discovery, following, the Feedly import and the PC's fetch jobs.
 registerFeeds(app);
 registerUsage(app);

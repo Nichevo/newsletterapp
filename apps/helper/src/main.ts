@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { AppClient } from './app';
 import { UPDATED_EXIT_CODE } from './constants';
 import { loadConfig, type LocalConfig } from './config';
+import { askLookups, lookupsText, summaryLookups, toSources, type Lookups } from './lookups';
 import { runFetchJob } from './fetch';
 import { log } from './log';
 import { findProvider, providersFrom, type Provider } from './providers';
@@ -35,7 +36,14 @@ async function heartbeat(): Promise<HelperConfig> {
       providerErrors.push({ provider: p.name, error: err instanceof Error ? err.message : String(err) });
     }
   }
-  return app.heartbeat({ version: HELPER_VERSION, hostname: hostname(), models, providerErrors, load: await currentLoad() });
+  return app.heartbeat({
+    version: HELPER_VERSION,
+    hostname: hostname(),
+    models,
+    providerErrors,
+    load: await currentLoad(),
+    webSearch: cfg.braveApiKey ? 'brave' : null,
+  });
 }
 
 function userMessage(job: Pick<HelperJob, 'sourceName' | 'fromName' | 'subject' | 'html' | 'text'>, c: LocalConfig): string {
@@ -86,7 +94,8 @@ let currentModels: ModelRef[] = [];
 let askPollSeconds = 10;
 let lastPeek = 0;
 
-function askMessage(job: AskJob, c: LocalConfig): string {
+function askMessage(job: AskJob, c: LocalConfig, lookups: Lookups): string {
+  const found = lookupsText(lookups.found);
   return [
     `Sender: ${job.sourceName ?? job.fromName ?? 'unknown'}`,
     `Subject: ${job.subject}`,
@@ -96,8 +105,25 @@ function askMessage(job: AskJob, c: LocalConfig): string {
     '',
     `Highlighted passage: "${job.quote}"`,
     ...(job.question ? [`Question: ${job.question}`] : []),
+    ...(found
+      ? [
+          '',
+          'Looked up for you (Wikipedia, linked pages and web search; may be incomplete or out of date). Prefer this over your own memory for facts, and link the pages you use as [title](url):',
+          found,
+        ]
+      : []),
   ].join('\n');
 }
+
+const NO_LOOKUPS: Lookups = { found: [], searches: 0, missing: [] };
+
+/** Extra instructions for a summary that comes with web search results. */
+const SEARCH_RULES = `
+
+You also get web search results for this issue's headline. Add two more fields to the JSON:
+"background": one sentence of context the issue assumes the reader knows, from the search results; empty if nothing useful
+"coverage": up to 3 {"title", "url"} from the search results that report the same story elsewhere; [] if none
+Only use URLs that appear in the search results.`;
 
 const stripThinking = (s: string) => s.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
@@ -113,15 +139,30 @@ async function answerAsks(models: ModelRef[] = currentModels): Promise<void> {
         const ref = job.model && findProvider(providers, job.model) ? job.model : model;
         const provider = findProvider(providers, ref)!;
         const base = { askId: job.askId, provider: ref.provider, model: ref.name };
+        const lookups = job.lookups && job.lookups !== 'none' ? await askLookups(job, cfg).catch(() => NO_LOOKUPS) : NO_LOOKUPS;
+        const extra = {
+          searches: lookups.searches,
+          sources: toSources(lookups.found),
+          lookupNote: lookups.missing.length ? `Couldn't use ${lookups.missing.join('; ')}` : undefined,
+        };
+        if (lookups.found.length) log(`looked up ${lookups.found.length} page(s) for "${job.quote.slice(0, 40)}"`);
         try {
-          const { reply, seconds, watts } = await runText(provider, ref.name, job.prompt, askMessage(job, cfg), false);
+          const { reply, seconds, watts } = await runText(provider, ref.name, job.prompt, askMessage(job, cfg, lookups), false);
           const answer = stripThinking(reply);
-          await app.askResult({ ...base, ok: answer.length > 0, seconds, watts, answer, error: answer ? undefined : 'The model returned an empty answer' });
+          await app.askResult({
+            ...base,
+            ...extra,
+            ok: answer.length > 0,
+            seconds,
+            watts,
+            answer,
+            error: answer ? undefined : 'The model returned an empty answer',
+          });
           log(`answered "${job.quote.slice(0, 50)}" with ${ref.name} in ${seconds.toFixed(1)}s`);
         } catch (err) {
           const { error, seconds, watts } = failure(err);
           log(`ask failed "${job.quote.slice(0, 50)}" with ${ref.name}: ${error}`);
-          await app.askResult({ ...base, ok: false, seconds, watts, error });
+          await app.askResult({ ...base, searches: lookups.searches, ok: false, seconds, watts, error });
         }
       }
     }
@@ -165,14 +206,29 @@ async function summariseQueue(config: HelperConfig) {
     const provider = findProvider(providers, model)!;
     const base = { itemId: job.itemId, provider: model.provider, model: model.name, promptId: job.promptId, promptVersion: job.promptVersion };
     let res: Awaited<ReturnType<typeof app.result>>;
+    const lookups = job.search ? await summaryLookups(job, cfg).catch(() => NO_LOOKUPS) : NO_LOOKUPS;
+    const searchText = lookupsText(lookups.found);
     try {
-      const { output, seconds, watts } = await run(provider, model.name, job.prompt, userMessage(job, cfg));
-      res = await app.result({ ...base, ok: true, seconds, watts, output });
+      const { output, seconds, watts } = await run(
+        provider,
+        model.name,
+        searchText ? job.prompt + SEARCH_RULES : job.prompt,
+        searchText ? `${userMessage(job, cfg)}\n\nWeb search results for the headline:\n${searchText}` : userMessage(job, cfg),
+      );
+      // Background and other coverage only come from search results, and only links that were in them.
+      if (!searchText) {
+        delete output.background;
+        delete output.coverage;
+      } else if (output.coverage) {
+        const urls = new Set(lookups.found.map((f) => f.url));
+        output.coverage = output.coverage.filter((c) => c && urls.has(c.url));
+      }
+      res = await app.result({ ...base, ok: true, seconds, watts, output, searches: lookups.searches });
       log(`summarised "${job.subject.slice(0, 60)}" with ${model.name} in ${seconds.toFixed(1)}s${watts ? ` at ${Math.round(watts)} W` : ''}`);
     } catch (err) {
       const { error, seconds, watts } = failure(err);
       log(`failed "${job.subject.slice(0, 60)}" with ${model.name}: ${error}`);
-      res = await app.result({ ...base, ok: false, seconds, watts, error });
+      res = await app.result({ ...base, ok: false, seconds, watts, error, searches: lookups.searches });
       if (res.paused) log('The app paused AI after repeated failures');
     }
     if (res.paused) break;

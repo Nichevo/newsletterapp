@@ -73,6 +73,9 @@ export interface ItemSummary {
   noteCount: number;
   /** AI notes articles: the article the highlight came from. */
   originItemId: string | null;
+  /** With web search on for the item's source or category: context the issue assumes, and other coverage of the story. */
+  background: string | null;
+  coverage: { title: string; url: string }[];
 }
 
 export type ReadVia = 'reader' | 'swipe' | 'bulk' | 'digest';
@@ -433,6 +436,9 @@ export interface AiOutput {
   category: string[];
   topics: string[];
   thin_content: boolean;
+  /** Only when the summary was written with web search results. */
+  background?: string;
+  coverage?: { title: string; url: string }[];
 }
 
 export interface ModelRef {
@@ -481,10 +487,12 @@ export interface HelperHeartbeat {
   models: (ModelRef & { sizeBytes?: number })[];
   providerErrors: { provider: string; error: string }[];
   load?: HelperLoad;
+  /** Which web search the helper can use (a key in its config), if any. */
+  webSearch?: 'brave' | null;
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.2.3';
+export const HELPER_VERSION = '0.2.4';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -522,6 +530,8 @@ export interface HelperJob {
   categories: string[];
   /** The model to use when the work is split between models; otherwise the helper uses its first. */
   model?: ModelRef;
+  /** Search the web for the headline and add background and other coverage. */
+  search?: boolean;
 }
 
 export interface HelperResult {
@@ -536,6 +546,8 @@ export interface HelperResult {
   watts?: number;
   output?: AiOutput;
   error?: string;
+  /** Web searches made for this summary, for the monthly budget. */
+  searches?: number;
 }
 
 export interface TrialJob {

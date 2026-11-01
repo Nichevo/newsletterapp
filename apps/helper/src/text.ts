@@ -63,6 +63,8 @@ export function parseOutput(reply: string): AiOutput {
     category: Array.isArray(parsed.category) ? parsed.category : [],
     topics: Array.isArray(parsed.topics) ? parsed.topics : [],
     thin_content: parsed.thin_content === true,
+    ...(typeof parsed.background === 'string' ? { background: parsed.background } : {}),
+    ...(Array.isArray(parsed.coverage) ? { coverage: parsed.coverage } : {}),
   };
 }
 
@@ -76,6 +78,9 @@ export const OUTPUT_SCHEMA = {
     category: { type: 'array', items: { type: 'string' } },
     topics: { type: 'array', items: { type: 'string' } },
     thin_content: { type: 'boolean' },
+    // Only asked for when the summary comes with web search results.
+    background: { type: 'string' },
+    coverage: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, url: { type: 'string' } }, required: ['title', 'url'] } },
   },
   required: ['summary', 'key_points', 'why_it_matters', 'category', 'topics', 'thin_content'],
 };

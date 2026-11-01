@@ -412,6 +412,7 @@ function Note({
           <span className="dot-pulse" /> {waitingText(ask, helperLastSeenAt)}
         </p>
       )}
+      {ask.lookupNote && ask.status === 'done' && <span className="hint">{ask.lookupNote}.</span>}
       {ask.sources.length > 0 && (
         <ul className="note__sources">
           {ask.sources.map((s) => (

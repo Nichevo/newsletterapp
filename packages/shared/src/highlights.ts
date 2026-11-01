@@ -55,6 +55,8 @@ export interface Ask {
   error: string | null;
   rating: -1 | 1 | null;
   seconds: number | null;
+  /** Lookups that were wanted but couldn't be made, e.g. "web search: no key on the PC". */
+  lookupNote: string | null;
   /** The "AI notes" article made from this answer, when the output included one. */
   newItemId: string | null;
   createdAt: number;
@@ -124,6 +126,8 @@ export interface AskJob {
   context: string;
   question: string | null;
   lookups: LookupMode;
+  /** Whether web search may be used for this one (the monthly budget isn't used up). */
+  searchAllowed: boolean;
   /** The model to use when the work is split; otherwise the helper's first. */
   model?: ModelRef;
 }
@@ -138,6 +142,36 @@ export interface AskResultInput {
   answer?: string;
   sources?: AskSource[];
   error?: string;
+  /** Web searches made for this answer, for the monthly budget. */
+  searches?: number;
+  /** Lookups that were wanted but failed (no key, budget used up, site down), shown under the note. */
+  lookupNote?: string;
+}
+
+// ---------- Web search ----------
+
+/** Settings > AI > Web search. The search key itself stays on the PC. */
+export interface WebSearchSettings {
+  /** Searches allowed per calendar month (set it to your Brave plan's allowance). */
+  monthlyBudget: number;
+  /** Summaries of items in these categories, or from these sources, search the web too. */
+  summaryCategories: string[];
+  summarySources: string[];
+}
+
+export const DEFAULT_WEB_SEARCH: WebSearchSettings = { monthlyBudget: 1500, summaryCategories: [], summarySources: [] };
+
+export interface WebSearchView {
+  settings: WebSearchSettings;
+  /** YYYY-MM, UTC. */
+  month: string;
+  used: number;
+  /** Searches made this month for highlight questions and for summaries. */
+  usedAsks: number;
+  usedSummaries: number;
+  /** What the helper said at its last check-in: null when it has no key, undefined when it hasn't said (older helper or never seen). */
+  pcSearch: 'brave' | null | undefined;
+  helperLastSeenAt: number | null;
 }
 
 /** What happens while the PC is off. Only waiting for now; a Cloudflare AI choice can join later. */
