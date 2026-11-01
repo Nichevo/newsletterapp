@@ -5,8 +5,13 @@ import type { AiLimitHit } from './usage';
 import type { Article, FeedEntry } from './web';
 
 export * from './web';
+export * from './highlights';
 
-export type ItemKind = 'newsletter' | 'feed' | 'site';
+/** 'ai' = an article written by the AI from a highlight (the "AI notes" source). */
+export type ItemKind = 'newsletter' | 'feed' | 'site' | 'ai';
+
+/** The kinds the AI summary switches apply to (AI notes are never summarised). */
+export type SummaryKind = Exclude<ItemKind, 'ai'>;
 
 /** Where an item sits in the app. */
 export type ItemStatus =
@@ -63,6 +68,11 @@ export interface ItemSummary {
   readVia: ReadVia | null;
   /** Which kind of device it was read on. */
   readDevice: ReadDevice | null;
+  /** Highlights in this item, and AI notes written about them. */
+  highlightCount: number;
+  noteCount: number;
+  /** AI notes articles: the article the highlight came from. */
+  originItemId: string | null;
 }
 
 export type ReadVia = 'reader' | 'swipe' | 'bulk' | 'digest';
@@ -225,7 +235,7 @@ export interface AppSettings {
   categories: string[];
   keywordRules: KeywordRule[];
   /** Whether each kind of source goes to the AI by default. */
-  aiByKind: Record<ItemKind, boolean>;
+  aiByKind: Record<SummaryKind, boolean>;
   /** A short line about the reader's interests, used by the summary prompt. */
   interests: string;
   /** Local hour (0-23) at which the daily digest is put together. */
@@ -474,7 +484,7 @@ export interface HelperHeartbeat {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.2.2';
+export const HELPER_VERSION = '0.2.3';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -491,6 +501,10 @@ export interface HelperConfig {
   fetchWaiting?: number;
   /** Set while a usage limit holds summaries back. */
   limited?: AiLimitHit | null;
+  /** Highlight asks waiting; the helper does these first. */
+  asksWaiting?: number;
+  /** How often to check for asks between the normal rounds. */
+  askPollSeconds?: number;
 }
 
 export interface HelperJob {

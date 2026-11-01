@@ -3,7 +3,9 @@ import { useRef, useState, type PointerEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDensity, useViewOptions } from './DensityToggle';
 import { readingMinutes, shortTime } from '../format';
-import { IconBookmark, IconCheck } from '../icons';
+import { IconBookmark, IconCheck, IconHighlight, IconSparkle } from '../icons';
+
+const KIND_CHIP: Record<ItemSummary['kind'], string> = { newsletter: 'Newsletter', feed: 'Feed', site: 'Site', ai: 'AI note' };
 
 const THRESHOLD = 88; // px of travel before a swipe counts
 const MAX = 120;
@@ -107,7 +109,22 @@ export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeA
         <div className="row__meta">
           {!item.readAt && <span className="row__dot" />}
           <span className="row__source">{item.sourceName ?? item.fromName ?? item.fromEmail}</span>
-          <span className={kindClass}>{item.kind === 'newsletter' ? 'Newsletter' : item.kind === 'feed' ? 'Feed' : 'Site'}</span>
+          <span className={kindClass}>{KIND_CHIP[item.kind]}</span>
+          {item.highlightCount > 0 && (
+            <span
+              className="row__marks"
+              title={`${item.highlightCount} highlight${item.highlightCount === 1 ? '' : 's'}${item.noteCount ? `, ${item.noteCount} AI note${item.noteCount === 1 ? '' : 's'}` : ''}`}
+            >
+              <IconHighlight size={13} />
+              {item.highlightCount}
+              {item.noteCount > 0 && (
+                <>
+                  <IconSparkle size={13} style={{ marginLeft: 4 }} />
+                  {item.noteCount}
+                </>
+              )}
+            </span>
+          )}
           <span className="row__time">
             {item.wordCount ? `${readingMinutes(item.wordCount)} min · ` : ''}
             {shortTime(item.receivedAt)}

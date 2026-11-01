@@ -91,7 +91,7 @@ export function SourcePage() {
     }
   }
 
-  const kindDefault = source && settings ? settings.aiByKind[source.kind] : null;
+  const kindDefault = source && settings ? source.kind !== 'ai' ? settings.aiByKind[source.kind] : false : null;
   const aiOn = (m: AiMode) => m === 'on' || (m === 'default' && kindDefault === true);
   const isWeb = source?.kind === 'feed' || source?.kind === 'site';
   const noun = source?.kind === 'newsletter' ? 'issue' : 'post';

@@ -12,7 +12,7 @@ import { todayLabel } from '../format';
 import { IconPlus, IconRefresh } from '../icons';
 
 const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'archived'];
-const KINDS: ItemKind[] = ['newsletter', 'feed', 'site'];
+const KINDS: ItemKind[] = ['newsletter', 'feed', 'site', 'ai'];
 
 /** The filter bar choices are remembered per screen on this device. */
 function storageKey(mode: 'inbox' | 'saved') {

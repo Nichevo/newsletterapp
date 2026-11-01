@@ -1,4 +1,4 @@
-import type { AppSettings, DigestOptions, ItemKind, Me, Source } from '@newsletterapp/shared';
+import type { AppSettings, DigestOptions, Me, Source, SummaryKind } from '@newsletterapp/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
@@ -8,6 +8,9 @@ import {
   TEXT_SIZES,
   getHideSponsored,
   getSwipeReadSide,
+  getNotesPlace,
+  setNotesPlace,
+  type NotesPlace,
   getTextSize,
   setDensity,
   setHideSponsored,
@@ -206,7 +209,7 @@ function CategoriesSection({ settings, onSave }: { settings: AppSettings; onSave
   );
 }
 
-const KIND_LABEL: Record<ItemKind, string> = { newsletter: 'Newsletters', feed: 'RSS feeds', site: 'Websites' };
+const KIND_LABEL: Record<SummaryKind, string> = { newsletter: 'Newsletters', feed: 'RSS feeds', site: 'Websites' };
 
 function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
   const [interests, setInterests] = useState(settings.interests);
@@ -215,7 +218,7 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
     <div className="section">
       <span className="label">AI summaries</span>
       <section className="card">
-        {(Object.keys(KIND_LABEL) as ItemKind[]).map((kind) => (
+        {(Object.keys(KIND_LABEL) as SummaryKind[]).map((kind) => (
           <label key={kind} className="switchrow">
             <span style={{ fontSize: 15 }}>{KIND_LABEL[kind]}</span>
             <input
@@ -249,6 +252,18 @@ function AiSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Pa
             <span className="cardrow__sub">Status, which models to use, the summary prompt, test runs, setup</span>
           </div>
         </Link>
+        <Link to="/settings/ai/highlights" className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">Highlight prompts</span>
+            <span className="cardrow__sub">Define, More info, Example and the rest: edit, reorder, switch off, add your own</span>
+          </div>
+        </Link>
+        <div className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">When the PC is off</span>
+            <span className="cardrow__sub">Wait for the PC. Summaries and highlight questions wait until it’s back (a Cloudflare AI choice may come later).</span>
+          </div>
+        </div>
         <Link to="/stats/reading" className="cardrow">
           <div className="cardrow__main">
             <span className="cardrow__title">Reading statistics</span>
@@ -277,6 +292,7 @@ function ReadingSection() {
   const [size, setSize] = useState<TextSize>(getTextSize());
   const [hideSponsored, setHide] = useState(getHideSponsored());
   const [swipeRead, setSwipeRead] = useState<SwipeReadSide>(getSwipeReadSide());
+  const [notesPlace, setNotesPlaceState] = useState<NotesPlace>(getNotesPlace());
   const density = useDensity();
   const opts = useViewOptions();
 
@@ -363,6 +379,27 @@ function ReadingSection() {
             ))}
           </div>
           <span className="hint">The other way saves the item for later.</span>
+        </div>
+        <div className="field">
+          <span className="label">AI notes card</span>
+          <div className="segmented" role="group" aria-label="AI notes card">
+            {(['top', 'bottom'] as NotesPlace[]).map((place) => (
+              <button
+                key={place}
+                aria-pressed={notesPlace === place}
+                onClick={() => {
+                  setNotesPlace(place);
+                  setNotesPlaceState(place);
+                }}
+              >
+                {place === 'top' ? 'Top of article' : 'Bottom of article'}
+              </button>
+            ))}
+          </div>
+          <span className="hint">
+            Where answers about your highlights show in the reader. At the bottom, a small “notes ↓” tag at the top says they’re
+            there. Tapping a highlight jumps to its note either way.
+          </span>
         </div>
         <label className="switchrow">
           <span style={{ fontSize: 15 }}>Hide sponsored sections</span>

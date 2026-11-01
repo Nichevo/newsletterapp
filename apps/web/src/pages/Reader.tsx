@@ -1,15 +1,17 @@
-import type { ItemBody, ItemSummary, RelatedItem, UnsubscribeResult } from '@newsletterapp/shared';
+import type { AskPreset, ItemBody, ItemHighlights, ItemSummary, RelatedItem, UnsubscribeResult } from '@newsletterapp/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
 import { EmailBody } from '../components/EmailBody';
+import { AiNotes, HighlightSheet, SelectionBar, TextBody, useArticleSelection } from '../components/Highlights';
+import { revealMark } from '../highlight';
 import { aiAttribution, longDate, readingMinutes, shortTime } from '../format';
 import { IconArchive, IconBack, IconBookmark, IconChevron, IconExternal, IconImage, IconThumbDown, IconThumbUp } from '../icons';
-import { getHideSponsored, getTextSize, imagesAllowed, setImagesAllowed, textSizePx } from '../prefs';
+import { getHideSponsored, getNotesPlace, getTextSize, imagesAllowed, setImagesAllowed, textSizePx, type AskOutputPref } from '../prefs';
 import { outlineOf } from '../quick';
 import { neighbours } from '../readingList';
 
-const KIND_NAME: Record<ItemSummary['kind'], string> = { newsletter: 'Newsletter', feed: 'Feed', site: 'Website' };
+const KIND_NAME: Record<ItemSummary['kind'], string> = { newsletter: 'Newsletter', feed: 'Feed', site: 'Website', ai: 'AI note' };
 
 export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const { id = '' } = useParams();
@@ -23,6 +25,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const [showSponsored, setShowSponsored] = useState(false);
   const fontSize = textSizePx(getTextSize());
   const nav = useMemo(() => neighbours(id), [id]);
+  const marks = useHighlights(id);
 
   // Previous / Next replace the current entry so Back still returns to the inbox.
   const go = useCallback(
@@ -37,12 +40,13 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (marks.capture) return; // the highlight bar has its own keys while text is selected
       if (e.key === 'ArrowLeft' || e.key === 'k') go(nav.prev);
       if (e.key === 'ArrowRight' || e.key === 'j') go(nav.next);
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [nav, go]);
+  }, [nav, go, marks.capture]);
   const hideSponsored = getHideSponsored() && !showSponsored;
 
   useEffect(() => {
@@ -156,14 +160,22 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
               </span>
             ))}
           </div>
+          {marks.place === 'bottom' && marks.noteCount > 0 && (
+            <button className="chip chip--ai notes-jump" onClick={marks.scrollToNotes}>
+              {marks.noteCount} AI note{marks.noteCount === 1 ? '' : 's'} ↓
+            </button>
+          )}
           {item.summary && <AiSummary item={item} onItem={setItem} />}
-          <QuickSummary
-            preview={item.preheader ?? item.snippet}
-            html={body?.html ?? null}
-            folded={Boolean(item.summary)}
-            pending={!item.summary && (item.aiStatus === 'pending' || item.aiStatus === 'working')}
-            onLinkClick={onLinkClick}
-          />
+          {item.kind !== 'ai' && (
+            <QuickSummary
+              preview={item.preheader ?? item.snippet}
+              html={body?.html ?? null}
+              folded={Boolean(item.summary)}
+              pending={!item.summary && (item.aiStatus === 'pending' || item.aiStatus === 'working')}
+              onLinkClick={onLinkClick}
+            />
+          )}
+          {marks.place === 'top' && marks.notes}
           {hasRemoteImages && !loadImages && (
             <div className="reader__images">
               <span>
@@ -204,16 +216,29 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             hideSponsored={hideSponsored}
             onSponsored={setSponsoredCount}
             onLinkClick={onLinkClick}
+            highlights={marks.data.highlights}
+            activeHighlight={marks.sheet}
+            onRoot={marks.setRoot}
+            onHighlightTap={marks.openSheet}
+            onInternalLink={(path) => navigate(path)}
+            onMissing={marks.setMissing}
           />
         ) : body?.text ? (
-          <div className="reader__text" style={{ fontSize: fontSize + 1 }}>
-            {body.text}
-          </div>
+          <TextBody
+            text={body.text}
+            fontSize={fontSize}
+            highlights={marks.data.highlights}
+            activeHighlight={marks.sheet}
+            onRoot={marks.setRoot}
+            onHighlightTap={marks.openSheet}
+            onMissing={marks.setMissing}
+          />
         ) : item ? (
           <p className="muted">{item.kind === 'newsletter' ? 'This email has no readable body.' : 'No saved copy of this post; open the live page.'}</p>
         ) : (
           !error && <div className="spinner">Loading…</div>
         )}
+        {marks.place === 'bottom' && marks.notes}
         {item && related.length > 0 && <RelatedList related={related} />}
         {item && item.listUnsubscribe && <Unsubscribe item={item} onChanged={onChanged} />}
       </div>
@@ -227,7 +252,12 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
           <IconArchive />
           {item?.status === 'archived' ? 'Unarchive' : 'Archive'}
         </button>
-        {item?.webUrl ? (
+        {item?.originItemId ? (
+          <Link to={`/item/${item.originItemId}`}>
+            <IconExternal />
+            Original article
+          </Link>
+        ) : item?.webUrl ? (
           <a href={item.webUrl} target="_blank" rel="noopener noreferrer" onClick={() => api.event(id, { type: 'open_original', device: isPhone() })}>
             <IconExternal />
             {item.kind === 'newsletter' ? 'Web version' : 'Live page'}
@@ -243,8 +273,200 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
           Inbox
         </Link>
       </div>
+      {marks.overlays}
     </div>
   );
+}
+
+const ROOTLESS: (ShadowRoot | HTMLElement)[] = [];
+
+/**
+ * Highlights in the open article: loading them, the selection bar, the sheet
+ * for a tapped highlight, the AI notes card, and checking for answers while
+ * the PC works on them.
+ */
+function useHighlights(itemId: string) {
+  const [data, setData] = useState<ItemHighlights>({ highlights: [], asks: [], helperLastSeenAt: null });
+  const [presets, setPresets] = useState<AskPreset[]>([]);
+  const [missing, setMissingState] = useState<string[]>([]);
+  const [sheet, setSheet] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const roots = useRef<(ShadowRoot | HTMLElement)[]>(ROOTLESS);
+  const notesRef = useRef<HTMLDivElement>(null);
+  const place = getNotesPlace();
+  const selection = useArticleSelection(useCallback(() => roots.current, []));
+
+  const refresh = useCallback(() => {
+    api
+      .highlights(itemId)
+      .then(setData)
+      .catch(() => undefined);
+  }, [itemId]);
+
+  useEffect(() => {
+    setData({ highlights: [], asks: [], helperLastSeenAt: null });
+    setMissingState([]);
+    setSheet(null);
+    roots.current = ROOTLESS;
+    refresh();
+  }, [itemId, refresh]);
+
+  useEffect(() => {
+    api
+      .askPresets()
+      .then(setPresets)
+      .catch(() => undefined);
+  }, []);
+
+  // While the PC works on an answer, look for it every few seconds (only while the app is on screen).
+  const waiting = data.asks.some((a) => a.status === 'pending' || a.status === 'working');
+  useEffect(() => {
+    if (!waiting) return;
+    const t = window.setInterval(() => document.visibilityState === 'visible' && refresh(), 4000);
+    return () => window.clearInterval(t);
+  }, [waiting, refresh]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 3500);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
+  const setRoot = useCallback((r: ShadowRoot | HTMLElement) => {
+    roots.current = [r];
+  }, []);
+  const setMissing = useCallback((ids: string[]) => {
+    setMissingState((prev) => (prev.join() === ids.join() ? prev : ids));
+  }, []);
+  const openSheet = useCallback((id: string) => setSheet(id), []);
+
+  function reveal(highlightId: string) {
+    for (const r of roots.current) if (revealMark(r, highlightId)) return;
+  }
+
+  function showNotes(highlightId: string) {
+    setSheet(null);
+    setFlash(highlightId);
+    window.setTimeout(() => setFlash(null), 2500);
+    if (!data.asks.some((a) => a.highlightId === highlightId)) notesRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  async function highlight() {
+    const anchor = selection.capture?.anchor;
+    if (!anchor) return;
+    setBusy(true);
+    try {
+      const h = await api.addHighlight(itemId, anchor);
+      setData((d) => ({ ...d, highlights: [...d.highlights, h] }));
+      selection.clear();
+    } catch (err) {
+      setToast(err instanceof Error ? `Couldn't highlight: ${err.message}` : "Couldn't highlight");
+    } finally {
+      setBusy(false);
+      selection.release();
+    }
+  }
+
+  async function ask(presetId: string | null, output: AskOutputPref, question?: string, highlightId?: string) {
+    const anchor = highlightId ? undefined : selection.capture?.anchor;
+    if (!highlightId && !anchor) return;
+    setBusy(true);
+    try {
+      const res = await api.ask({ itemId, highlightId, highlight: anchor, presetId, question, output });
+      setData((d) => ({
+        ...d,
+        highlights: d.highlights.some((h) => h.id === res.highlight.id) ? d.highlights : [...d.highlights, res.highlight],
+        asks: [...d.asks, res.ask],
+      }));
+      selection.clear();
+      setSheet(null);
+      setToast(
+        res.ask.output === 'item'
+          ? `${res.ask.label}: asked your PC. The answer will arrive as a new article in your inbox.`
+          : `${res.ask.label}: asked your PC. The answer will appear in AI notes${place === 'bottom' ? ' at the end' : ''}.`,
+      );
+      refresh();
+    } catch (err) {
+      setToast(err instanceof Error ? `Couldn't ask: ${err.message}` : "Couldn't ask");
+    } finally {
+      setBusy(false);
+      selection.release();
+    }
+  }
+
+  async function remove(highlightId: string) {
+    setSheet(null);
+    setData((d) => ({ ...d, highlights: d.highlights.filter((h) => h.id !== highlightId), asks: d.asks.filter((a) => a.highlightId !== highlightId) }));
+    await api.deleteHighlight(highlightId).catch(() => refresh());
+  }
+
+  const visibleAsks = data.asks;
+  const noteCount = visibleAsks.filter((a) => a.output !== 'item').length;
+  const sheetHighlight = sheet ? data.highlights.find((h) => h.id === sheet) : undefined;
+
+  const notes = (
+    <div ref={notesRef}>
+      <AiNotes
+        highlights={data.highlights}
+        asks={visibleAsks}
+        missing={missing}
+        helperLastSeenAt={data.helperLastSeenAt}
+        flash={flash}
+        onReveal={reveal}
+        onChanged={refresh}
+        api={api}
+      />
+    </div>
+  );
+
+  const overlays = (
+    <>
+      {selection.capture && !sheet && (
+        <SelectionBar
+          capture={selection.capture}
+          presets={presets}
+          busy={busy}
+          hold={selection.hold}
+          onHighlight={() => void highlight()}
+          onAsk={(presetId, output, question) => void ask(presetId, output, question)}
+          onClose={selection.clear}
+        />
+      )}
+      {sheetHighlight && (
+        <HighlightSheet
+          highlight={sheetHighlight}
+          asks={visibleAsks.filter((a) => a.highlightId === sheetHighlight.id)}
+          presets={presets}
+          busy={busy}
+          onAsk={(presetId, output, question) => void ask(presetId, output, question, sheetHighlight.id)}
+          onShowNotes={() => showNotes(sheetHighlight.id)}
+          onDelete={() => void remove(sheetHighlight.id)}
+          onClose={() => setSheet(null)}
+        />
+      )}
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
+      )}
+    </>
+  );
+
+  return {
+    data,
+    capture: selection.capture,
+    sheet,
+    place,
+    noteCount,
+    notes,
+    overlays,
+    setRoot,
+    setMissing,
+    openSheet,
+    scrollToNotes: () => notesRef.current?.scrollIntoView({ behavior: 'smooth' }),
+  };
 }
 
 /** The AI summary from the PC helper, with who wrote it and a thumbs up/down. */

@@ -237,6 +237,11 @@ select {
   color: var(--purple-ink);
 }
 
+.chip--ai {
+  background: var(--amber-tint);
+  color: var(--amber-ink);
+}
+
 .chip--outline {
   border: 1px solid var(--border-strong);
   color: var(--quiet);
@@ -1498,4 +1503,310 @@ select {
   height: 2px;
   vertical-align: 3px;
   background: var(--ink);
+}
+
+/* Highlights and AI notes */
+.reader__text mark.hl {
+  background: rgba(250, 204, 21, 0.45);
+  color: inherit;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.reader__text mark.hl--active {
+  background: rgba(250, 204, 21, 0.75);
+}
+
+@media (prefers-color-scheme: dark) {
+  .reader__text mark.hl {
+    background: rgba(234, 179, 8, 0.35);
+  }
+}
+
+.hlbar {
+  z-index: 30;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* On a phone the bar sits just above the reader's buttons, clear of Android's own copy/share bar. */
+.hlbar--dock {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: calc(76px + var(--safe-bottom) - var(--vv-gap) + 8px);
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.hlbar__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hlbar__btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 18px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 14px var(--font);
+  white-space: nowrap;
+}
+
+.hlbar__btn--plain {
+  background: rgba(250, 204, 21, 0.25);
+  border-color: rgba(202, 138, 4, 0.5);
+}
+
+.hlbar__btn:disabled {
+  opacity: 0.5;
+}
+
+.hlbar__out {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hlbar__out .segmented {
+  flex: 1;
+  max-width: 300px;
+}
+
+.segmented--small button {
+  height: 26px;
+  font-size: 12px;
+}
+
+.hlbar__close {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  width: 32px;
+  height: 32px;
+}
+
+.hlbar__ask {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.hlbar__ask .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.sheet__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.sheet__panel {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 16px 16px calc(16px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (min-width: 720px) {
+  .sheet {
+    align-items: center;
+  }
+
+  .sheet__panel {
+    border-radius: var(--radius);
+  }
+}
+
+.hlquote {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid #e0b34a;
+  background: rgba(224, 179, 74, 0.12);
+  font-family: var(--serif);
+  font-size: 15px;
+  line-height: 1.45;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-color: rgba(224, 179, 74, 0.5);
+}
+
+.reader__body > div > .notes {
+  margin: 16px 0;
+}
+
+.note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  border-radius: 6px;
+  transition: background 0.4s;
+}
+
+.notes > .label + .note {
+  border-top: none;
+  padding-top: 0;
+}
+
+.note--flash {
+  background: rgba(250, 204, 21, 0.18);
+}
+
+.note__quote {
+  text-align: left;
+  border: none;
+  border-left: 3px solid #e0b34a;
+  background: rgba(224, 179, 74, 0.12);
+  padding: 6px 10px;
+  color: var(--ink);
+  font: italic 14px/1.4 var(--serif);
+  border-radius: 0 6px 6px 0;
+  cursor: pointer;
+}
+
+.note__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--amber-ink);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.note__answer {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.note__answer p,
+.note__answer ul,
+.note__answer ol {
+  margin: 0 0 8px;
+}
+
+.note__answer ul,
+.note__answer ol {
+  padding-left: 20px;
+}
+
+.note__answer h4 {
+  margin: 8px 0 4px;
+  font-size: 14px;
+}
+
+.note__wait {
+  margin: 0;
+  font-size: 14px;
+  color: var(--quiet);
+}
+
+.dot-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber-ink);
+  margin-right: 4px;
+  animation: dotpulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dotpulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.note__sources {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.note__article {
+  margin: 0;
+  font-size: 14px;
+  color: var(--quiet);
+}
+
+.notes-jump {
+  border: none;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(76px + var(--safe-bottom) - var(--vv-gap) + 12px);
+  z-index: 35;
+  max-width: min(92vw, 520px);
+  background: var(--ink);
+  color: var(--bg);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.row__marks {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--amber-ink);
+  flex-shrink: 0;
+}
+
+@media (min-width: 640px) {
+  .row--compact .row__marks {
+    display: none;
+  }
 }

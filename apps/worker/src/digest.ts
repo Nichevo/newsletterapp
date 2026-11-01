@@ -77,7 +77,8 @@ function storyFrom(row: DigestRow, more: DigestRow[]): DigestStory {
 /** Builds the digest for [fromAt, toAt) and stores it under `day`. Returns null when there was nothing to say. */
 export async function buildDigest(env: Env, day: string, fromAt: number, toAt: number, options: DigestOptions): Promise<Digest | null> {
   await scoreRecentItems(env);
-  const where = ['items.received_at >= ?', 'items.received_at < ?', "items.status IN ('inbox', 'archived')"];
+  // AI notes (answers to your own highlights) stay out of the digest.
+  const where = ['items.received_at >= ?', 'items.received_at < ?', "items.status IN ('inbox', 'archived')", "items.kind != 'ai'"];
   if (!options.includeRead) where.push('items.read_at IS NULL');
   if (!options.includeSponsored) where.push('items.sponsored = 0');
   const rows = await env.DB.prepare(

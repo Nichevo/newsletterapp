@@ -9,7 +9,7 @@ import {
   type HelperJob,
   type HelperLoad,
   type HelperResult,
-  type ItemKind,
+  type SummaryKind,
   type ModelInfo,
   type ModelMode,
   type ModelRating,
@@ -24,6 +24,7 @@ import type { Hono } from 'hono';
 import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
 import { fetchJobsWaiting } from './feeds';
+import { ASK_POLL_SECONDS, asksWaiting } from './highlights';
 import { loadSettings } from './settings';
 import { jobsThatFit, limitState } from './usage';
 
@@ -176,8 +177,8 @@ export function cleanOutput(o: unknown, categories: string[]): AiOutput | null {
 // ---------- Which items may go to the AI ----------
 
 /** SQL condition for the AI switches: per source, falling back to the per-kind default. */
-export function eligibleSql(aiByKind: Record<ItemKind, boolean>): string {
-  const kinds = (Object.keys(aiByKind) as ItemKind[]).filter((k) => aiByKind[k]);
+export function eligibleSql(aiByKind: Record<SummaryKind, boolean>): string {
+  const kinds = (Object.keys(aiByKind) as SummaryKind[]).filter((k) => aiByKind[k]);
   const byKind = kinds.length ? `items.kind IN (${kinds.map((k) => `'${k}'`).join(', ')})` : '0';
   // Items from before the source's cut-off (set when AI was switched on) stay out.
   return `((sources.ai_mode = 'on' OR (COALESCE(sources.ai_mode, 'default') = 'default' AND ${byKind}))
@@ -193,8 +194,8 @@ const IN_QUEUE = "items.status = 'inbox' AND items.ai_status IN ('pending', 'wor
  * helper check walked the whole inbox; that blew the free D1 read allowance.
  * The caller still applies eligibleSql for the per-source details.
  */
-export function queueCandidatesSql(aiByKind: Record<ItemKind, boolean>): string {
-  const kinds = (Object.keys(aiByKind) as ItemKind[]).filter((k) => aiByKind[k]);
+export function queueCandidatesSql(aiByKind: Record<SummaryKind, boolean>): string {
+  const kinds = (Object.keys(aiByKind) as SummaryKind[]).filter((k) => aiByKind[k]);
   const list = kinds.map((k) => `'${k}'`).join(', ');
   const parts: string[] = [];
   if (kinds.length) parts.push(`SELECT items.id FROM items INDEXED BY items_ai_queue_kind WHERE ${IN_QUEUE} AND items.kind IN (${list})`);
@@ -291,6 +292,8 @@ export function registerAi(app: App) {
       trialId: trial?.id ?? null,
       fetchWaiting,
       limited: usage.limited,
+      asksWaiting: await asksWaiting(c.env, state.paused),
+      askPollSeconds: ASK_POLL_SECONDS,
     };
     return c.json(config);
   });

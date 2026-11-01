@@ -62,10 +62,11 @@ export function registerReading(app: App) {
     const tableFrom = at - days * DAY;
     const db = c.env.DB;
 
+    // AI notes (answers to your own highlights) are left out of these figures.
     // --- Per-day received vs read, plus the streak, all bucketed in JS by local day.
     const [arrived, readTimes] = await Promise.all([
-      db.prepare('SELECT received_at FROM items WHERE received_at >= ? AND status != ?').bind(dailyFrom, 'dropped').all<{ received_at: number }>(),
-      db.prepare('SELECT read_at FROM items WHERE read_at IS NOT NULL AND read_at >= ?').bind(at - 400 * DAY).all<{ read_at: number }>(),
+      db.prepare("SELECT received_at FROM items WHERE received_at >= ? AND status != ? AND kind != 'ai'").bind(dailyFrom, 'dropped').all<{ received_at: number }>(),
+      db.prepare("SELECT read_at FROM items WHERE read_at IS NOT NULL AND read_at >= ? AND kind != 'ai'").bind(at - 400 * DAY).all<{ read_at: number }>(),
     ]);
     const received = new Map<string, number>();
     const read = new Map<string, number>();
@@ -90,7 +91,7 @@ export function registerReading(app: App) {
     const [week, timeRow, openRow] = await Promise.all([
       db
         .prepare(
-          `SELECT SUM(received_at >= ?1 AND status != 'dropped') AS received, SUM(read_at >= ?1) AS read FROM items WHERE received_at >= ?1 OR read_at >= ?1`,
+          `SELECT SUM(received_at >= ?1 AND status != 'dropped') AS received, SUM(read_at >= ?1) AS read FROM items WHERE (received_at >= ?1 OR read_at >= ?1) AND kind != 'ai'`,
         )
         .bind(weekFrom)
         .first<{ received: number | null; read: number | null }>(),
@@ -123,6 +124,7 @@ export function registerReading(app: App) {
            FROM sources
            LEFT JOIN items ON items.source_id = sources.id AND items.received_at >= ?1 AND items.status != 'dropped'
            ${perItem}
+           WHERE sources.kind != 'ai'
            GROUP BY sources.id ORDER BY issues DESC, sources.name`,
         )
         .bind(tableFrom)
@@ -142,19 +144,19 @@ export function registerReading(app: App) {
           `SELECT ${CATEGORY_SQL} AS cat, COUNT(*) AS issues, SUM(items.read_at IS NOT NULL) AS read,
                   SUM(COALESCE(ev.opened, 0)) AS opened, SUM(COALESCE(ev.finished, 0)) AS finished
            FROM items LEFT JOIN sources ON sources.id = items.source_id ${perItem}
-           WHERE items.received_at >= ?1 AND items.status != 'dropped'
+           WHERE items.received_at >= ?1 AND items.status != 'dropped' AND items.kind != 'ai'
            GROUP BY cat ORDER BY issues DESC`,
         )
         .bind(tableFrom)
         .all<{ cat: string; issues: number; read: number | null; opened: number | null; finished: number | null }>(),
       db
-        .prepare('SELECT read_via, read_device, COUNT(*) AS n FROM items WHERE read_at >= ? GROUP BY read_via, read_device')
+        .prepare("SELECT read_via, read_device, COUNT(*) AS n FROM items WHERE read_at >= ? AND kind != 'ai' GROUP BY read_via, read_device")
         .bind(tableFrom)
         .all<{ read_via: ReadVia | null; read_device: ReadDevice | null; n: number }>(),
       db
         .prepare(
           `SELECT SUM(received_at >= ?1) AS today, SUM(received_at < ?1 AND received_at >= ?2) AS week, SUM(received_at < ?2) AS older
-           FROM items WHERE status = 'inbox' AND read_at IS NULL`,
+           FROM items WHERE status = 'inbox' AND read_at IS NULL AND kind != 'ai'`,
         )
         .bind(todayFrom, weekFrom)
         .first<{ today: number | null; week: number | null; older: number | null }>(),

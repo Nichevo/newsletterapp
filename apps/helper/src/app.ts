@@ -1,5 +1,7 @@
 import type {
   AiLimitHit,
+  AskJob,
+  AskResultInput,
   FetchJob,
   FetchJobResult,
   HelperConfig,
@@ -42,6 +44,9 @@ export class AppClient {
   trial = (id: string) => this.call<TrialJob>('GET', `/api/helper/trials/${id}`);
   trialResults = (id: string, results: TrialResultInput[]) => this.call('POST', `/api/helper/trials/${id}/results`, results);
   trialDone = (id: string) => this.call('POST', `/api/helper/trials/${id}/done`, {});
+  askPeek = () => this.call<{ waiting: number }>('POST', '/api/helper/asks/peek', {});
+  askClaim = (max: number) => this.call<{ jobs: AskJob[]; paused?: boolean }>('POST', '/api/helper/asks/claim', { max });
+  askResult = (r: AskResultInput) => this.call<{ ok: boolean }>('POST', '/api/helper/asks/result', r);
   fetchClaim = (max: number) => this.call<{ jobs: FetchJob[] }>('POST', '/api/helper/fetch/claim', { max });
   fetchResult = (r: FetchJobResult) => this.call<{ ok: boolean; added?: number }>('POST', '/api/helper/fetch/result', r);
 
