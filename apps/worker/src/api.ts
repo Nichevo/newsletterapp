@@ -22,7 +22,7 @@ import type {
   ReadVia,
 } from '@newsletterapp/shared';
 import { registerAi } from './ai';
-import { registerBacklog } from './backlog';
+import { registerBacklog, unparkHeld } from './backlog';
 import { AuthError, authenticate } from './auth';
 import {
   isOneClick,
@@ -540,6 +540,8 @@ app.post('/api/sources/:id', async (c) => {
   if (sets.length > 0) {
     await c.env.DB.prepare(`UPDATE sources SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, id).run();
   }
+  // Items parked while this source's AI was off rejoin the queue; the cron parks any still off.
+  if (input.aiMode !== undefined) await unparkHeld(c.env, id);
   if (switchedOnSince !== null) {
     // Older items brought in by the backdate join the queue now, for the waiting-time stats.
     await c.env.DB.prepare(
@@ -571,6 +573,7 @@ app.put('/api/settings', async (c) => {
   await saveSettings(c.env, settings);
   // A kind switched on here starts with new items only; a source's own page can go further back.
   const switchedOn = (Object.keys(settings.aiByKind) as SummaryKind[]).filter((k) => settings.aiByKind[k] && !before.aiByKind[k]);
+  if ((Object.keys(settings.aiByKind) as SummaryKind[]).some((k) => settings.aiByKind[k] !== before.aiByKind[k])) await unparkHeld(c.env);
   if (switchedOn.length) {
     await c.env.DB.batch(
       switchedOn.map((k) => c.env.DB.prepare("UPDATE sources SET ai_since = ? WHERE kind = ? AND ai_mode = 'default'").bind(now(), k)),
