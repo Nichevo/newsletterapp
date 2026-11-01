@@ -1,3 +1,5 @@
+import type { FeedRhythm } from '@newsletterapp/shared';
+
 const DAY = 86_400_000;
 
 /** "7:02", "Yesterday", "Mon", "14 Oct" style timestamps for list rows. */
@@ -57,4 +59,71 @@ export function relativeTime(ms: number, now = Date.now()): string {
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   if (s < 86_400) return `${Math.round(s / 3600)} h ago`;
   return `${Math.round(s / 86_400)} days ago`;
+}
+
+/** "3 pm", or "Tue 9 am" when it's not today: when the next check is due. */
+export function nextTime(ms: number, now = Date.now()): string {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return d.toDateString() === new Date(now).toDateString() ? time : `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`;
+}
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function hourLabel(h: number): string {
+  const n = h % 12 === 0 ? 12 : h % 12;
+  return `${n} ${h < 12 ? 'am' : 'pm'}`;
+}
+
+/** Usual hours as runs: [8, 9, 10, 17] -> "8–10 am, 5 pm". */
+function hoursText(hours: number[]): string {
+  const runs: [number, number][] = [];
+  for (const h of [...hours].sort((a, b) => a - b)) {
+    const last = runs[runs.length - 1];
+    if (last && h === last[1] + 1) last[1] = h;
+    else runs.push([h, h]);
+  }
+  return runs
+    .map(([a, b]) => {
+      if (a === b) return hourLabel(a);
+      const sameHalf = a < 12 === b < 12;
+      return sameHalf ? `${hourLabel(a).split(' ')[0]}–${hourLabel(b)}` : `${hourLabel(a)}–${hourLabel(b)}`;
+    })
+    .join(', ');
+}
+
+function daysText(days: number[]): string {
+  const key = [...days].sort((a, b) => a - b).join('');
+  if (key === '12345') return 'weekdays';
+  if (key === '06') return 'weekends';
+  return [...days].sort((a, b) => a - b).map((d) => DAY_NAMES[d]).join(', ');
+}
+
+export function gapText(hours: number): string {
+  if (hours < 1.5) return 'about every hour';
+  if (hours < 36) return `about every ${Math.round(hours)} hours`;
+  const days = Math.round(hours / 24);
+  return days === 7 ? 'about once a week' : `about every ${days} days`;
+}
+
+/**
+ * What the app has learnt about when a feed posts, in words. `scheduled` says
+ * whether checks follow it (the feed has no fixed "Check every" of its own).
+ */
+export function rhythmText(r: FeedRhythm | null, scheduled: boolean): { summary: string; checking: string } {
+  if (!r) return { summary: 'Not learnt yet; the next check works it out.', checking: '' };
+  const fixed = 'You set a fixed interval, so it is checked on that instead.';
+  if (!r.pattern) {
+    if (r.posts < 6) return { summary: `Still learning: ${r.posts} post${r.posts === 1 ? '' : 's'} in the last 6 months, 6 needed.`, checking: scheduled ? 'Checked every hour meanwhile.' : fixed };
+    if (r.gapHours !== null) return { summary: `Busy feed, posts ${gapText(r.gapHours)}.`, checking: scheduled ? 'Checked every hour.' : fixed };
+    return { summary: 'No clear pattern in when it posts.', checking: scheduled ? 'Checked every hour.' : fixed };
+  }
+  const when = [r.days ? `on ${daysText(r.days)}` : '', r.hours ? `around ${hoursText(r.hours)}` : ''].filter(Boolean).join(' ');
+  const summary = `Usually posts ${when ? `${when}, ` : ''}${gapText(r.gapHours ?? 24)}.`;
+  if (!scheduled) return { summary, checking: fixed };
+  if (!r.hours && !r.days) {
+    const every = Math.min(Math.max((r.gapHours ?? 24) / 4, 1), 24);
+    return { summary, checking: `No set time, so checked about every ${Math.round(every)} hour${Math.round(every) === 1 ? '' : 's'}.` };
+  }
+  return { summary, checking: 'Checked every hour around then, every 8 hours otherwise.' };
 }

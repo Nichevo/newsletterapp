@@ -1,3 +1,4 @@
+import { parseRhythm } from './rhythm';
 import type {
   AiMode,
   AiStatus,
@@ -68,6 +69,7 @@ export interface SourceRow {
   error_count: number;
   paused_at: number | null;
   start_count: number | null;
+  rhythm: string | null;
 }
 
 export interface ItemRow {
@@ -314,5 +316,6 @@ export function toSource(
     lastError: row.last_error ?? null,
     errorCount: row.error_count ?? 0,
     pausedAt: row.paused_at ?? null,
+    rhythm: row.kind === 'feed' ? parseRhythm(row.rhythm) : null,
   };
 }

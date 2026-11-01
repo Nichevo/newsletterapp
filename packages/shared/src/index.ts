@@ -182,6 +182,28 @@ export interface Source {
   errorCount: number;
   /** Set when you stop following; nothing is fetched until you resume. */
   pausedAt: number | null;
+  /** Feeds only: when it usually posts, learnt from its posts. Null until first learnt. */
+  rhythm: FeedRhythm | null;
+}
+
+/**
+ * A feed's posting habits. With `pattern` true and no interval of its own
+ * (checkMinutes null), the feed is checked often around its usual hours and
+ * days and only every few hours (at least daily) the rest of the time.
+ */
+export interface FeedRhythm {
+  /** False while learning (fewer than 6 posts) or when posts come at no clear rhythm. */
+  pattern: boolean;
+  /** Posts in the last 180 days used to learn it (up to 40 latest). */
+  posts: number;
+  /** Typical hours between posts. */
+  gapHours: number | null;
+  /** Usual local hours (0-23) posts arrive, or null when they're spread out. */
+  hours: number[] | null;
+  /** Usual weekdays (0 = Sunday), or null when it posts any day. */
+  days: number[] | null;
+  timezone: string;
+  learntAt: number;
 }
 
 export type SenderStatus = 'pending' | 'approved' | 'blocked';
@@ -342,7 +364,8 @@ export interface SourceUpdate {
   render?: boolean;
   fullText?: FullTextMode;
   linkHint?: string | null;
-  checkMinutes?: number;
+  /** Minutes between checks; null = automatic (feeds follow their learnt rhythm). */
+  checkMinutes?: number | null;
   paused?: boolean;
   /**
    * Feeds and websites only: follow it differently. 'feed' needs feedUrl; 'site'
