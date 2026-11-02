@@ -345,6 +345,13 @@ select {
   color: var(--muted, var(--ink));
 }
 
+.pill--excluded {
+  border-style: dashed;
+  border-color: var(--red-ink);
+  color: var(--red-ink);
+  text-decoration: line-through;
+}
+
 .pill[aria-pressed='true'] {
   background: var(--ink);
   border-color: var(--ink);

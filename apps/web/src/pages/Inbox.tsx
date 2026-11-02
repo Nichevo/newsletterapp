@@ -1,5 +1,5 @@
 import { SavedTabs } from './Highlights';
-import { SOURCE_TYPES, type ItemListResponse, type ItemSummary, type ItemView, type Me, type SavedFilter, type Source, type SourceType } from '@newsletterapp/shared';
+import type { ItemListResponse, ItemSummary, ItemView, Me, SavedFilter, Source } from '@newsletterapp/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { rememberList } from '../readingList';
@@ -32,7 +32,7 @@ function loadFilters(mode: Mode): Filters {
       sort: saved.sort === 'oldest' || saved.sort === 'top' ? saved.sort : 'newest',
       source: typeof saved.source === 'string' ? saved.source : null,
       category: typeof saved.category === 'string' ? saved.category : null,
-      kind: SOURCE_TYPES.includes(saved.kind as SourceType) ? (saved.kind as SourceType) : null,
+      kind: typeof saved.kind === 'string' ? saved.kind : null,
     };
   } catch {
     return fallback;

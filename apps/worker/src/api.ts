@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { normalizePostFilter } from '@newsletterapp/shared';
+import { normalizePostFilter, parseFilterSet } from '@newsletterapp/shared';
 import type {
   Platform,
   AiMode,
@@ -130,14 +130,33 @@ const PLATFORM_SQL: Record<Platform, string> = {
   youtube: "COALESCE(sources.feed_url, '') LIKE '%youtube.com/feeds/%'",
   github: "COALESCE(sources.feed_url, '') LIKE '%github.com/%'",
 };
-function typeWhere(kind: string, binds: unknown[]): string[] {
-  if (kind in PLATFORM_SQL) return ["items.kind = 'feed'", PLATFORM_SQL[kind as Platform]];
-  if (kind === 'feed') return ["items.kind = 'feed'", `NOT (${Object.values(PLATFORM_SQL).join(' OR ')})`];
-  if (kind === 'newsletter' || kind === 'site' || kind === 'ai') {
-    binds.push(kind);
-    return ['items.kind = ?'];
+function typeSql(kind: string): string | null {
+  if (kind in PLATFORM_SQL) return `(items.kind = 'feed' AND ${PLATFORM_SQL[kind as Platform]})`;
+  if (kind === 'feed') return `(items.kind = 'feed' AND NOT (${Object.values(PLATFORM_SQL).join(' OR ')}))`;
+  if (kind === 'newsletter' || kind === 'site' || kind === 'ai') return `items.kind = '${kind}'`;
+  return null;
+}
+/** Types to show and/or hide, e.g. "reddit|github" or "!reddit|!github". */
+function typeWhere(value: string, _binds: unknown[]): string[] {
+  const set = parseFilterSet(value);
+  const inc = set.include.map(typeSql).filter((s): s is string => s !== null);
+  const exc = set.exclude.map(typeSql).filter((s): s is string => s !== null);
+  return [...(inc.length ? [`(${inc.join(' OR ')})`] : []), ...exc.map((s) => `NOT ${s}`)];
+}
+const CATEGORY_SQL = "COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]'))";
+/** Categories to show and/or hide. */
+function categoryWhere(value: string, binds: unknown[]): string[] {
+  const set = parseFilterSet(value);
+  const out: string[] = [];
+  if (set.include.length) {
+    out.push(`${CATEGORY_SQL} IN (${set.include.map(() => '?').join(', ')})`);
+    binds.push(...set.include);
   }
-  return [];
+  if (set.exclude.length) {
+    out.push(`COALESCE(${CATEGORY_SQL}, '') NOT IN (${set.exclude.map(() => '?').join(', ')})`);
+    binds.push(...set.exclude);
+  }
+  return out;
 }
 
 app.get('/api/items', async (c) => {
@@ -157,10 +176,7 @@ app.get('/api/items', async (c) => {
     binds.push(sourceId);
   }
   if (kind) where.push(...typeWhere(kind, binds));
-  if (category) {
-    where.push("COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]')) = ?");
-    binds.push(category);
-  }
+  if (category) where.push(...categoryWhere(category, binds));
   // Counts for the inbox header, before the cursor narrows the query: only when filtered
   // (the unfiltered totals come from /api/counts) and only on the first page.
   const countSql =
@@ -272,10 +288,7 @@ app.get('/api/search', async (c) => {
     binds.push(sourceId);
   }
   if (kind) where.push(...typeWhere(kind, binds));
-  if (category) {
-    where.push("COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]')) = ?");
-    binds.push(category);
-  }
+  if (category) where.push(...categoryWhere(category, binds));
   if (state && state in SEARCH_STATE) where.push(SEARCH_STATE[state]);
   if (since) {
     where.push('items.received_at >= ?');

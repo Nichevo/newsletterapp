@@ -370,8 +370,10 @@ export interface SavedFilter {
   view: ItemView;
   sort: ItemSort;
   source: string | null;
+  /** Categories to show or hide (see FilterSet). */
   category: string | null;
-  kind: SourceType | null;
+  /** Types to show or hide (see FilterSet). */
+  kind: string | null;
 }
 
 export interface DigestOptions {
@@ -946,4 +948,56 @@ export function isVideoPost(url: string | null): boolean {
 /** A Reddit post's comments page: the PC pulls in the post and its top comments. */
 export function isRedditPost(url: string | null): boolean {
   return url !== null && /^https?:\/\/(www\.|old\.|new\.)?reddit\.com\/r\/[^/]+\/comments\//i.test(url);
+}
+
+// ---------- Include / exclude filter values ----------
+
+/**
+ * A filter on several values at once, kept as one string so saved filters and
+ * the address bar stay simple: "reddit|github" shows only those, "!reddit|!github"
+ * hides them (both can mix). Empty or null = no filter. A single plain value is
+ * the old one-choice filter, so older saved filters keep working.
+ */
+export interface FilterSet {
+  include: string[];
+  exclude: string[];
+}
+
+export const FILTER_SEP = '|';
+
+export function parseFilterSet(value: string | null | undefined): FilterSet {
+  const set: FilterSet = { include: [], exclude: [] };
+  for (const raw of (value ?? '').split(FILTER_SEP)) {
+    const token = raw.trim();
+    if (!token || token === '!') continue;
+    if (token.startsWith('!')) set.exclude.push(token.slice(1));
+    else set.include.push(token);
+  }
+  return set;
+}
+
+export function formatFilterSet(set: FilterSet): string | null {
+  const tokens = [...set.include, ...set.exclude.map((v) => `!${v}`)];
+  return tokens.length ? tokens.join(FILTER_SEP) : null;
+}
+
+/** One tap on a value: off → show only → hide → off. */
+export function cycleFilterValue(value: string | null | undefined, token: string): string | null {
+  const set = parseFilterSet(value);
+  const include = set.include.filter((v) => v !== token);
+  const exclude = set.exclude.filter((v) => v !== token);
+  if (set.include.includes(token)) exclude.push(token);
+  else if (!set.exclude.includes(token)) include.push(token);
+  return formatFilterSet({ include, exclude });
+}
+
+export function filterState(value: string | null | undefined, token: string): 'include' | 'exclude' | null {
+  const set = parseFilterSet(value);
+  return set.include.includes(token) ? 'include' : set.exclude.includes(token) ? 'exclude' : null;
+}
+
+/** Whether a value gets through: it must be one of the shown values (if any) and none of the hidden ones. */
+export function matchesFilterSet(value: string | null | undefined, set: FilterSet): boolean {
+  if (set.include.length && !set.include.includes(value ?? '')) return false;
+  return !set.exclude.includes(value ?? '');
 }
