@@ -727,7 +727,7 @@ app.post('/api/sources/:id', async (c) => {
   if (typeof input.showPicture === 'boolean') set('show_picture = ?', input.showPicture ? 1 : 0);
   if (typeof input.bundle === 'boolean') set('bundle = ?', input.bundle ? 1 : 0);
   if (input.postFilter !== undefined) set('post_filter = ?', JSON.stringify(normalizePostFilter(input.postFilter)));
-  if (typeof input.dailyCap === 'number') set('daily_cap = ?', Math.min(Math.max(Math.round(input.dailyCap), 1), 500));
+  if (typeof input.dailyCap === 'number') set('daily_cap = ?', Math.min(Math.max(Math.round(input.dailyCap), 0), 500));
   if (input.fullText !== undefined) {
     if (!FULL_TEXT.includes(input.fullText)) return c.json({ error: 'bad fullText' }, 400);
     set('full_text = ?', input.fullText);

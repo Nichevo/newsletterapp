@@ -225,6 +225,7 @@ export interface Source {
   /** Which posts come in at all (by title). */
   postFilter: PostFilter;
   /** Flood guard: at most this many new posts a day reach the inbox; the rest go to Archived. */
+  /** New posts a day before the rest go to Archived; 0 = no limit. */
   dailyCap: number;
   /** When the flood guard last set posts aside, and how many that day. */
   floodAt: number | null;

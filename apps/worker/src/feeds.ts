@@ -210,15 +210,16 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
   if (bundled) take = [bundleEntries(source, take)];
 
   // Flood guard: past the source's daily limit, new posts go straight to Archived (still searchable).
+  // 0 = no limit for this source.
   const cap = source.daily_cap ?? DEFAULT_DAILY_CAP;
-  const today = take.length
+  const today = take.length && cap > 0
     ? ((
         await env.DB.prepare('SELECT COUNT(*) AS n FROM items INDEXED BY items_source WHERE source_id = ? AND created_at >= ?')
           .bind(source.id, t - 86_400_000)
           .first<{ n: number }>()
       )?.n ?? 0)
     : 0;
-  const room = Math.max(cap - today, 0);
+  const room = cap > 0 ? Math.max(cap - today, 0) : take.length;
   const setAside = Math.max(take.length - room, 0);
 
   const settings = take.length ? await loadSettings(env) : null;
@@ -693,7 +694,7 @@ export function registerFeeds(app: App) {
         t,
         startCount(input.startWith),
         input.postFilter ? JSON.stringify(normalizePostFilter(input.postFilter)) : null,
-        typeof input.dailyCap === 'number' ? Math.min(Math.max(Math.round(input.dailyCap), 1), 500) : null,
+        typeof input.dailyCap === 'number' ? Math.min(Math.max(Math.round(input.dailyCap), 0), 500) : null,
       )
       .run();
     const row = (await loadSourceRow(c.env, id))!;
