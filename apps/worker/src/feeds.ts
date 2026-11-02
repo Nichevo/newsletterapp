@@ -14,6 +14,7 @@ import {
   type FeedEntry,
   type FetchJob,
   type FetchJobResult,
+  type FetchPageStatus,
   type NewSourceInput,
   type NewSourceResult,
   type OpmlImportResult,
@@ -591,6 +592,45 @@ export function registerFeeds(app: App) {
     return c.json({ due: r.meta.changes ?? 0, ...result });
   });
 
+  // ----- Fetch full page, from the reader -----
+
+  app.get('/api/items/:id/fetch-page', async (c) => {
+    const [job, online] = await Promise.all([
+      c.env.DB.prepare(
+        "SELECT status, error FROM fetch_jobs WHERE item_id = ? AND kind = 'article' AND force = 1 ORDER BY created_at DESC LIMIT 1",
+      )
+        .bind(c.req.param('id'))
+        .first<{ status: string; error: string | null }>(),
+      helperOnline(c.env),
+    ]);
+    const status: FetchPageStatus = {
+      pending: job?.status === 'pending' || job?.status === 'working',
+      error: job?.status === 'failed' ? (job.error ?? 'Fetch failed') : null,
+      helperOnline: online,
+    };
+    return c.json(status);
+  });
+
+  app.post('/api/items/:id/fetch-page', async (c) => {
+    const id = c.req.param('id');
+    const item = await c.env.DB.prepare('SELECT id, source_id, web_url FROM items WHERE id = ?')
+      .bind(id)
+      .first<{ id: string; source_id: string | null; web_url: string | null }>();
+    if (!item) return c.json({ error: 'not found' }, 404);
+    if (!item.web_url) return c.json({ error: 'This item has no web page to fetch' }, 400);
+    const t = now();
+    await c.env.DB.batch([
+      // Any earlier request for this item (waiting or failed) gives way to this one.
+      c.env.DB.prepare("DELETE FROM fetch_jobs WHERE item_id = ? AND kind = 'article' AND status != 'working'").bind(id),
+      c.env.DB.prepare(
+        `INSERT INTO fetch_jobs (id, kind, source_id, item_id, url, created_at, force)
+         SELECT ?1, 'article', ?2, ?3, ?4, ?5, 1 WHERE NOT EXISTS (SELECT 1 FROM fetch_jobs WHERE item_id = ?3 AND kind = 'article')`,
+      ).bind(newId(), item.source_id, id, item.web_url, t),
+    ]);
+    const status: FetchPageStatus = { pending: true, error: null, helperOnline: await helperOnline(c.env) };
+    return c.json(status);
+  });
+
   app.post('/api/sources/:id/check', async (c) => {
     const row = await loadSourceRow(c.env, c.req.param('id'));
     if (!row || (row.kind !== 'feed' && row.kind !== 'site')) return c.json({ error: 'not found' }, 404);
@@ -659,6 +699,7 @@ export function registerFeeds(app: App) {
       source_id: string | null;
       item_id: string | null;
       attempts: number;
+      force: number | null;
     }>();
     if (!job) return c.json({ error: 'not found' }, 404);
     const source = job.source_id ? await loadSourceRow(c.env, job.source_id) : null;
@@ -669,19 +710,27 @@ export function registerFeeds(app: App) {
       const item = job.item_id
         ? await c.env.DB.prepare('SELECT id, word_count FROM items WHERE id = ?').bind(job.item_id).first<{ id: string; word_count: number | null }>()
         : null;
-      if (item && a && a.html && a.wordCount > Math.max(item.word_count ?? 0, 50)) {
+      // Asked for from the reader: the page as it is now replaces the saved copy, whatever its length.
+      const wanted = job.force ? Boolean(a?.html && a.wordCount > 0) : Boolean(a?.html && a.wordCount > Math.max(item?.word_count ?? 0, 50));
+      if (item && a && a.html && wanted) {
         const quick = quickSummary(a.html, a.text);
         const key = `items/${item.id}/body.html`;
         await c.env.RAW.put(key, a.html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
         await c.env.DB.prepare(
           `UPDATE items SET html_key = ?, has_html = 1, word_count = ?, snippet = ?, preheader = COALESCE(preheader, ?), sponsored = ?,
-             ai_status = COALESCE(ai_status, 'pending') WHERE id = ?`,
+             ai_status = COALESCE(ai_status, 'pending'), body_v = body_v + 1 WHERE id = ?`,
         )
           .bind(key, quick.wordCount, snippetOf(a.text), quick.preheader, quick.sponsored ? 1 : 0, item.id)
           .run();
       } else if (!r.ok && job.attempts < JOB_MAX_ATTEMPTS && !r.blocked) {
         await c.env.DB.prepare("UPDATE fetch_jobs SET status = 'pending', claimed_at = NULL, error = ? WHERE id = ?").bind(error, job.id).run();
         return c.json({ ok: true, retry: true });
+      } else if (job.force) {
+        // Kept (as failed) so the reader can say what went wrong; cleared after a week like other failures.
+        await c.env.DB.prepare("UPDATE fetch_jobs SET status = 'failed', error = ? WHERE id = ?")
+          .bind(r.ok ? 'The page came back with no readable article' : error, job.id)
+          .run();
+        return c.json({ ok: true });
       } else if (item) {
         // No better copy to be had: summarise what the feed gave.
         await c.env.DB.prepare("UPDATE items SET ai_status = 'pending' WHERE id = ? AND ai_status IS NULL").bind(item.id).run();
