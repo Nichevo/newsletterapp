@@ -233,72 +233,103 @@ async function addStoryLinks(article: Article, postUrl: string, skip: string[], 
 interface RedditThing {
   kind: string;
   data: {
-    title?: string;
     author?: string;
     score?: number;
-    created_utc?: number;
-    selftext?: string;
-    selftext_html?: string | null;
     body?: string;
     body_html?: string;
-    url?: string;
-    post_hint?: string;
-    is_self?: boolean;
     stickied?: boolean;
     children?: RedditThing[];
   };
 }
 
-const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+interface RedditComment {
+  author: string;
+  score: number | null;
+  html: string;
+  text: string;
+}
 
-/** A Reddit post plus its top comments, from Reddit's own JSON (comments are not in the feed). */
-async function redditArticle(url: string): Promise<Article | null> {
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const TOP_COMMENTS = 8;
+
+/** Top comments from Reddit's JSON (www, then old.reddit.com). */
+async function redditJsonComments(url: string): Promise<RedditComment[] | null> {
   const u = new URL(url);
   u.hash = '';
   u.pathname = u.pathname.replace(/\/$/, '') + '.json';
-  u.search = '?limit=12&depth=1&sort=top&raw_json=1';
-  const res = await fetch(u.toString(), { headers: { ...FETCH_HEADERS, Accept: 'application/json' }, redirect: 'follow', signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) return null;
-  const json = (await res.json()) as RedditThing[] | unknown;
-  if (!Array.isArray(json) || json.length < 2) return null;
-  const post = (json[0] as RedditThing).data.children?.[0]?.data;
-  if (!post) return null;
-  const comments = ((json[1] as RedditThing).data.children ?? [])
-    .filter((c) => c.kind === 't1' && !c.data.stickied && c.data.body && c.data.author !== 'AutoModerator')
-    .slice(0, 8)
-    .map((c) => c.data);
-  const parts: string[] = [];
-  const texts: string[] = [post.title ?? '', post.selftext ?? ''];
-  if (post.selftext_html) parts.push(post.selftext_html);
-  if (post.url && !post.is_self) {
-    if (post.post_hint === 'image' || /\.(jpe?g|png|gif|webp)(\?|$)/i.test(post.url)) parts.push(`<p><img src="${esc(post.url)}" alt=""></p>`);
-    else parts.push(`<p><a href="${esc(post.url)}">${esc(post.url)}</a></p>`);
-  }
-  if (comments.length) {
-    parts.push('<h2>Top comments</h2>');
-    for (const c of comments) {
-      parts.push(
-        `<blockquote><p><strong>${esc(c.author ?? 'someone')}</strong> · ${c.score ?? 0} points</p>${c.body_html ?? `<p>${esc(c.body ?? '')}</p>`}</blockquote>`,
-      );
-      texts.push(c.body ?? '');
+  u.search = '?limit=15&depth=1&sort=top&raw_json=1';
+  for (const host of ['www.reddit.com', 'old.reddit.com']) {
+    u.hostname = host;
+    try {
+      const res = await fetch(u.toString(), { headers: { ...FETCH_HEADERS, Accept: 'application/json' }, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
+      if (!res.ok) continue;
+      const json = (await res.json()) as unknown;
+      if (!Array.isArray(json) || json.length < 2) continue;
+      return ((json[1] as RedditThing).data.children ?? [])
+        .filter((c) => c.kind === 't1' && !c.data.stickied && c.data.body && c.data.author !== 'AutoModerator')
+        .slice(0, TOP_COMMENTS)
+        .map((c) => ({
+          author: c.data.author ?? 'someone',
+          score: c.data.score ?? null,
+          html: c.data.body_html ?? `<p>${esc(c.data.body ?? '')}</p>`,
+          text: c.data.body ?? '',
+        }));
+    } catch {
+      // try the next host
     }
   }
-  const text = texts.filter(Boolean).join('\n\n');
-  return {
-    title: post.title ?? null,
-    author: post.author ? `u/${post.author}` : null,
-    publishedAt: post.created_utc ? post.created_utc * 1000 : null,
-    html: parts.join('\n'),
-    text,
-    wordCount: countWords(text),
-  };
+  return null;
+}
+
+/** Top comments read from old.reddit.com's page (when the JSON is refused). */
+function oldRedditComments(html: string): RedditComment[] {
+  const out: RedditComment[] = [];
+  // Each top-level comment: <div class=" thing ... comment ..." data-author="name" ...> ... <div class="md">...</div>
+  const parts = html.split(/<div\b(?=[^>]*\bdata-type="comment")/i).slice(1);
+  for (const part of parts) {
+    const author = /\bdata-author="([^"]+)"/i.exec(part)?.[1] ?? 'someone';
+    if (author === 'AutoModerator' || /\bstickied\b/.test(part.slice(0, 400))) continue;
+    const score = /<span class="score unvoted"[^>]*title="(-?\d+)"/i.exec(part)?.[1];
+    const md = /<div class="md">([\s\S]*?)<\/div>/i.exec(part)?.[1];
+    if (!md) continue;
+    const text = md.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    out.push({ author, score: score ? Number(score) : null, html: md, text });
+    if (out.length >= TOP_COMMENTS) break;
+  }
+  return out;
+}
+
+/**
+ * A Reddit post's top comments (the post itself comes from the feed and stays
+ * on top). Reddit's JSON first; if Reddit turns that away, old.reddit.com's
+ * page sorted by top, then the same in a browser.
+ */
+async function redditComments(url: string, cfg: LocalConfig): Promise<Article | null> {
+  let comments = await redditJsonComments(url);
+  if (!comments?.length) {
+    const page = new URL(url);
+    page.hostname = 'old.reddit.com';
+    page.search = '?sort=top&depth=1';
+    for (const render of [false, true]) {
+      const got = await get(page.toString(), cfg, { render }).catch(() => null);
+      if (!got || got.status >= 400) continue;
+      comments = oldRedditComments(got.body);
+      if (comments.length) break;
+    }
+  }
+  if (!comments?.length) return null;
+  const html = `<h2>Top comments</h2>\n${comments
+    .map((c) => `<blockquote><p><strong>${esc(c.author)}</strong>${c.score !== null ? ` · ${c.score} points` : ''}</p>${c.html}</blockquote>`)
+    .join('\n')}`;
+  const text = comments.map((c) => `${c.author}: ${c.text}`).join('\n\n');
+  return { title: null, author: null, publishedAt: null, html, text, wordCount: countWords(text) };
 }
 
 async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult> {
   if (isRedditPost(job.url)) {
-    // Falls back to the normal page fetch if Reddit's JSON is unavailable.
-    const article = await redditArticle(job.url).catch(() => null);
-    if (article) return { jobId: job.id, ok: true, article };
+    // Only the comments: the post itself is already in the app from the feed.
+    const article = await redditComments(job.url, cfg).catch(() => null);
+    return article ? { jobId: job.id, ok: true, article } : { jobId: job.id, ok: false, error: 'Reddit gave no comments (or turned the PC away)' };
   }
   const page = await get(job.url, cfg, { render: job.render });
   const bad = failed(job, page);

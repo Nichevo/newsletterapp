@@ -460,6 +460,19 @@ function PostFilterSection({ source, onUpdate }: { source: Source; onUpdate: (p:
             <input type="checkbox" checked={f.skipShorts} onChange={(e) => set({ skipShorts: e.target.checked })} />
           </label>
         )}
+        <label className="inline" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <span className="hint" style={{ margin: 0 }}>Bring new posts in</span>
+          <select className="input" style={{ flex: '1 1 160px' }} value={source.waitHours} onChange={(e) => onUpdate({ waitHours: Number(e.target.value) })}>
+            {[0, 2, 6, 12, 24].map((h) => (
+              <option key={h} value={h}>
+                {h === 0 ? 'Straight away' : `Once they're ${h} hours old`}
+              </option>
+            ))}
+          </select>
+          <span className="hint" style={{ margin: 0, flexBasis: '100%' }}>
+            Waiting lets votes and comments build up first (handy for Reddit, where the top comments come with each post).
+          </span>
+        </label>
         <span className="label" style={{ marginTop: 8 }}>Flood guard</span>
         <DailyCapPicker value={source.dailyCap} onChange={(n) => onUpdate({ dailyCap: n })} />
         {source.dailyCap > 0 && (

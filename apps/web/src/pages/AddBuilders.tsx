@@ -80,8 +80,9 @@ function RedditForm({ onLook }: { onLook: (p: FollowPreset) => void }) {
         Find it
       </button>
       <span className="hint" style={{ margin: 0 }}>
-        Each post arrives with its text or picture, and your PC adds the top comments underneath (so they show up a minute or two after the post when the
-        PC is on). "Top of the day" is the calmest choice for busy subreddits.
+        Posts come in once they're 6 hours old, so votes and comments have built up (you can change this on the source's page). Each arrives with its
+        text or picture, and your PC adds the top comments underneath a minute or two later when the PC is on. "Top of the day" is the calmest
+        choice for busy subreddits.
       </span>
     </form>
   );

@@ -736,6 +736,7 @@ app.post('/api/sources/:id', async (c) => {
   if (input.fetchVia === 'cloud' || input.fetchVia === 'pc') set("fetch_via = CASE WHEN kind = 'feed' THEN ? ELSE 'pc' END", input.fetchVia);
   if (typeof input.render === 'boolean') set('render = ?', input.render ? 1 : 0);
   if (typeof input.showPicture === 'boolean') set('show_picture = ?', input.showPicture ? 1 : 0);
+  if (typeof input.waitHours === 'number') set('wait_hours = ?', Math.min(Math.max(Math.round(input.waitHours), 0), 72));
   if (typeof input.bundle === 'boolean') set('bundle = ?', input.bundle ? 1 : 0);
   if (typeof input.floodSkip === 'boolean') set('flood_skip = ?', input.floodSkip ? 1 : 0);
   if (typeof input.followLink === 'boolean') set('follow_link = ?', input.followLink ? 1 : 0);
