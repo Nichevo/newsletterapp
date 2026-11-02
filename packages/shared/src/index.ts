@@ -243,6 +243,8 @@ export interface Source {
   bundle: boolean;
   /** Fetch the outside article each post links to (aggregators like Techmeme), kept under the post's summary. */
   followLink: boolean;
+  /** Posts past the daily limit are dropped instead of going to Archived. */
+  floodSkip: boolean;
   /** Which posts come in at all (by title). */
   postFilter: PostFilter;
   /** Flood guard: at most this many new posts a day reach the inbox; the rest go to Archived. */
@@ -456,6 +458,7 @@ export interface SourceUpdate {
   showPicture?: boolean;
   bundle?: boolean;
   followLink?: boolean;
+  floodSkip?: boolean;
   postFilter?: PostFilter;
   dailyCap?: number;
   /** Minutes between checks; null = automatic (feeds follow their learnt rhythm). */
