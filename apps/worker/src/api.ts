@@ -46,7 +46,7 @@ import { relatedItems } from './related';
 import { registerEmbed } from './embed';
 import { normalizeUrl, registerFeeds, startCount } from './feeds';
 import { registerExport } from './export';
-import { leadImage } from './html';
+import { junkImage, leadImage } from './html';
 import { registerHighlights } from './highlights';
 import { registerHighlightPages } from './highlight-pages';
 import { registerWebSearch } from './websearch';
@@ -582,13 +582,14 @@ app.get('/api/sources', async (c) => {
  */
 async function backfillPictures(env: Env, sourceId: string) {
   const rows = await env.DB.prepare(
-    `SELECT id, html_key, web_url FROM items INDEXED BY items_source
-     WHERE source_id = ? AND html_key IS NOT NULL AND lead_image IS NULL ORDER BY received_at DESC LIMIT 12`,
+    `SELECT id, html_key, web_url, lead_image FROM items INDEXED BY items_source
+     WHERE source_id = ? AND html_key IS NOT NULL ORDER BY received_at DESC LIMIT 12`,
   )
     .bind(sourceId)
-    .all<{ id: string; html_key: string; web_url: string | null }>();
+    .all<{ id: string; html_key: string; web_url: string | null; lead_image: string | null }>();
+  // Posts with a good picture keep it; ones with none, or a site logo picked by an earlier version, look again.
   const found = await Promise.all(
-    rows.results.map(async (r) => {
+    rows.results.filter((r) => !r.lead_image || junkImage(r.lead_image)).map(async (r) => {
       const html = await env.RAW.get(r.html_key).then((o) => o?.text() ?? null);
       return { id: r.id, picture: html ? leadImage(html, r.web_url) : null };
     }),

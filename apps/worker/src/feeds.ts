@@ -23,7 +23,7 @@ import {
 import type { Hono } from 'hono';
 import { toSource, type SourceRow } from './db';
 import type { AppVariables, Env } from './env';
-import { htmlToText, leadImage, snippetOf } from './html';
+import { htmlToText, junkImage, leadImage, snippetOf } from './html';
 import { newId, now } from './ids';
 import { categoryFromRules, quickSummary } from './quick';
 import { loadSettings } from './settings';
@@ -160,7 +160,7 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
     const html = e.html;
     const text = e.text ?? (html ? htmlToText(html) : null);
     const quick = quickSummary(html, text);
-    const picture = html ? leadImage(html, e.url ?? source.url) : null;
+    const picture = html || e.image ? leadImage(html ?? '', e.url ?? source.url, e.image) : null;
     const needArticle =
       source.kind === 'feed' && e.url !== null && (source.full_text === 'always' || (source.full_text === 'auto' && quick.wordCount < TEASER_WORDS));
     const htmlKey = html ? `items/${id}/body.html` : null;
@@ -711,7 +711,9 @@ export function registerFeeds(app: App) {
     if (job.kind === 'article') {
       const a = r.ok ? r.article : undefined;
       const item = job.item_id
-        ? await c.env.DB.prepare('SELECT id, word_count FROM items WHERE id = ?').bind(job.item_id).first<{ id: string; word_count: number | null }>()
+        ? await c.env.DB.prepare('SELECT id, word_count, lead_image FROM items WHERE id = ?')
+            .bind(job.item_id)
+            .first<{ id: string; word_count: number | null; lead_image: string | null }>()
         : null;
       // Asked for from the reader: the page as it is now replaces the saved copy, whatever its length.
       const wanted = job.force ? Boolean(a?.html && a.wordCount > 0) : Boolean(a?.html && a.wordCount > Math.max(item?.word_count ?? 0, 50));
@@ -725,6 +727,13 @@ export function registerFeeds(app: App) {
         )
           .bind(key, quick.wordCount, snippetOf(a.text), quick.preheader, quick.sponsored ? 1 : 0, item.id)
           .run();
+        // The feed's own picture stays; a post whose feed had none (or only a logo) takes the page's.
+        if (!item.lead_image || junkImage(item.lead_image)) {
+          const picture = leadImage(a.html, null, a.image);
+          if (picture) {
+            await c.env.DB.prepare('UPDATE items SET lead_image = ?, lead_image_title = ? WHERE id = ?').bind(picture.src, picture.title, item.id).run();
+          }
+        }
       } else if (!r.ok && job.attempts < JOB_MAX_ATTEMPTS && !r.blocked) {
         await c.env.DB.prepare("UPDATE fetch_jobs SET status = 'pending', claimed_at = NULL, error = ? WHERE id = ?").bind(error, job.id).run();
         return c.json({ ok: true, retry: true });

@@ -135,7 +135,7 @@ async function pageJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult>
       const art = await get(link.url, cfg, { render: job.render });
       if (!failed(job, art)) {
         const a = extractArticle(art.body, art.url);
-        entry = { ...entry, title: a.title || link.title, author: a.author, publishedAt: a.publishedAt, html: a.html || null, text: a.text };
+        entry = { ...entry, title: a.title || link.title, author: a.author, publishedAt: a.publishedAt, html: a.html || null, text: a.text, image: a.image ?? null };
       }
     } catch {
       // The headline and link still come in; the reader can open the live page.

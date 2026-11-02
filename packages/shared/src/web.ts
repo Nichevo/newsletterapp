@@ -16,6 +16,12 @@ export interface FeedEntry {
   html: string | null;
   /** Plain text of the body, when the sender already worked it out (the PC helper does). */
   text?: string | null;
+  /**
+   * A picture the feed attaches to the post outside its body (an image
+   * enclosure, media:content or media:thumbnail), or a page's og:image. Only
+   * used for the inbox picture when the body itself has none.
+   */
+  image?: string | null;
 }
 
 export interface ParsedFeed {
@@ -32,6 +38,8 @@ export interface Article {
   html: string;
   text: string;
   wordCount: number;
+  /** The page's own share picture (og:image / twitter:image); for comics it is usually the strip itself. */
+  image?: string | null;
 }
 
 export interface PageLink {
@@ -220,13 +228,43 @@ function entryKey(guid: string | null, url: string | null, title: string, publis
 
 function finishEntry(
   base: string,
-  e: { guid: string | null; link: string | null; title: string; author: string | null; date: string | null; html: string | null },
+  e: { guid: string | null; link: string | null; title: string; author: string | null; date: string | null; html: string | null; image?: string | null },
 ): FeedEntry {
   const url = absoluteUrl(e.link, base);
   const publishedAt = parseDate(e.date);
   const html = e.html?.trim() ? absolutizeHtml(e.html.trim(), url ?? base) : null;
   const title = e.title || (html ? stripTags(html).slice(0, 80) : '') || '(untitled)';
-  return { key: entryKey(e.guid, url, title, publishedAt), url, title, author: e.author ? stripTags(e.author).slice(0, 120) : null, publishedAt, html };
+  const image = e.image ? absoluteUrl(e.image, url ?? base) : null;
+  return {
+    key: entryKey(e.guid, url, title, publishedAt),
+    url,
+    title,
+    author: e.author ? stripTags(e.author).slice(0, 120) : null,
+    publishedAt,
+    html,
+    ...(image ? { image } : {}),
+  };
+}
+
+/**
+ * A picture attached to a feed post outside its body: an image enclosure,
+ * media:content or media:thumbnail (RSS), or an Atom enclosure link. Comic
+ * feeds often carry the strip only here.
+ */
+function attachedImage(block: string): string | null {
+  let thumb: string | null = null;
+  for (const tag of block.match(/<(enclosure|media:content|media:thumbnail|link)\b[^>]*>/gi) ?? []) {
+    const name = tag.slice(1, tag.search(/[\s/>]/)).toLowerCase();
+    const url = attr(tag, name === 'link' ? 'href' : 'url');
+    if (!url) continue;
+    const type = (attr(tag, 'type') ?? '').toLowerCase();
+    const medium = (attr(tag, 'medium') ?? '').toLowerCase();
+    const looksImage = type.startsWith('image/') || medium === 'image' || (!type && !medium && /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url));
+    if (name === 'link' && (attr(tag, 'rel') ?? '').toLowerCase() !== 'enclosure') continue;
+    if (name === 'media:thumbnail') thumb ??= url;
+    else if (looksImage) return url;
+  }
+  return thumb;
 }
 
 /** The first `limit` blocks of one element; feeds list the newest first, and big ones hold years of posts. */
@@ -251,6 +289,7 @@ function parseRss(xml: string, base: string, limit: number): ParsedFeed {
       date: tagValue(block, ['pubDate', 'dc:date', 'published', 'updated']),
       // The longer of the two: some feeds put the full post in description.
       html: content && content.length >= (description?.length ?? 0) ? content : description,
+      image: attachedImage(block),
     });
   });
   return { format: 'rss', title: cleanTitle(tagValue(head, ['title'])) || null, siteUrl: absoluteUrl(tagValue(head, ['link']) || atomLink(head), base), entries };
@@ -269,6 +308,7 @@ function parseAtom(xml: string, base: string, limit: number): ParsedFeed {
       author: authorBlock ? tagValue(authorBlock, ['name']) : null,
       date: tagValue(block, ['published', 'updated', 'issued']),
       html: content && content.length >= (summary?.length ?? 0) ? content : summary,
+      image: attachedImage(block),
     });
   });
   return { format: 'atom', title: cleanTitle(tagValue(head, ['title'])) || null, siteUrl: absoluteUrl(atomLink(head), base), entries };
@@ -496,6 +536,7 @@ export function extractArticle(html: string, pageUrl: string): Article {
     html: clean,
     text,
     wordCount: countWords(text),
+    image: absoluteUrl(metaContent(html, ['og:image', 'og:image:url', 'twitter:image', 'twitter:image:src']), pageUrl),
   };
 }
 
