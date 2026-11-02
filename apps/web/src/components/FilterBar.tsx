@@ -111,7 +111,11 @@ export function FilterBar({
   }
   const [open, setOpen] = useState(false);
   const [allSources, setAllSources] = useState(false);
-  const sourceName = filters.source ? (sources.find((s) => s.id === filters.source)?.name ?? 'One source') : 'All sources';
+  const nameOf = (id: string) => sources.find((s) => s.id === id)?.name ?? 'One source';
+  const sourceName = setLabel(filters.source, nameOf) ?? 'All sources';
+  // Mark all read / archive all work on one source, when exactly one is shown.
+  const srcSet = parseFilterSet(filters.source);
+  const singleSource = srcSet.include.length === 1 && !srcSet.exclude.length ? srcSet.include[0]! : null;
   // With a type or category picked, only matching sources are offered (a Feedly import can add hundreds).
   // For a category, that's the sources with items in it (items often get their category from keyword
   // rules or the AI, not their source); until the server has said, sources set to that category.
@@ -120,7 +124,7 @@ export function FilterBar({
   const catSet = parseFilterSet(filters.category);
   const matchingSources = sources.filter(
     (s) =>
-      s.id === filters.source ||
+      filterState(filters.source, s.id) !== null ||
       (matchesFilterSet(sourceType(s), kindSet) &&
         (!catSet.include.length || catSet.include.includes(s.category ?? '') || (inCategory ? inCategory.has(s.id) : false)) &&
         !catSet.exclude.includes(s.category ?? '')),
@@ -131,7 +135,7 @@ export function FilterBar({
   const SOURCE_PREVIEW = 8;
   const folded = !allSources && matchingSources.length > SOURCE_PREVIEW;
   const shownSources = folded
-    ? matchingSources.filter((s, i) => i < SOURCE_PREVIEW || s.id === filters.source)
+    ? matchingSources.filter((s, i) => i < SOURCE_PREVIEW || filterState(filters.source, s.id) !== null)
     : matchingSources;
   const summary = [
     fixedView ? null : VIEW_LABEL[filters.view],
@@ -191,10 +195,10 @@ export function FilterBar({
                 All
               </button>
               {SOURCE_TYPES.filter((k) => types.has(k) || filterState(filters.kind, k) !== null).map((k) => (
-                <TriPill key={k} value={filters.kind} token={k} label={KIND_LABEL[k]} onChange={(v) => onChange({ ...filters, kind: v, source: null })} />
+                <TriPill key={k} value={filters.kind} token={k} label={KIND_LABEL[k]} onChange={(v) => onChange({ ...filters, kind: v })} />
               ))}
             </div>
-            <span className="hint">Types and categories: tap once to show only that, again to hide it (✕), once more to clear. Pick as many as you like.</span>
+            <span className="hint">Types, categories and sources: tap once to show only that, again to hide it (✕), once more to clear. Pick as many as you like.</span>
           </div>
           {categories.length > 0 && (
             <div className="filterbar__group">
@@ -216,14 +220,7 @@ export function FilterBar({
                 All
               </button>
               {shownSources.map((s) => (
-                <button
-                  key={s.id}
-                  className="pill"
-                  aria-pressed={filters.source === s.id}
-                  onClick={() => onChange({ ...filters, source: s.id })}
-                >
-                  {s.name}
-                </button>
+                <TriPill key={s.id} value={filters.source} token={s.id} label={s.name} onChange={(v) => onChange({ ...filters, source: v })} />
               ))}
               {matchingSources.length > SOURCE_PREVIEW && (
                 <button className="pill pill--more" onClick={() => setAllSources((v) => !v)} aria-expanded={!folded}>
@@ -249,14 +246,14 @@ export function FilterBar({
               <span className="hint">Top: newsletters you usually read, issues with substance, and the freshest first.</span>
             )}
           </div>
-          {onBulk && filters.source && !fixedView && (
+          {onBulk && singleSource && !fixedView && (
             <div className="filterbar__group">
               <span className="label">{sourceName}</span>
               <div className="inline">
-                <button className="btn btn--small" onClick={() => onBulk(filters.source!, 'read-all')}>
+                <button className="btn btn--small" onClick={() => onBulk(singleSource, 'read-all')}>
                   Mark all read
                 </button>
-                <button className="btn btn--small" onClick={() => onBulk(filters.source!, 'archive-all')}>
+                <button className="btn btn--small" onClick={() => onBulk(singleSource, 'archive-all')}>
                   Archive all
                 </button>
               </div>

@@ -94,7 +94,7 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
           name: str(f?.name, 40),
           view: (['inbox', 'unread', 'saved', 'interesting', 'likely', 'archived'] as const).find((v) => v === f?.view) ?? 'inbox',
           sort: (['newest', 'oldest', 'top'] as const).find((v) => v === f?.sort) ?? 'newest',
-          source: typeof f?.source === 'string' ? f.source.slice(0, 64) : null,
+          source: typeof f?.source === 'string' ? f.source.slice(0, 2000) || null : null,
           category: typeof f?.category === 'string' ? str(f.category, 400) || null : null,
           kind: typeof f?.kind === 'string' ? cleanTypes(f.kind) : null,
         }))

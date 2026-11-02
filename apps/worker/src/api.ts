@@ -144,6 +144,20 @@ function typeWhere(value: string, _binds: unknown[]): string[] {
   return [...(inc.length ? [`(${inc.join(' OR ')})`] : []), ...exc.map((s) => `NOT ${s}`)];
 }
 const CATEGORY_SQL = "COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]'))";
+/** Sources to show and/or hide (ids, e.g. "a|b" or "!a"). */
+function sourceWhere(value: string, binds: unknown[]): string[] {
+  const set = parseFilterSet(value);
+  const out: string[] = [];
+  if (set.include.length) {
+    out.push(`items.source_id IN (${set.include.map(() => '?').join(', ')})`);
+    binds.push(...set.include);
+  }
+  if (set.exclude.length) {
+    out.push(`COALESCE(items.source_id, '') NOT IN (${set.exclude.map(() => '?').join(', ')})`);
+    binds.push(...set.exclude);
+  }
+  return out;
+}
 /** Categories to show and/or hide. */
 function categoryWhere(value: string, binds: unknown[]): string[] {
   const set = parseFilterSet(value);
@@ -171,10 +185,7 @@ app.get('/api/items', async (c) => {
 
   const where: string[] = [VIEW_WHERE[view]];
   const binds: unknown[] = [];
-  if (sourceId) {
-    where.push('items.source_id = ?');
-    binds.push(sourceId);
-  }
+  if (sourceId) where.push(...sourceWhere(sourceId, binds));
   if (kind) where.push(...typeWhere(kind, binds));
   if (category) where.push(...categoryWhere(category, binds));
   // Counts for the inbox header, before the cursor narrows the query: only when filtered
@@ -185,7 +196,7 @@ app.get('/api/items', async (c) => {
       : null;
   const countBinds = [...binds];
   const sourcesSql =
-    !cursor && category && !sourceId
+    !cursor && category && !(sourceId && parseFilterSet(sourceId).include.length)
       ? `SELECT DISTINCT items.source_id AS id FROM items LEFT JOIN sources ON sources.id = items.source_id
          WHERE ${where.join(' AND ')} AND items.source_id IS NOT NULL LIMIT 500`
       : null;
@@ -283,10 +294,7 @@ app.get('/api/search', async (c) => {
     where.push('items_fts MATCH ?');
     binds.push(match);
   }
-  if (sourceId) {
-    where.push('items.source_id = ?');
-    binds.push(sourceId);
-  }
+  if (sourceId) where.push(...sourceWhere(sourceId, binds));
   if (kind) where.push(...typeWhere(kind, binds));
   if (category) where.push(...categoryWhere(category, binds));
   if (state && state in SEARCH_STATE) where.push(SEARCH_STATE[state]);
