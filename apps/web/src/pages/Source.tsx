@@ -255,7 +255,7 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
   const minutes = source.checkMinutes ?? (source.kind === 'site' ? 180 : 60);
   return (
     <div className="section">
-      <span className="label">{source.kind === 'site' ? 'Watching the page' : 'Feed'}</span>
+      <span className="label">{source.kind === 'site' ? 'Watching the page' : source.platform ? `${{ reddit: 'Reddit', youtube: 'YouTube', github: 'GitHub' }[source.platform]} feed` : 'Feed'}</span>
       <section className="card">
         <span className="hint" style={{ margin: 0, wordBreak: 'break-all' }}>
           <a href={source.kind === 'site' ? (source.url ?? '#') : (source.feedUrl ?? '#')} target="_blank" rel="noopener noreferrer">

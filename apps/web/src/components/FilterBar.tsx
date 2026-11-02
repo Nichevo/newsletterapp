@@ -1,4 +1,4 @@
-import type { ItemKind, ItemSort, ItemView, SavedFilter, Source } from '@newsletterapp/shared';
+import { SOURCE_TYPES, type ItemSort, type ItemView, type SavedFilter, type Source, type SourceType } from '@newsletterapp/shared';
 import { useState } from 'react';
 import { IconChevron, IconFilter } from '../icons';
 
@@ -7,10 +7,21 @@ export interface Filters {
   sort: ItemSort;
   source: string | null;
   category: string | null;
-  kind: ItemKind | null;
+  kind: SourceType | null;
 }
 
-export const KIND_LABEL: Record<ItemKind, string> = { newsletter: 'Newsletters', feed: 'Feeds', site: 'Websites', ai: 'AI notes' };
+export const KIND_LABEL: Record<SourceType, string> = {
+  newsletter: 'Newsletters',
+  feed: 'Feeds',
+  reddit: 'Reddit',
+  youtube: 'YouTube',
+  github: 'GitHub',
+  site: 'Websites',
+  ai: 'AI notes',
+};
+
+/** A source's type as the Type filter sees it. */
+export const sourceType = (s: Pick<Source, 'kind' | 'platform'>): SourceType => s.platform ?? s.kind;
 
 const VIEW_LABEL: Record<ItemView, string> = {
   inbox: 'All',
@@ -70,9 +81,11 @@ export function FilterBar({
   const matchingSources = sources.filter(
     (s) =>
       s.id === filters.source ||
-      ((!filters.kind || s.kind === filters.kind) &&
+      ((!filters.kind || sourceType(s) === filters.kind) &&
         (!filters.category || s.category === filters.category || (inCategory ? inCategory.has(s.id) : false))),
   );
+  // Reddit, YouTube and GitHub only show up as types once you follow something there.
+  const types = new Set<SourceType>(['newsletter', 'feed', 'site', 'ai', ...sources.map(sourceType)]);
   // The list stays folded to the chosen source until asked for, so the panel isn't a wall of chips.
   const SOURCE_PREVIEW = 8;
   const folded = !allSources && matchingSources.length > SOURCE_PREVIEW;
@@ -136,7 +149,7 @@ export function FilterBar({
               <button className="pill" aria-pressed={filters.kind === null} onClick={() => onChange({ ...filters, kind: null })}>
                 All
               </button>
-              {(Object.keys(KIND_LABEL) as ItemKind[]).map((k) => (
+              {SOURCE_TYPES.filter((k) => !types || types.has(k) || filters.kind === k).map((k) => (
                 <button
                   key={k}
                   className="pill"

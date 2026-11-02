@@ -22,6 +22,7 @@ import type {
   Digest,
   DiscoverResult,
   ItemKind,
+  SourceType,
   NewSourceInput,
   NewSourceResult,
   OpmlImportResult,
@@ -95,7 +96,7 @@ export const api = {
     sort: ItemSort;
     source?: string | null;
     category?: string | null;
-    kind?: ItemKind | null;
+    kind?: SourceType | null;
     cursor?: string | null;
   }) => {
     const q = new URLSearchParams({ view: params.view, sort: params.sort });

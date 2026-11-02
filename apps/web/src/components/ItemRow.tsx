@@ -6,6 +6,7 @@ import { readingMinutes, shortTime } from '../format';
 import { IconBookmark, IconCheck, IconHighlight, IconSparkle } from '../icons';
 
 const KIND_CHIP: Record<ItemSummary['kind'], string> = { newsletter: 'Newsletter', feed: 'Feed', site: 'Site', ai: 'AI note' };
+const PLATFORM_CHIP = { reddit: 'Reddit', youtube: 'YouTube', github: 'GitHub' } as const;
 
 const THRESHOLD = 88; // px of travel before a swipe counts
 const MAX = 120;
@@ -109,7 +110,7 @@ export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeA
         <div className="row__meta">
           {!item.readAt && <span className="row__dot" />}
           <span className="row__source">{item.sourceName ?? item.fromName ?? item.fromEmail}</span>
-          <span className={kindClass}>{KIND_CHIP[item.kind]}</span>
+          <span className={kindClass}>{item.platform ? PLATFORM_CHIP[item.platform] : KIND_CHIP[item.kind]}</span>
           {item.highlightCount > 0 && (
             <span
               className="row__marks"

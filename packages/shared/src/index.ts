@@ -10,6 +10,21 @@ export * from './highlights';
 /** 'ai' = an article written by the AI from a highlight (the "AI notes" source). */
 export type ItemKind = 'newsletter' | 'feed' | 'site' | 'ai';
 
+/** Feeds from these sites get their own type in the app (they are still feeds underneath). */
+export type Platform = 'reddit' | 'youtube' | 'github';
+/** What the inbox Type filter picks: a kind of item, or one of the platforms. */
+export type SourceType = ItemKind | Platform;
+export const SOURCE_TYPES: SourceType[] = ['newsletter', 'feed', 'reddit', 'youtube', 'github', 'site', 'ai'];
+
+/** The platform a feed address belongs to, if any. */
+export function platformOf(feedUrl: string | null | undefined): Platform | null {
+  if (!feedUrl) return null;
+  if (/^https?:\/\/([\w-]+\.)?reddit\.com\//i.test(feedUrl)) return 'reddit';
+  if (/^https?:\/\/(www\.)?youtube\.com\/feeds\//i.test(feedUrl)) return 'youtube';
+  if (/^https?:\/\/(www\.)?github\.com\//i.test(feedUrl)) return 'github';
+  return null;
+}
+
 /** The kinds the AI summary switches apply to (AI notes are never summarised). */
 export type SummaryKind = Exclude<ItemKind, 'ai'>;
 
@@ -31,6 +46,8 @@ export interface ItemSummary {
   fromEmail: string | null;
   toAddress: string | null;
   sourceId: string | null;
+  /** Reddit, YouTube or GitHub when the post's source is a feed from there. */
+  platform: Platform | null;
   sourceName: string | null;
   snippet: string | null;
   receivedAt: number;
@@ -221,6 +238,8 @@ export interface Source {
   /** Show each post's picture in the inbox's Expanded view (comic feeds). */
   showPicture: boolean;
   /** Each check's new posts arrive as one item with all of them inside (feeds that post in bursts). */
+  /** Reddit, YouTube or GitHub when the feed is from there. */
+  platform: Platform | null;
   bundle: boolean;
   /** Fetch the outside article each post links to (aggregators like Techmeme), kept under the post's summary. */
   followLink: boolean;
@@ -348,7 +367,7 @@ export interface SavedFilter {
   sort: ItemSort;
   source: string | null;
   category: string | null;
-  kind: ItemKind | null;
+  kind: SourceType | null;
 }
 
 export interface DigestOptions {
