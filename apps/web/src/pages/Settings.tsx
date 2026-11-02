@@ -237,6 +237,33 @@ export function AiSummariesSection({ settings, onSave }: { settings: AppSettings
           from a source’s own page. Each source can override this. Everything always gets the quick summary. When the PC is off,
           summaries and highlight questions wait until it’s back.
         </span>
+        {settings.categories.length > 0 && (
+          <div className="field">
+            <label>Categories without AI</label>
+            <div className="chipedit">
+              {settings.categories.map((c) => {
+                const off = settings.aiOffCategories.includes(c);
+                return (
+                  <button
+                    key={c}
+                    className={`chip ${off ? 'chip--outline' : 'chip--category'}`}
+                    aria-pressed={off}
+                    style={{ textDecoration: off ? 'line-through' : 'none' }}
+                    onClick={() =>
+                      void onSave({ aiOffCategories: off ? settings.aiOffCategories.filter((x) => x !== c) : [...settings.aiOffCategories, c] })
+                    }
+                  >
+                    {c}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="hint">
+              Tap a category to keep its items away from the AI, e.g. Comics; struck-through ones get the quick summary only. A source
+              set to AI On still goes.
+            </span>
+          </div>
+        )}
         <div className="field">
           <label htmlFor="interests">Your interests</label>
           <input

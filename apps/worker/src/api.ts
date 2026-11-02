@@ -117,7 +117,9 @@ async function loadItem(env: Env, id: string): Promise<ItemSummary | null> {
   const row = await env.DB.prepare(`${ITEM_SELECT} WHERE items.id = ?`)
     .bind(id)
     .first<ItemSelectRow>();
-  return row ? toItemSummary(row, (await loadSettings(env)).aiByKind) : null;
+  if (!row) return null;
+  const settings = await loadSettings(env);
+  return toItemSummary(row, settings.aiByKind, settings.aiOffCategories);
 }
 
 app.get('/api/items', async (c) => {
@@ -189,7 +191,7 @@ app.get('/api/items', async (c) => {
   const page = rows.results.slice(0, limit);
   const last = page[page.length - 1];
   const body: ItemListResponse = {
-    items: page.map((r) => toItemSummary(r, settings.aiByKind)),
+    items: page.map((r) => toItemSummary(r, settings.aiByKind, settings.aiOffCategories)),
     nextCursor:
       rows.results.length > limit && last
         ? sort === 'top'
@@ -284,7 +286,7 @@ app.get('/api/search', async (c) => {
         : null,
     ]);
     const body: SearchResponse = {
-      items: rows.results.slice(0, SEARCH_PAGE).map((r) => toItemSummary(r, settings.aiByKind)),
+      items: rows.results.slice(0, SEARCH_PAGE).map((r) => toItemSummary(r, settings.aiByKind, settings.aiOffCategories)),
       ...(counted ? { total: counted.n } : {}),
       nextOffset: rows.results.length > SEARCH_PAGE && offset + SEARCH_PAGE <= 600 ? offset + SEARCH_PAGE : null,
     };
@@ -800,7 +802,10 @@ app.put('/api/settings', async (c) => {
   await saveSettings(c.env, settings);
   // A kind switched on here starts with new items only; a source's own page can go further back.
   const switchedOn = (Object.keys(settings.aiByKind) as SummaryKind[]).filter((k) => settings.aiByKind[k] && !before.aiByKind[k]);
-  if ((Object.keys(settings.aiByKind) as SummaryKind[]).some((k) => settings.aiByKind[k] !== before.aiByKind[k])) await unparkHeld(c.env);
+  const categoriesChanged = settings.aiOffCategories.join('\n') !== before.aiOffCategories.join('\n');
+  if (categoriesChanged || (Object.keys(settings.aiByKind) as SummaryKind[]).some((k) => settings.aiByKind[k] !== before.aiByKind[k])) {
+    await unparkHeld(c.env);
+  }
   if (switchedOn.length) {
     await c.env.DB.batch(
       switchedOn.map((k) => c.env.DB.prepare("UPDATE sources SET ai_since = ? WHERE kind = ? AND ai_mode = 'default'").bind(now(), k)),

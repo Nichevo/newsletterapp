@@ -52,6 +52,9 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
       if (typeof v === 'boolean') aiByKind[kind] = v;
     }
   }
+  const aiOffCategories = Array.isArray(input.aiOffCategories)
+    ? [...new Set(input.aiOffCategories.map((c) => str(c, 40)).filter(Boolean))].slice(0, 40)
+    : (base.aiOffCategories ?? []);
   const interests = typeof input.interests === 'string' ? str(input.interests, 300) : base.interests;
   const digestHour =
     typeof input.digestHour === 'number' && Number.isInteger(input.digestHour) && input.digestHour >= 0 && input.digestHour <= 23
@@ -84,5 +87,5 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
         .filter((f) => f.name)
         .slice(0, 20)
     : base.savedFilters;
-  return { categories, keywordRules, aiByKind, interests, digestHour, timezone, digest, savedFilters };
+  return { categories, keywordRules, aiByKind, aiOffCategories, interests, digestHour, timezone, digest, savedFilters };
 }

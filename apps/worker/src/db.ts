@@ -190,11 +190,13 @@ export function isOneClick(header: string | null, post: string | null): boolean 
  * AI status, so the app doesn't show it as waiting for the PC. (Items stay
  * queued, so switching AI on later picks them up.)
  */
-export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<SummaryKind, boolean>): ItemSummary {
+export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<SummaryKind, boolean>, aiOffCategories: string[] = []): ItemSummary {
   const aiCategory = parseList(row.ai_category)[0] ?? null;
   const mode = row.source_ai_mode ?? 'default';
   const beforeCutoff = row.source_ai_since != null && Math.max(row.created_at, row.received_at) < row.source_ai_since;
-  const aiOff = aiByKind !== undefined && (mode === 'off' || (mode === 'default' && !aiByKind[row.kind as SummaryKind]) || beforeCutoff);
+  const offByCategory = aiOffCategories.includes(row.category ?? row.source_category ?? '');
+  const aiOff =
+    aiByKind !== undefined && (mode === 'off' || (mode === 'default' && (!aiByKind[row.kind as SummaryKind] || offByCategory)) || beforeCutoff);
   // 'held' = parked in the database while the AI switch is off; to the app it's still waiting.
   const stored = (row.ai_status as string | null) === 'held' ? 'pending' : row.ai_status;
   const aiStatus = aiOff && (stored === 'pending' || stored === null) ? null : stored;

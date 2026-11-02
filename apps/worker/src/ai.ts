@@ -206,10 +206,18 @@ export function cleanOutput(o: unknown, categories: string[]): AiOutput | null {
 
 // ---------- Which items may go to the AI ----------
 
-/** SQL condition for the AI switches: per source, falling back to the per-kind default. */
-export function eligibleSql(aiByKind: Record<SummaryKind, boolean>): string {
+const sqlText = (s: string) => `'${s.replace(/'/g, "''")}'`;
+
+/**
+ * SQL condition for the AI switches: per source, falling back to the per-kind
+ * default, minus categories switched off (the item's own category, else its source's).
+ */
+export function eligibleSql(aiByKind: Record<SummaryKind, boolean>, offCategories: string[] = []): string {
   const kinds = (Object.keys(aiByKind) as SummaryKind[]).filter((k) => aiByKind[k]);
-  const byKind = kinds.length ? `items.kind IN (${kinds.map((k) => `'${k}'`).join(', ')})` : '0';
+  let byKind = kinds.length ? `items.kind IN (${kinds.map((k) => `'${k}'`).join(', ')})` : '0';
+  if (kinds.length && offCategories.length) {
+    byKind += ` AND COALESCE(items.category, sources.category, '') NOT IN (${offCategories.map(sqlText).join(', ')})`;
+  }
   // Items from before the source's cut-off (set when AI was switched on) stay out.
   return `((sources.ai_mode = 'on' OR (COALESCE(sources.ai_mode, 'default') = 'default' AND ${byKind}))
     AND MAX(items.created_at, items.received_at) >= COALESCE(sources.ai_since, 0))`;
@@ -357,7 +365,7 @@ export function registerAi(app: App) {
          SELECT items.id FROM items LEFT JOIN sources ON sources.id = items.source_id
          WHERE items.id IN (${queueCandidatesSql(settings.aiByKind)})
            AND (items.ai_status = 'pending' OR (items.ai_status = 'working' AND items.ai_claimed_at < ?2))
-           AND ${eligibleSql(settings.aiByKind)}
+           AND ${eligibleSql(settings.aiByKind, settings.aiOffCategories)}
          ORDER BY items.received_at DESC LIMIT ?3
        )
        RETURNING id`,
@@ -560,7 +568,7 @@ export function registerAi(app: App) {
       c.env.DB.prepare(
         `SELECT
            (SELECT COUNT(*) FROM items LEFT JOIN sources ON sources.id = items.source_id
-              WHERE items.id IN (${queueCandidatesSql(settings.aiByKind)}) AND items.ai_status = 'pending' AND ${eligibleSql(settings.aiByKind)}) AS waiting,
+              WHERE items.id IN (${queueCandidatesSql(settings.aiByKind)}) AND items.ai_status = 'pending' AND ${eligibleSql(settings.aiByKind, settings.aiOffCategories)}) AS waiting,
            (SELECT COUNT(*) FROM items INDEXED BY items_ai_queue WHERE items.ai_status = 'working' AND items.status = 'inbox') AS working,
            (SELECT COUNT(*) FROM items INDEXED BY items_ai_queue WHERE items.ai_status = 'failed' AND items.status = 'inbox') AS failed,
            (SELECT COUNT(*) FROM items INDEXED BY items_ai_queue WHERE items.ai_status = 'done') AS done`,
