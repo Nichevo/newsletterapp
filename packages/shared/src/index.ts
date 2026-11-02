@@ -306,6 +306,11 @@ export interface AppSettings {
   keywordRules: KeywordRule[];
   /** Whether each kind of source goes to the AI by default. */
   aiByKind: Record<SummaryKind, boolean>;
+  /**
+   * Categories whose items skip the AI (e.g. Comics), whatever their kind. A
+   * source set to AI On still goes; the item's or its source's category counts.
+   */
+  aiOffCategories: string[];
   /** A short line about the reader's interests, used by the summary prompt. */
   interests: string;
   /** Local hour (0-23) at which the daily digest is put together. */
@@ -355,6 +360,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   categories: ['AI', 'Tech', 'Business', 'Finance', 'Science', 'Politics', 'Health', 'Productivity', 'Culture', 'Other'],
   keywordRules: [],
   aiByKind: { newsletter: true, feed: false, site: false },
+  aiOffCategories: [],
   interests: '',
   digestHour: 7,
   timezone: 'UTC',

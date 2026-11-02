@@ -18,12 +18,12 @@ const DAY = 24 * HOUR;
 const KEEP_DAYS = 120;
 
 async function queueNow(env: Env) {
-  const { aiByKind } = await loadSettings(env);
+  const { aiByKind, aiOffCategories } = await loadSettings(env);
   return env.DB.prepare(
     `SELECT SUM(items.ai_status = 'pending') AS waiting, SUM(items.ai_status = 'working') AS working,
        MIN(COALESCE(items.ai_queued_at, items.created_at)) AS oldest_at
      FROM items LEFT JOIN sources ON sources.id = items.source_id
-     WHERE items.id IN (${queueCandidatesSql(aiByKind)}) AND ${eligibleSql(aiByKind)}`,
+     WHERE items.id IN (${queueCandidatesSql(aiByKind)}) AND ${eligibleSql(aiByKind, aiOffCategories)}`,
   ).first<{ waiting: number | null; working: number | null; oldest_at: number | null }>();
 }
 
@@ -34,12 +34,12 @@ async function queueNow(env: Env) {
  * Park them as 'held'; any change to the AI switches puts them back (see
  * {@link unparkHeld}) and the next cron parks whatever is still switched off.
  */
-async function parkSwitchedOff(env: Env, aiByKind: Record<SummaryKind, boolean>) {
+async function parkSwitchedOff(env: Env, aiByKind: Record<SummaryKind, boolean>, offCategories: string[]) {
   await env.DB.prepare(
     `UPDATE items SET ai_status = 'held'
      WHERE id IN (
        SELECT items.id FROM items INDEXED BY items_ai_queue_source LEFT JOIN sources ON sources.id = items.source_id
-       WHERE items.status = 'inbox' AND items.ai_status IN ('pending', 'working') AND items.ai_status = 'pending' AND NOT ${eligibleSql(aiByKind)}
+       WHERE items.status = 'inbox' AND items.ai_status IN ('pending', 'working') AND items.ai_status = 'pending' AND NOT ${eligibleSql(aiByKind, offCategories)}
      )`,
   ).run();
 }
@@ -56,7 +56,8 @@ export async function unparkHeld(env: Env, sourceId?: string): Promise<void> {
 /** Called from the cron: one row per run, kept for four months. */
 export async function snapshotBacklog(env: Env): Promise<void> {
   const t = now();
-  await parkSwitchedOff(env, (await loadSettings(env)).aiByKind);
+  const settings = await loadSettings(env);
+  await parkSwitchedOff(env, settings.aiByKind, settings.aiOffCategories);
   const q = await queueNow(env);
   await env.DB.batch([
     env.DB.prepare('INSERT OR REPLACE INTO ai_backlog (at, waiting, working, oldest_at) VALUES (?, ?, ?, ?)').bind(
@@ -92,7 +93,7 @@ export function registerBacklog(app: App) {
       c.env.DB.prepare(
         `SELECT COALESCE(items.ai_queued_at, items.created_at) / ${HOUR} AS h, COUNT(*) AS n
          FROM items LEFT JOIN sources ON sources.id = items.source_id
-         WHERE items.ai_status IS NOT NULL AND COALESCE(items.ai_queued_at, items.created_at) >= ? AND ${eligibleSql(settings.aiByKind)}
+         WHERE items.ai_status IS NOT NULL AND COALESCE(items.ai_queued_at, items.created_at) >= ? AND ${eligibleSql(settings.aiByKind, settings.aiOffCategories)}
          GROUP BY h`,
       )
         .bind(since)

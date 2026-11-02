@@ -100,7 +100,11 @@ export function SourcePage() {
     }
   }
 
-  const kindDefault = source && settings ? source.kind !== 'ai' ? settings.aiByKind[source.kind] : false : null;
+  // The default follows the kind's switch, unless the source's category is one kept away from the AI.
+  const kindDefault =
+    source && settings
+      ? source.kind !== 'ai' && settings.aiByKind[source.kind] && !(source.category && settings.aiOffCategories.includes(source.category))
+      : null;
   const aiOn = (m: AiMode) => m === 'on' || (m === 'default' && kindDefault === true);
   const isWeb = source?.kind === 'feed' || source?.kind === 'site';
   const noun = source?.kind === 'newsletter' ? 'issue' : 'post';
@@ -220,7 +224,7 @@ export function SourcePage() {
                 <span className="hint">Summarising items from {shortTime(source.aiSince)} on.</span>
               )}
               <span className="hint">
-                Default follows Settings (currently {kindDefault ? 'on' : 'off'} for this kind of source). Off means this source
+                Default follows Settings (currently {kindDefault ? 'on' : 'off'} for this source, from its kind and category). Off means this source
                 only gets the quick summary and never goes to your PC.
               </span>
             </section>
