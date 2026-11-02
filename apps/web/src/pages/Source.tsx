@@ -5,6 +5,7 @@ import { api } from '../api';
 import { activityView, nextTime, rhythmText, shortTime } from '../format';
 import { IconBack } from '../icons';
 import { StartWithPicker } from './Add';
+import { DailyCapPicker } from './AddBuilders';
 
 const AI_LABEL: Record<AiMode, string> = { default: 'Default', on: 'On', off: 'Off' };
 
@@ -231,6 +232,7 @@ export function SourcePage() {
           </div>
 
           {isWeb && <FetchSection source={source} onUpdate={(p) => void update(p)} onCheck={() => void checkNow()} />}
+          {isWeb && <PostFilterSection source={source} onUpdate={(p) => void update(p)} />}
           {isWeb && <TroubleshootSection source={source} />}
           {isWeb && (
             <FollowSection
@@ -366,6 +368,85 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
           For feeds that post several at once (TED Talks): everything new from one check arrives as a single inbox item, with each post as
           its own section and link inside.
         </span>
+      </section>
+    </div>
+  );
+}
+
+/** Which new posts get in: words to keep or skip, release types, Shorts, and the daily flood limit. */
+function PostFilterSection({ source, onUpdate }: { source: Source; onUpdate: (p: SourceUpdate) => void }) {
+  const f = source.postFilter;
+  const [keep, setKeep] = useState(f.keep);
+  const [skip, setSkip] = useState(f.skip);
+  const set = (patch: Partial<typeof f>) => onUpdate({ postFilter: { ...f, keep, skip, ...patch } });
+  const isGithub = /github\.com\/[^/]+\/[^/]+\/(releases|tags)/i.test(source.feedUrl ?? '');
+  const isYoutube = /youtube\.com\/feeds\//i.test(source.feedUrl ?? '');
+  const flooded = source.floodAt !== null && source.floodAt > Date.now() - 86_400_000 && source.floodCount > 0;
+  return (
+    <div className="section">
+      <span className="label">Which posts get in</span>
+      <section className="card">
+        {flooded && (
+          <div className="notice notice--amber" style={{ margin: 0 }}>
+            <div className="notice__text">
+              <span className="notice__title">
+                Flood guard set aside {source.floodCount} post{source.floodCount === 1 ? '' : 's'} today
+              </span>
+              <Link to={`/?source=${source.id}&view=archived`} className="notice__sub">
+                They're in Archived. Raise the limit below if you want them in the inbox.
+              </Link>
+            </div>
+          </div>
+        )}
+        <div className="field">
+          <label htmlFor="pf-keep">Only posts mentioning (optional)</label>
+          <input
+            id="pf-keep"
+            className="input"
+            placeholder="e.g. release, security"
+            value={keep}
+            onChange={(e) => setKeep(e.target.value)}
+            onBlur={() => keep !== f.keep && set({ keep })}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="pf-skip">Skip posts mentioning (optional)</label>
+          <input
+            id="pf-skip"
+            className="input"
+            placeholder="e.g. meme, giveaway"
+            value={skip}
+            onChange={(e) => setSkip(e.target.value)}
+            onBlur={() => skip !== f.skip && set({ skip })}
+          />
+        </div>
+        <span className="hint" style={{ margin: 0 }}>
+          Checked against each post's title. Separate words or phrases with commas. Skipped posts never show up, not even in Archived.
+        </span>
+        {(isGithub || f.skipPrereleases || f.majorMinorOnly) && (
+          <>
+            <label className="switchrow">
+              <span style={{ fontSize: 15 }}>Skip betas and previews</span>
+              <input type="checkbox" checked={f.skipPrereleases} onChange={(e) => set({ skipPrereleases: e.target.checked })} />
+            </label>
+            <label className="switchrow">
+              <span style={{ fontSize: 15 }}>Key releases only</span>
+              <input type="checkbox" checked={f.majorMinorOnly} onChange={(e) => set({ majorMinorOnly: e.target.checked })} />
+            </label>
+            <span className="hint" style={{ margin: 0 }}>
+              Key releases are versions like 2.0 or 2.5. Patch fixes such as 2.5.1 are skipped. Betas means alpha, beta, rc, preview and nightly.
+            </span>
+          </>
+        )}
+        {(isYoutube || f.skipShorts) && (
+          <label className="switchrow">
+            <span style={{ fontSize: 15 }}>Skip Shorts</span>
+            <input type="checkbox" checked={f.skipShorts} onChange={(e) => set({ skipShorts: e.target.checked })} />
+          </label>
+        )}
+        <span className="label" style={{ marginTop: 8 }}>Flood guard</span>
+        <DailyCapPicker value={source.dailyCap} onChange={(n) => onUpdate({ dailyCap: n })} />
+        <span className="hint" style={{ margin: 0 }}>Changes apply to new posts from now on.</span>
       </section>
     </div>
   );

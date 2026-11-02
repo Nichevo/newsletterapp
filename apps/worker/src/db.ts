@@ -1,4 +1,5 @@
 import { parseRhythm } from './rhythm';
+import { DEFAULT_DAILY_CAP, EMPTY_POST_FILTER, normalizePostFilter, type PostFilter } from '@newsletterapp/shared';
 import type {
   AiMode,
   AiStatus,
@@ -72,6 +73,10 @@ export interface SourceRow {
   rhythm: string | null;
   show_picture?: number | null;
   bundle?: number | null;
+  post_filter?: string | null;
+  daily_cap?: number | null;
+  flood_at?: number | null;
+  flood_count?: number | null;
 }
 
 export interface ItemRow {
@@ -333,5 +338,19 @@ export function toSource(
     rhythm: row.kind === 'feed' ? parseRhythm(row.rhythm) : null,
     showPicture: row.show_picture === 1,
     bundle: row.bundle === 1,
+    postFilter: sourcePostFilter(row),
+    dailyCap: row.daily_cap ?? DEFAULT_DAILY_CAP,
+    floodAt: row.flood_at ?? null,
+    floodCount: row.flood_count ?? 0,
   };
+}
+
+/** A source's stored post filter. */
+export function sourcePostFilter(row: { post_filter?: string | null }): PostFilter {
+  if (!row.post_filter) return EMPTY_POST_FILTER;
+  try {
+    return normalizePostFilter(JSON.parse(row.post_filter));
+  } catch {
+    return EMPTY_POST_FILTER;
+  }
 }

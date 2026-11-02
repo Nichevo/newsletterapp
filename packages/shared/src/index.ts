@@ -222,6 +222,13 @@ export interface Source {
   showPicture: boolean;
   /** Each check's new posts arrive as one item with all of them inside (feeds that post in bursts). */
   bundle: boolean;
+  /** Which posts come in at all (by title). */
+  postFilter: PostFilter;
+  /** Flood guard: at most this many new posts a day reach the inbox; the rest go to Archived. */
+  dailyCap: number;
+  /** When the flood guard last set posts aside, and how many that day. */
+  floodAt: number | null;
+  floodCount: number;
   /** Feeds only: when it usually posts, learnt from its posts. Null until first learnt. */
   rhythm: FeedRhythm | null;
 }
@@ -426,6 +433,8 @@ export interface SourceUpdate {
   linkHint?: string | null;
   showPicture?: boolean;
   bundle?: boolean;
+  postFilter?: PostFilter;
+  dailyCap?: number;
   /** Minutes between checks; null = automatic (feeds follow their learnt rhythm). */
   checkMinutes?: number | null;
   paused?: boolean;
@@ -452,6 +461,8 @@ export interface DiscoveredFeed {
   sample: { title: string; url: string | null; publishedAt: number | null }[];
   /** Most posts are teasers, so full articles will be fetched. */
   teasers: boolean;
+  /** Roughly how many posts a day, from the dates in the feed; null when it can't tell. */
+  perDay: number | null;
 }
 
 /** What the Add screen found at a pasted address. */
@@ -485,6 +496,8 @@ export interface NewSourceInput {
   linkHint?: string | null;
   /** How many of its latest posts to bring in now (0 = only posts from now on). Default 5. */
   startWith?: number;
+  postFilter?: PostFilter;
+  dailyCap?: number;
 }
 
 export interface NewSourceResult {
@@ -610,7 +623,7 @@ export interface HelperHeartbeat {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.3.2';
+export const HELPER_VERSION = '0.3.3';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -838,3 +851,67 @@ Return only this JSON:
 }`;
 
 export * from './usage';
+
+// ---------- Which posts a source lets in ----------
+
+/** Per-source filter on post titles. Empty keep = everything. */
+export interface PostFilter {
+  /** Comma-separated words or phrases: a post must mention one of them (empty = no rule). */
+  keep: string;
+  /** Comma-separated words or phrases: posts mentioning any are skipped. */
+  skip: string;
+  /** Skip alpha, beta, rc, preview, nightly... releases. */
+  skipPrereleases: boolean;
+  /** Only x.y.0 releases (major and minor), not patches like 2.4.1. */
+  majorMinorOnly: boolean;
+  /** YouTube: skip Shorts (their links go to /shorts/). */
+  skipShorts: boolean;
+}
+
+export const EMPTY_POST_FILTER: PostFilter = { keep: '', skip: '', skipPrereleases: false, majorMinorOnly: false, skipShorts: false };
+
+/** New posts a day a source may add before the rest go to Archived. */
+export const DEFAULT_DAILY_CAP = 30;
+
+const words = (list: string) =>
+  list
+    .split(',')
+    .map((w) => w.trim().toLowerCase())
+    .filter(Boolean);
+
+const PRERELEASE = /(^|[^a-z])(alpha|beta|rc|preview|pre-?release|nightly|canary|snapshot|insiders?)([^a-z]|$)/i;
+
+/** Whether a post with this title gets past the source's filter. */
+export function passesPostFilter(title: string, f: PostFilter | null | undefined, url: string | null = null): boolean {
+  if (!f) return true;
+  if (f.skipShorts && url && /youtube\.com\/shorts\//i.test(url)) return false;
+  const t = title.toLowerCase();
+  const keep = words(f.keep);
+  if (keep.length && !keep.some((w) => t.includes(w))) return false;
+  if (words(f.skip).some((w) => t.includes(w))) return false;
+  if (f.skipPrereleases && PRERELEASE.test(title)) return false;
+  if (f.majorMinorOnly) {
+    const v = /(?:^|[^\d.])v?(\d+)\.(\d+)(?:\.(\d+))?/.exec(title);
+    if (v && v[3] !== undefined && Number(v[3]) !== 0) return false;
+  }
+  return true;
+}
+
+/** A stored or sent filter, cleaned up. */
+export function normalizePostFilter(input: unknown): PostFilter {
+  const f = (input && typeof input === 'object' ? input : {}) as Partial<PostFilter>;
+  const text = (v: unknown) => (typeof v === 'string' ? v.slice(0, 300) : '');
+  return { keep: text(f.keep), skip: text(f.skip), skipPrereleases: f.skipPrereleases === true, majorMinorOnly: f.majorMinorOnly === true,
+    skipShorts: f.skipShorts === true,
+  };
+}
+
+/** A YouTube video link (no full-page fetch: the feed has the picture and description). */
+export function isVideoPost(url: string | null): boolean {
+  return url !== null && /^https?:\/\/(www\.|m\.)?(youtube\.com\/(watch|shorts\/)|youtu\.be\/)/i.test(url);
+}
+
+/** A Reddit post's comments page: the PC pulls in the post and its top comments. */
+export function isRedditPost(url: string | null): boolean {
+  return url !== null && /^https?:\/\/(www\.|old\.|new\.)?reddit\.com\/r\/[^/]+\/comments\//i.test(url);
+}

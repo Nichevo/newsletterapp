@@ -20,10 +20,15 @@ import {
   type OpmlImportResult,
   type ParsedFeed,
   type Picture,
+  DEFAULT_DAILY_CAP,
+  normalizePostFilter,
+  passesPostFilter,
+  isRedditPost,
+  isVideoPost,
 } from '@newsletterapp/shared';
 import { Buffer } from 'node:buffer';
 import type { Hono } from 'hono';
-import { toSource, type SourceRow } from './db';
+import { sourcePostFilter, toSource, type SourceRow } from './db';
 import type { AppVariables, Env } from './env';
 import { htmlToText, junkImage, leadImage, snippetOf } from './html';
 import { newId, now } from './ids';
@@ -194,7 +199,9 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
   const allKeys = [...new Set([...unique.keys(), ...alsoSeen.filter(Boolean).map((k) => k.slice(0, 500))])];
   if (allKeys.length === 0) return 0;
   const seen = await seenKeys(env, source.id, allKeys);
-  const fresh = [...unique.values()].filter((e) => !seen.has(e.key));
+  // Posts the source's filter leaves out are only remembered as seen.
+  const filter = sourcePostFilter(source);
+  const fresh = [...unique.values()].filter((e) => !seen.has(e.key) && passesPostFilter(e.title, filter, e.url));
   // Newest first; posts without a date keep the feed's (or page's) own order.
   fresh.sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0));
   let take = fresh.slice(0, source.last_ok_at === null ? (source.start_count ?? FIRST_RUN_KEEP) : MAX_NEW_PER_CHECK);
@@ -202,11 +209,25 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
   const bundled = source.bundle === 1 && take.length > 1;
   if (bundled) take = [bundleEntries(source, take)];
 
+  // Flood guard: past the source's daily limit, new posts go straight to Archived (still searchable).
+  const cap = source.daily_cap ?? DEFAULT_DAILY_CAP;
+  const today = take.length
+    ? ((
+        await env.DB.prepare('SELECT COUNT(*) AS n FROM items INDEXED BY items_source WHERE source_id = ? AND created_at >= ?')
+          .bind(source.id, t - 86_400_000)
+          .first<{ n: number }>()
+      )?.n ?? 0)
+    : 0;
+  const room = Math.max(cap - today, 0);
+  const setAside = Math.max(take.length - room, 0);
+
   const settings = take.length ? await loadSettings(env) : null;
   const stmts: D1PreparedStatement[] = [];
   const puts: Promise<unknown>[] = [];
-  for (const e of take) {
+  for (const [index, e] of take.entries()) {
     const id = newId();
+    // Newest first, so the newest posts get the room left today.
+    const status = index < room ? 'inbox' : 'archived';
     let html = e.html;
     const text = e.text ?? (html ? htmlToText(html) : null);
     const quick = quickSummary(html, text);
@@ -216,11 +237,14 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
         ? leadImage(html ?? '', e.url ?? source.url, e.image)
         : null;
     if (html && e.picture && picture) html = swapPictureSrc(html, e.picture.src, picture.src);
+    // Reddit posts always go to the PC, which brings in the post and its top comments.
     const needArticle =
       !bundled &&
+      status === 'inbox' &&
       source.kind === 'feed' &&
       e.url !== null &&
-      (source.full_text === 'always' || (source.full_text === 'auto' && quick.wordCount < TEASER_WORDS));
+      !isVideoPost(e.url) &&
+      (source.full_text === 'always' || (source.full_text === 'auto' && (quick.wordCount < TEASER_WORDS || isRedditPost(e.url))));
     const htmlKey = html ? `items/${id}/body.html` : null;
     if (html) puts.push(env.RAW.put(htmlKey!, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } }));
     stmts.push(
@@ -228,11 +252,12 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
         `INSERT INTO items (
            id, source_id, kind, status, subject, from_name, snippet, received_at, message_id, html_key, has_html,
            web_url, created_at, preheader, word_count, category, sponsored, ai_status, lead_image, lead_image_title
-         ) VALUES (?, ?, ?, 'inbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         id,
         source.id,
         source.kind,
+        status,
         e.title.slice(0, 500),
         e.author ?? source.name,
         text ? snippetOf(text) : null,
@@ -266,6 +291,14 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
   }
   for (const key of allKeys) {
     if (!seen.has(key)) stmts.push(env.DB.prepare('INSERT OR IGNORE INTO source_seen (source_id, key, at) VALUES (?, ?, ?)').bind(source.id, key, t));
+  }
+  if (setAside > 0) {
+    // One running count per day, shown on the source page.
+    stmts.push(
+      env.DB.prepare(
+        'UPDATE sources SET flood_count = CASE WHEN flood_at >= ? THEN flood_count + ? ELSE ? END, flood_at = ? WHERE id = ?',
+      ).bind(t - 86_400_000, setAside, setAside, t, source.id),
+    );
   }
   await Promise.all(puts);
   await runBatches(env, stmts);
@@ -428,7 +461,20 @@ function toDiscovered(feedUrl: string, feed: ParsedFeed): DiscoveredFeed {
     format: feed.format,
     sample: feed.entries.slice(0, 3).map((e) => ({ title: e.title, url: e.url, publishedAt: e.publishedAt })),
     teasers: firstFive.length > 0 && teasers * 2 > firstFive.length,
+    perDay: postsPerDay(feed.entries),
   };
+}
+
+/** Roughly how many posts a day, from the dates of the feed's posts (needs 3+ dated posts). */
+function postsPerDay(entries: FeedEntry[]): number | null {
+  const dates = entries
+    .map((e) => e.publishedAt)
+    .filter((d): d is number => d !== null)
+    .slice(0, 50);
+  if (dates.length < 3) return null;
+  const days = (Math.max(...dates) - Math.min(...dates)) / 86_400_000;
+  // A burst all at once (or no real dates) reads as "a lot".
+  return days > 0 ? Math.round(((dates.length - 1) / days) * 10) / 10 : dates.length;
 }
 
 async function tryFeed(url: string): Promise<DiscoveredFeed | null> {
@@ -456,6 +502,14 @@ export async function discover(env: Env, input: string): Promise<DiscoverResult>
       result.feeds.push(toDiscovered(f.url, asFeed));
     } else {
       result.title = pageTitle(f.body);
+      // A YouTube channel page: its feed is keyed by the channel id.
+      const yt = /(^|\.)youtube\.com$/i.test(new URL(f.url).hostname)
+        ? (/youtube\.com\/channel\/(UC[\w-]{22})/.exec(f.body) ?? /"(?:externalId|channelId)":"(UC[\w-]{22})"/.exec(f.body))?.[1]
+        : undefined;
+      if (yt) {
+        const found = await tryFeed(`https://www.youtube.com/feeds/videos.xml?channel_id=${yt}`);
+        if (found) result.feeds.push(found);
+      }
       for (const link of findFeedLinks(f.body, f.url).slice(0, 3)) {
         const found = await tryFeed(link);
         if (found && !result.feeds.some((x) => x.feedUrl === found.feedUrl)) result.feeds.push(found);
@@ -621,8 +675,9 @@ export function registerFeeds(app: App) {
     // Website watches always run on the PC: finding and extracting articles is too heavy for the free plan.
     const fetchVia = input.kind === 'site' || input.fetchVia === 'pc' ? 'pc' : 'cloud';
     await c.env.DB.prepare(
-      `INSERT INTO sources (id, kind, name, url, feed_url, fetch_via, render, link_hint, category, created_at, next_check_at, start_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO sources (id, kind, name, url, feed_url, fetch_via, render, link_hint, category, created_at, next_check_at, start_count,
+         post_filter, daily_cap)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         id,
@@ -637,6 +692,8 @@ export function registerFeeds(app: App) {
         t,
         t,
         startCount(input.startWith),
+        input.postFilter ? JSON.stringify(normalizePostFilter(input.postFilter)) : null,
+        typeof input.dailyCap === 'number' ? Math.min(Math.max(Math.round(input.dailyCap), 1), 500) : null,
       )
       .run();
     const row = (await loadSourceRow(c.env, id))!;

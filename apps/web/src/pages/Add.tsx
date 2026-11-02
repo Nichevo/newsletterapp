@@ -1,9 +1,10 @@
-import type { Address, DiscoverResult, DiscoveredFeed, Me, NewSourceResult } from '@newsletterapp/shared';
+import { DEFAULT_DAILY_CAP, type Address, type DiscoverResult, type DiscoveredFeed, type Me, type NewSourceResult } from '@newsletterapp/shared';
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { shortTime } from '../format';
 import { IconBack, IconCopy } from '../icons';
+import { DailyCapPicker, ModePicker, PerDayLine, QuickForm, type FollowMode, type FollowPreset } from './AddBuilders';
 
 export function AddPage({ me }: { me: Me }) {
   const navigate = useNavigate();
@@ -157,17 +158,21 @@ function FollowSection() {
   const [looking, setLooking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<NewSourceResult | null>(null);
+  const [mode, setMode] = useState<FollowMode>('site');
+  const [preset, setPreset] = useState<FollowPreset | null>(null);
   const started = useRef(false);
 
-  async function look(e?: FormEvent) {
+  async function look(e?: FormEvent, quick?: FollowPreset) {
     e?.preventDefault();
-    if (!url.trim()) return;
+    const target = quick?.url ?? url.trim();
+    if (!target) return;
+    setPreset(quick ?? null);
     setLooking(true);
     setError(null);
     setFound(null);
     setDone(null);
     try {
-      setFound(await api.discoverSource(url.trim()));
+      setFound(await api.discoverSource(target));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not look up that address');
     } finally {
@@ -189,6 +194,19 @@ function FollowSection() {
   return (
     <div className="section">
       <span className="label">A website, blog or feed</span>
+      <ModePicker
+        mode={mode}
+        onChange={(m) => {
+          setMode(m);
+          setFound(null);
+          setDone(null);
+          setError(null);
+        }}
+      />
+      {mode !== 'site' && <QuickForm mode={mode} onLook={(p) => void look(undefined, p)} />}
+      {mode !== 'site' && looking && <span className="hint">Looking…</span>}
+      {mode !== 'site' && error && <div className="error">{error}</div>}
+      {mode === 'site' && (
       <form className="card" onSubmit={(e) => void look(e)}>
         <div className="field">
           <label htmlFor="follow-url">Address</label>
@@ -211,6 +229,7 @@ function FollowSection() {
         </span>
         {error && <div className="error" style={{ margin: 0 }}>{error}</div>}
       </form>
+      )}
 
       {done && (
         <div className="notice notice--teal">
@@ -248,10 +267,24 @@ function FollowSection() {
             </div>
           )}
           {found.feeds.map((f) => (
-            <FeedOption key={f.feedUrl} feed={f} siteUrl={found.url} onDone={setDone} />
+            <FeedOption key={f.feedUrl} feed={f} siteUrl={found.url} preset={preset} onDone={setDone} />
           ))}
-          {found.page && <PageOption found={found} onDone={setDone} />}
-          {found.feeds.length === 0 && !found.page && <div className="error">{found.error ?? 'Nothing to follow at that address'}</div>}
+          {preset && found.feeds.length === 0 && preset.feedUrl && (
+            // Reddit in particular turns Cloudflare away; the PC can still read the feed.
+            <FeedOption
+              feed={{ feedUrl: preset.feedUrl, title: preset.name, siteUrl: null, format: 'rss', sample: [], teasers: false, perDay: null }}
+              siteUrl={preset.feedUrl}
+              preset={preset}
+              viaPc
+              onDone={setDone}
+            />
+          )}
+          {!preset && found.page && <PageOption found={found} onDone={setDone} />}
+          {found.feeds.length === 0 && (!found.page || preset) && !preset?.feedUrl && (
+            <div className="error">
+              {preset ? "Couldn't find that. Check the spelling, or paste the full link from the browser." : (found.error ?? 'Nothing to follow at that address')}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -314,10 +347,24 @@ function SourceFields({
   );
 }
 
-function FeedOption({ feed, siteUrl, onDone }: { feed: DiscoveredFeed; siteUrl: string; onDone: (r: NewSourceResult) => void }) {
-  const [name, setName] = useState(feed.title ?? new URL(feed.feedUrl).hostname);
+function FeedOption({
+  feed,
+  siteUrl,
+  preset,
+  viaPc = false,
+  onDone,
+}: {
+  feed: DiscoveredFeed;
+  siteUrl: string;
+  preset?: FollowPreset | null;
+  /** Cloudflare couldn't read the feed, so the PC fetches it. */
+  viaPc?: boolean;
+  onDone: (r: NewSourceResult) => void;
+}) {
+  const [name, setName] = useState(preset?.name || feed.title || new URL(feed.feedUrl).hostname);
   const [category, setCategory] = useState('');
-  const [startWith, setStartWith] = useState(5);
+  const [startWith, setStartWith] = useState(preset ? 3 : 5);
+  const [dailyCap, setDailyCap] = useState(preset?.dailyCap ?? DEFAULT_DAILY_CAP);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -325,7 +372,19 @@ function FeedOption({ feed, siteUrl, onDone }: { feed: DiscoveredFeed; siteUrl: 
     setBusy(true);
     setError(null);
     try {
-      onDone(await api.addSource({ kind: 'feed', url: feed.siteUrl ?? siteUrl, feedUrl: feed.feedUrl, name, category: category || null, startWith }));
+      onDone(
+        await api.addSource({
+          kind: 'feed',
+          url: feed.siteUrl ?? siteUrl,
+          feedUrl: feed.feedUrl,
+          name,
+          category: category || null,
+          startWith,
+          dailyCap,
+          ...(preset ? { postFilter: preset.postFilter } : {}),
+          ...(viaPc ? { fetchVia: 'pc' as const } : {}),
+        }),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not follow it');
       setBusy(false);
@@ -353,8 +412,16 @@ function FeedOption({ feed, siteUrl, onDone }: { feed: DiscoveredFeed; siteUrl: 
           This feed only has the start of each post, so your PC fetches the full articles.
         </span>
       )}
+      {viaPc && (
+        <span className="hint" style={{ margin: 0 }}>
+          Cloudflare couldn't read this feed (the site turns it away), so your PC will fetch it instead.
+        </span>
+      )}
+      {preset && <span className="hint" style={{ margin: 0 }}>{preset.note}</span>}
+      <PerDayLine perDay={feed.perDay} cap={dailyCap} />
       <SourceFields name={name} setName={setName} category={category} setCategory={setCategory} />
       <StartWithPicker value={startWith} onChange={setStartWith} />
+      <DailyCapPicker value={dailyCap} onChange={setDailyCap} />
       <button className="btn btn--primary" disabled={busy} onClick={() => void follow()}>
         Follow
       </button>

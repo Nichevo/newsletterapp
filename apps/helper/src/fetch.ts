@@ -1,7 +1,9 @@
 import {
   FETCH_HEADERS,
   extractArticle,
+  countWords,
   extractLinks,
+  isRedditPost,
   leadImage,
   looksBlocked,
   looksScripted,
@@ -9,6 +11,7 @@ import {
   parseFeed,
   type FeedEntry,
   type FetchJob,
+  type Article,
   type FetchJobResult,
   type Picture,
 } from '@newsletterapp/shared';
@@ -172,7 +175,76 @@ async function pageJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult>
   return { jobId: job.id, ok: true, title: pageTitle(page.body), entries, seenKeys: job.firstRun ? links.map((l) => l.url) : [] };
 }
 
+interface RedditThing {
+  kind: string;
+  data: {
+    title?: string;
+    author?: string;
+    score?: number;
+    created_utc?: number;
+    selftext?: string;
+    selftext_html?: string | null;
+    body?: string;
+    body_html?: string;
+    url?: string;
+    post_hint?: string;
+    is_self?: boolean;
+    stickied?: boolean;
+    children?: RedditThing[];
+  };
+}
+
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** A Reddit post plus its top comments, from Reddit's own JSON (comments are not in the feed). */
+async function redditArticle(url: string): Promise<Article | null> {
+  const u = new URL(url);
+  u.hash = '';
+  u.pathname = u.pathname.replace(/\/$/, '') + '.json';
+  u.search = '?limit=12&depth=1&sort=top&raw_json=1';
+  const res = await fetch(u.toString(), { headers: { ...FETCH_HEADERS, Accept: 'application/json' }, redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) return null;
+  const json = (await res.json()) as RedditThing[] | unknown;
+  if (!Array.isArray(json) || json.length < 2) return null;
+  const post = (json[0] as RedditThing).data.children?.[0]?.data;
+  if (!post) return null;
+  const comments = ((json[1] as RedditThing).data.children ?? [])
+    .filter((c) => c.kind === 't1' && !c.data.stickied && c.data.body && c.data.author !== 'AutoModerator')
+    .slice(0, 8)
+    .map((c) => c.data);
+  const parts: string[] = [];
+  const texts: string[] = [post.title ?? '', post.selftext ?? ''];
+  if (post.selftext_html) parts.push(post.selftext_html);
+  if (post.url && !post.is_self) {
+    if (post.post_hint === 'image' || /\.(jpe?g|png|gif|webp)(\?|$)/i.test(post.url)) parts.push(`<p><img src="${esc(post.url)}" alt=""></p>`);
+    else parts.push(`<p><a href="${esc(post.url)}">${esc(post.url)}</a></p>`);
+  }
+  if (comments.length) {
+    parts.push('<h2>Top comments</h2>');
+    for (const c of comments) {
+      parts.push(
+        `<blockquote><p><strong>${esc(c.author ?? 'someone')}</strong> · ${c.score ?? 0} points</p>${c.body_html ?? `<p>${esc(c.body ?? '')}</p>`}</blockquote>`,
+      );
+      texts.push(c.body ?? '');
+    }
+  }
+  const text = texts.filter(Boolean).join('\n\n');
+  return {
+    title: post.title ?? null,
+    author: post.author ? `u/${post.author}` : null,
+    publishedAt: post.created_utc ? post.created_utc * 1000 : null,
+    html: parts.join('\n'),
+    text,
+    wordCount: countWords(text),
+  };
+}
+
 async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult> {
+  if (isRedditPost(job.url)) {
+    // Falls back to the normal page fetch if Reddit's JSON is unavailable.
+    const article = await redditArticle(job.url).catch(() => null);
+    if (article) return { jobId: job.id, ok: true, article };
+  }
   const page = await get(job.url, cfg, { render: job.render });
   const bad = failed(job, page);
   if (bad) return bad;
