@@ -43,6 +43,7 @@ import {
 } from './db';
 import { buildDigestIfDue } from './digest';
 import { relatedItems } from './related';
+import { registerEmbed } from './embed';
 import { normalizeUrl, registerFeeds, startCount } from './feeds';
 import { registerExport } from './export';
 import { leadImage } from './html';
@@ -82,6 +83,7 @@ app.get('/api/me', (c) => {
 // AI queue, helper endpoints and AI settings. Registered before the generic
 // item action route so /api/items/:id/rate and friends match first.
 registerAi(app);
+registerEmbed(app);
 // Highlights and highlight asks; before the generic item action route too.
 registerHighlights(app);
 registerHighlightPages(app);
@@ -106,6 +108,8 @@ const VIEW_WHERE: Record<ItemView, string> = {
   unread: "items.status = 'inbox' AND items.read_at IS NULL",
   saved: "items.saved_at IS NOT NULL AND items.status != 'dropped'",
   interesting: "items.interesting_at IS NOT NULL AND items.status != 'dropped'",
+  // Matches the partial index items_likely.
+  likely: "items.likely = 1 AND items.status = 'inbox' AND items.read_at IS NULL",
   archived: "items.status = 'archived'",
 };
 
@@ -143,7 +147,7 @@ app.get('/api/items', async (c) => {
   // Counts for the inbox header, before the cursor narrows the query: only when filtered
   // (the unfiltered totals come from /api/counts) and only on the first page.
   const countSql =
-    !cursor && (sourceId || kind || category || view === 'interesting')
+    !cursor && (sourceId || kind || category || view === 'interesting' || view === 'likely')
       ? `SELECT COUNT(*) AS shown, SUM(items.read_at IS NULL) AS unread FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE ${where.join(' AND ')}`
       : null;
   const countBinds = [...binds];

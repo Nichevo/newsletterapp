@@ -23,6 +23,7 @@ import {
 import type { Hono } from 'hono';
 import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
+import { embedHeartbeat } from './embed';
 import { fetchJobsWaiting } from './feeds';
 import { ASK_POLL_SECONDS, asksWaiting } from './highlights';
 import { countSearches, searchAllowance, summarySearches } from './websearch';
@@ -325,6 +326,7 @@ export function registerAi(app: App) {
       limited: usage.limited,
       asksWaiting: await asksWaiting(c.env, state.paused),
       askPollSeconds: ASK_POLL_SECONDS,
+      ...(await embedHeartbeat(c.env, hb)),
     };
     return c.json(config);
   });
@@ -440,7 +442,7 @@ export function registerAi(app: App) {
       stmts.push(
         c.env.DB.prepare(
           `UPDATE items SET ai_status = 'done', ai_error = NULL, ai_run_id = ?, summary = ?, key_points = ?,
-             why_it_matters = ?, ai_category = ?, tags = ?, thin_content = ?, background = ?, coverage = ? WHERE id = ?`,
+             why_it_matters = ?, ai_category = ?, tags = ?, thin_content = ?, background = ?, coverage = ?, embedded_at = NULL WHERE id = ?`,
         ).bind(
           runId,
           output.summary,

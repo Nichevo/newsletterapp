@@ -12,7 +12,7 @@ import { getSwipeReadSide } from '../prefs';
 import { todayLabel } from '../format';
 import { IconPlus, IconRefresh, IconSearch, IconSparkle } from '../icons';
 
-const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'interesting', 'archived'];
+const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'interesting', 'likely', 'archived'];
 
 /** The inbox, or one of the Saved screens (Saved for later, Interesting), which show a fixed view. */
 type Mode = 'inbox' | 'saved' | 'interesting';
@@ -360,6 +360,14 @@ export function InboxPage({
             <>
               <h2>Nothing starred yet</h2>
               <p>Tap the star in the reader when something was worth it. Stars help the Top sort and the digest learn what you value.</p>
+            </>
+          ) : filters.view === 'likely' && !filters.source && !filters.category ? (
+            <>
+              <h2>Nothing likely interesting yet</h2>
+              <p>
+                The PC helper picks out unread items close in meaning to the ones you starred as Interesting. It needs at least five
+                stars and the helper running, and gets better with more.
+              </p>
             </>
           ) : filters.view !== 'inbox' || filters.source || filters.category ? (
             <>

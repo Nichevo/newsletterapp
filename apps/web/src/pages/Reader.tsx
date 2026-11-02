@@ -717,7 +717,7 @@ function RelatedList({ related }: { related: RelatedItem[] }) {
               {r.sourceName ?? ''}
               {r.sourceName ? ' · ' : ''}
               {r.readAt ? `read ${shortTime(r.readAt)}` : `arrived ${shortTime(r.receivedAt)}, unread`}
-              {r.shared.length > 0 ? ` · both about ${r.shared.slice(0, 3).join(', ')}` : ''}
+              {r.shared.length > 0 ? ` · both about ${r.shared.slice(0, 3).join(', ')}` : r.similarity ? ' · similar story' : ''}
             </span>
           </li>
         ))}

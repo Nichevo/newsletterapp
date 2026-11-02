@@ -20,6 +20,8 @@ export interface LocalConfig {
   browserPath?: string;
   /** Brave Search API key, for web lookups. Optional; stays on this PC. */
   braveApiKey?: string;
+  /** Ollama embedding model for related reading and Likely interesting; null when switched off ("off" in the file). */
+  embedModel: string | null;
 }
 
 /** %LOCALAPPDATA%\NewsletterHelper on Windows, ~/.newsletter-helper elsewhere. */
@@ -53,5 +55,11 @@ export function loadConfig(): LocalConfig {
     maxChars: raw.maxChars ?? 24_000,
     browserPath: raw.browserPath,
     braveApiKey: typeof raw.braveApiKey === 'string' && raw.braveApiKey.trim() ? raw.braveApiKey.trim() : undefined,
+    embedModel: embedModel(raw.embedModel),
   };
+}
+
+function embedModel(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return 'nomic-embed-text';
+  return /^(off|none|false)$/i.test(value.trim()) ? null : value.trim();
 }

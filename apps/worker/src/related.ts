@@ -11,6 +11,8 @@ import { parseList } from './db';
  */
 
 const LIMIT = 5;
+/** Embedding neighbours at least this close count as the same subject. */
+const SIMILAR = 0.7;
 /** A topic on more than this share of all items is too broad to link anything. */
 const BROAD_SHARE = 0.15;
 
@@ -55,10 +57,60 @@ function subjectWords(subject: string, usual: Set<string>): string[] {
 const quote = (t: string) => `"${t.replace(/"/g, '')}"`;
 
 export async function relatedItems(env: Env, id: string): Promise<RelatedItem[] | null> {
-  const row = await env.DB.prepare('SELECT id, source_id, subject, tags, received_at FROM items WHERE id = ?')
+  const row = await env.DB.prepare('SELECT id, source_id, subject, tags, received_at, neighbours FROM items WHERE id = ?')
     .bind(id)
-    .first<{ id: string; source_id: string | null; subject: string; tags: string | null; received_at: number }>();
+    .first<{ id: string; source_id: string | null; subject: string; tags: string | null; received_at: number; neighbours: string | null }>();
   if (!row) return null;
+  const [byMeaning, byTopic] = await Promise.all([similarItems(env, row.neighbours), topicItems(env, row)]);
+  // Closest in meaning first, then topic matches the embeddings didn't already find.
+  const seen = new Set(byMeaning.map((r) => r.id));
+  const topicsFor = new Map(byTopic.map((r) => [r.id, r.shared]));
+  return [
+    ...byMeaning.map((r) => ({ ...r, shared: topicsFor.get(r.id) ?? [] })),
+    ...byTopic.filter((r) => !seen.has(r.id)),
+  ].slice(0, LIMIT);
+}
+
+type RelatedRow = { id: string; subject: string; tags: string | null; received_at: number; read_at: number; saved_at: number | null; source_name: string | null };
+
+/** The PC helper's nearest older items that you read. */
+async function similarItems(env: Env, neighbours: string | null): Promise<RelatedItem[]> {
+  let list: [string, number][] = [];
+  try {
+    list = (JSON.parse(neighbours ?? '[]') as [string, number][]).filter((n) => Array.isArray(n) && n[1] >= SIMILAR).slice(0, 20);
+  } catch {
+    return [];
+  }
+  if (list.length === 0) return [];
+  const sims = new Map(list);
+  const rows = await env.DB.prepare(
+    `SELECT items.id, items.subject, items.tags, items.received_at, items.read_at, items.saved_at, sources.name AS source_name
+     FROM items LEFT JOIN sources ON sources.id = items.source_id
+     WHERE items.id IN (${list.map(() => '?').join(', ')}) AND items.read_at IS NOT NULL AND items.status IN ('inbox', 'archived')`,
+  )
+    .bind(...list.map((n) => n[0]))
+    .all<RelatedRow>();
+  return rows.results
+    .map((r) => ({
+      id: r.id,
+      subject: r.subject,
+      sourceName: r.source_name,
+      receivedAt: r.received_at,
+      readAt: r.read_at,
+      savedAt: r.saved_at,
+      shared: [],
+      similarity: sims.get(r.id) ?? 0,
+    }))
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, LIMIT);
+}
+
+/** Older items you read that share a specific topic (whole words, rarer topics weigh more). */
+async function topicItems(
+  env: Env,
+  row: { id: string; source_id: string | null; subject: string; tags: string | null; received_at: number },
+): Promise<RelatedItem[]> {
+  const id = row.id;
 
   let topics = [...new Set(parseList(row.tags).map((t) => t.trim()).filter(Boolean))].slice(0, 5);
   if (topics.length === 0) {
@@ -104,7 +156,7 @@ export async function relatedItems(env: Env, id: string): Promise<RelatedItem[] 
      ORDER BY items_fts.rank LIMIT 60`,
   )
     .bind(`{subject tags} : (${weighted.map((t) => quote(t.topic)).join(' OR ')})`, id, row.received_at)
-    .all<{ id: string; subject: string; tags: string | null; received_at: number; read_at: number; saved_at: number | null; source_name: string | null }>();
+    .all<RelatedRow>();
 
   // A topic on under a tenth of all items links on its own; commoner ones need a second shared topic.
   const needed = Math.min(Math.log(10), Math.log(total / 3));

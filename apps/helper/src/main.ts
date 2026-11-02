@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { AppClient } from './app';
 import { UPDATED_EXIT_CODE } from './constants';
 import { configPath, loadConfig, type LocalConfig } from './config';
+import { Embeddings } from './embed';
 import { askLookups, lookupsText, summaryLookups, toSources, type Lookups } from './lookups';
 import { runFetchJob } from './fetch';
 import { log } from './log';
@@ -24,6 +25,7 @@ import { itemText, parseOutput } from './text';
 const cfg = loadConfig();
 const app = new AppClient(cfg);
 const providers = providersFrom(cfg);
+const embeddings = new Embeddings(cfg, app);
 const once = process.argv.includes('--once');
 const configMtime = () => {
   try {
@@ -75,6 +77,8 @@ async function heartbeat(): Promise<HelperConfig> {
     providerErrors,
     load: await currentLoad(),
     webSearch: cfg.braveApiKey ? 'brave' : null,
+    embedStore: embeddings.model ? embeddings.store : null,
+    embedCount: embeddings.count,
   });
 }
 
@@ -383,6 +387,9 @@ async function tick(): Promise<number> {
   await fetchQueue(config).catch((err: unknown) => log('fetch jobs failed:', err));
   doing('summarising');
   await summariseQueue(config);
+  // Embeddings after summaries, since they're made from the summary.
+  doing('embedding items');
+  await embeddings.run(config, checkAsks).catch((err: unknown) => log('embeddings failed:', err));
   doing('waiting for the next round');
   return config.pollSeconds;
 }
