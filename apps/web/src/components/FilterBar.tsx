@@ -27,6 +27,7 @@ export function FilterBar({
   filters,
   onChange,
   sources,
+  categorySources,
   categories,
   count,
   fixedView,
@@ -37,6 +38,8 @@ export function FilterBar({
   filters: Filters;
   onChange: (f: Filters) => void;
   sources: Source[];
+  /** With a category picked: the sources that have items in it (from the server), when known. */
+  categorySources?: string[] | null;
   categories: string[];
   count: number | null;
   /** When set, the view pills are hidden (e.g. the Saved screen). */
@@ -61,11 +64,14 @@ export function FilterBar({
   const [allSources, setAllSources] = useState(false);
   const sourceName = filters.source ? (sources.find((s) => s.id === filters.source)?.name ?? 'One source') : 'All sources';
   // With a type or category picked, only matching sources are offered (a Feedly import can add hundreds).
-  // Sources with no category of their own stay in, since their items get categories from AI tags.
+  // For a category, that's the sources with items in it (items often get their category from keyword
+  // rules or the AI, not their source); until the server has said, sources set to that category.
+  const inCategory = categorySources ? new Set(categorySources) : null;
   const matchingSources = sources.filter(
     (s) =>
       s.id === filters.source ||
-      ((!filters.kind || s.kind === filters.kind) && (!filters.category || s.category === filters.category || s.category === null)),
+      ((!filters.kind || s.kind === filters.kind) &&
+        (!filters.category || s.category === filters.category || (inCategory ? inCategory.has(s.id) : false))),
   );
   // The list stays folded to the chosen source until asked for, so the panel isn't a wall of chips.
   const SOURCE_PREVIEW = 8;

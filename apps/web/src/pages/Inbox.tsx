@@ -84,6 +84,8 @@ export function InboxPage({
   }
   const [aiPaused, setAiPaused] = useState<string | null>(null);
   const [listCounts, setListCounts] = useState<ItemListResponse['counts'] | null>(null);
+  // Sources with items in the chosen category, kept while a source is then picked so the others stay on offer.
+  const [catSources, setCatSources] = useState<{ category: string; ids: string[] } | null>(null);
   const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -103,6 +105,7 @@ export function InboxPage({
         setItems((prev) => (append ? [...prev, ...res.items] : res.items));
         setCursor(res.nextCursor);
         if (!append) setListCounts(res.counts ?? null);
+        if (!append && filters.category && res.categorySources) setCatSources({ category: filters.category, ids: res.categorySources });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not load');
       } finally {
@@ -304,6 +307,7 @@ export function InboxPage({
         filters={filters}
         onChange={setFilters}
         sources={sources}
+        categorySources={filters.category && catSources?.category === filters.category ? catSources.ids : null}
         categories={categories}
         count={total}
         fixedView={mode !== 'inbox'}

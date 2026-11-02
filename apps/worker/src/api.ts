@@ -153,6 +153,11 @@ app.get('/api/items', async (c) => {
       ? `SELECT COUNT(*) AS shown, SUM(items.read_at IS NULL) AS unread FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE ${where.join(' AND ')}`
       : null;
   const countBinds = [...binds];
+  const sourcesSql =
+    !cursor && category && !sourceId
+      ? `SELECT DISTINCT items.source_id AS id FROM items LEFT JOIN sources ON sources.id = items.source_id
+         WHERE ${where.join(' AND ')} AND items.source_id IS NOT NULL LIMIT 500`
+      : null;
   // Cursors are "<received_at>:<id>", or "<score>:<received_at>:<id>" for the Top sort.
   if (cursor) {
     const parts = cursor.split(':');
@@ -180,12 +185,13 @@ app.get('/api/items', async (c) => {
     sort === 'top'
       ? 'COALESCE(items.score, 0) DESC, items.received_at DESC, items.id DESC'
       : `items.received_at ${order}, items.id ${order}`;
-  const [rows, settings, counted] = await Promise.all([
+  const [rows, settings, counted, catSources] = await Promise.all([
     c.env.DB.prepare(`${ITEM_SELECT} WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ?`)
       .bind(...binds, limit + 1)
       .all<ItemSelectRow>(),
     loadSettings(c.env),
     countSql ? c.env.DB.prepare(countSql).bind(...countBinds).first<{ shown: number; unread: number | null }>() : null,
+    sourcesSql ? c.env.DB.prepare(sourcesSql).bind(...countBinds).all<{ id: string }>() : null,
   ]);
 
   const page = rows.results.slice(0, limit);
@@ -199,6 +205,7 @@ app.get('/api/items', async (c) => {
           : `${last.received_at}:${last.id}`
         : null,
     ...(counted ? { counts: { shown: counted.shown, unread: counted.unread ?? 0 } } : {}),
+    ...(catSources ? { categorySources: catSources.results.map((r) => r.id) } : {}),
   };
   return c.json(body);
 });
