@@ -1,5 +1,5 @@
 import { parseRhythm } from './rhythm';
-import { DEFAULT_DAILY_CAP, EMPTY_POST_FILTER, normalizePostFilter, type PostFilter } from '@newsletterapp/shared';
+import { DEFAULT_DAILY_CAP, EMPTY_POST_FILTER, normalizePostFilter, platformOf, type PostFilter } from '@newsletterapp/shared';
 import type {
   AiMode,
   AiStatus,
@@ -146,6 +146,7 @@ export interface ItemJoined {
   source_ai_mode?: AiMode | null;
   source_ai_since?: number | null;
   source_show_picture?: number | null;
+  source_feed_url?: string | null;
   run_provider?: string | null;
   run_model?: string | null;
   run_prompt_version?: number | null;
@@ -228,6 +229,7 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<Summa
     archivedAt: row.archived_at,
     hasHtml: row.has_html === 1,
     bodyVersion: row.body_v ?? 0,
+    platform: platformOf(row.source_feed_url),
     leadImage: row.source_show_picture === 1 && row.lead_image ? { src: row.lead_image, title: row.lead_image_title ?? null } : null,
     listUnsubscribe: row.list_unsubscribe,
     oneClickUnsubscribe: isOneClick(row.list_unsubscribe, row.list_unsubscribe_post),
@@ -339,6 +341,7 @@ export function toSource(
     rhythm: row.kind === 'feed' ? parseRhythm(row.rhythm) : null,
     showPicture: row.show_picture === 1,
     bundle: row.bundle === 1,
+    platform: platformOf(row.feed_url),
     followLink: row.follow_link === 1,
     postFilter: sourcePostFilter(row),
     dailyCap: row.daily_cap ?? DEFAULT_DAILY_CAP,

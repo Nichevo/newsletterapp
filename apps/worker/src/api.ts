@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { normalizePostFilter } from '@newsletterapp/shared';
 import type {
+  Platform,
   AiMode,
   SearchResponse,
   SearchState,
@@ -98,7 +99,7 @@ registerReading(app);
 
 // ---------- Items ----------
 
-const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category, sources.ai_mode AS source_ai_mode, sources.ai_since AS source_ai_since, sources.show_picture AS source_show_picture,
+const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category, sources.ai_mode AS source_ai_mode, sources.ai_since AS source_ai_since, sources.show_picture AS source_show_picture, sources.feed_url AS source_feed_url,
     ai_runs.provider AS run_provider, ai_runs.model AS run_model, ai_runs.prompt_version AS run_prompt_version,
     ai_runs.seconds AS run_seconds, ai_runs.rating AS run_rating
   FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN ai_runs ON ai_runs.id = items.ai_run_id`;
@@ -123,6 +124,22 @@ async function loadItem(env: Env, id: string): Promise<ItemSummary | null> {
   return toItemSummary(row, settings.aiByKind, settings.aiOffCategories);
 }
 
+/** The Type filter: Reddit, YouTube and GitHub feeds have their own types; "feed" is every other feed. */
+const PLATFORM_SQL: Record<Platform, string> = {
+  reddit: "COALESCE(sources.feed_url, '') LIKE '%reddit.com/%'",
+  youtube: "COALESCE(sources.feed_url, '') LIKE '%youtube.com/feeds/%'",
+  github: "COALESCE(sources.feed_url, '') LIKE '%github.com/%'",
+};
+function typeWhere(kind: string, binds: unknown[]): string[] {
+  if (kind in PLATFORM_SQL) return ["items.kind = 'feed'", PLATFORM_SQL[kind as Platform]];
+  if (kind === 'feed') return ["items.kind = 'feed'", `NOT (${Object.values(PLATFORM_SQL).join(' OR ')})`];
+  if (kind === 'newsletter' || kind === 'site' || kind === 'ai') {
+    binds.push(kind);
+    return ['items.kind = ?'];
+  }
+  return [];
+}
+
 app.get('/api/items', async (c) => {
   const view = (c.req.query('view') ?? 'inbox') as ItemView;
   const sort = (c.req.query('sort') ?? 'newest') as ItemSort;
@@ -139,10 +156,7 @@ app.get('/api/items', async (c) => {
     where.push('items.source_id = ?');
     binds.push(sourceId);
   }
-  if (kind === 'newsletter' || kind === 'feed' || kind === 'site' || kind === 'ai') {
-    where.push('items.kind = ?');
-    binds.push(kind);
-  }
+  if (kind) where.push(...typeWhere(kind, binds));
   if (category) {
     where.push("COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]')) = ?");
     binds.push(category);
@@ -257,10 +271,7 @@ app.get('/api/search', async (c) => {
     where.push('items.source_id = ?');
     binds.push(sourceId);
   }
-  if (kind === 'newsletter' || kind === 'feed' || kind === 'site' || kind === 'ai') {
-    where.push('items.kind = ?');
-    binds.push(kind);
-  }
+  if (kind) where.push(...typeWhere(kind, binds));
   if (category) {
     where.push("COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]')) = ?");
     binds.push(category);

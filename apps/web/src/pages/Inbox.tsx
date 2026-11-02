@@ -1,5 +1,5 @@
 import { SavedTabs } from './Highlights';
-import type { ItemKind, ItemListResponse, ItemSummary, ItemView, Me, SavedFilter, Source } from '@newsletterapp/shared';
+import { SOURCE_TYPES, type ItemListResponse, type ItemSummary, type ItemView, type Me, type SavedFilter, type Source, type SourceType } from '@newsletterapp/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { rememberList } from '../readingList';
@@ -16,7 +16,6 @@ const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'interesting', 'likely', 
 
 /** The inbox, or one of the Saved screens (Saved for later, Interesting), which show a fixed view. */
 type Mode = 'inbox' | 'saved' | 'interesting';
-const KINDS: ItemKind[] = ['newsletter', 'feed', 'site', 'ai'];
 
 /** The filter bar choices are remembered per screen on this device. */
 function storageKey(mode: Mode) {
@@ -33,7 +32,7 @@ function loadFilters(mode: Mode): Filters {
       sort: saved.sort === 'oldest' || saved.sort === 'top' ? saved.sort : 'newest',
       source: typeof saved.source === 'string' ? saved.source : null,
       category: typeof saved.category === 'string' ? saved.category : null,
-      kind: KINDS.includes(saved.kind as ItemKind) ? (saved.kind as ItemKind) : null,
+      kind: SOURCE_TYPES.includes(saved.kind as SourceType) ? (saved.kind as SourceType) : null,
     };
   } catch {
     return fallback;

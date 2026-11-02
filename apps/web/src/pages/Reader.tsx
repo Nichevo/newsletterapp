@@ -12,6 +12,7 @@ import { outlineOf } from '../quick';
 import { neighbours } from '../readingList';
 
 const KIND_NAME: Record<ItemSummary['kind'], string> = { newsletter: 'Newsletter', feed: 'Feed', site: 'Website', ai: 'AI note' };
+const PLATFORM_NAME = { reddit: 'Reddit', youtube: 'YouTube', github: 'GitHub' } as const;
 
 export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const { id = '' } = useParams();
@@ -135,7 +136,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             <strong>{item?.sourceName ?? item?.fromName ?? item?.fromEmail ?? ''}</strong>
           )}
           <span>
-            {item ? `${KIND_NAME[item.kind]} · ${readingMinutes(item.wordCount ?? body?.text)} min read` : ''}
+            {item ? `${item.platform ? PLATFORM_NAME[item.platform] : KIND_NAME[item.kind]} · ${readingMinutes(item.wordCount ?? body?.text)} min read` : ''}
           </span>
         </div>
         {nav.position !== null && (
