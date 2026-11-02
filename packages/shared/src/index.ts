@@ -781,7 +781,7 @@ Return only this JSON:
   "key_points": ["3-5 short points, each a standalone fact"],
   "why_it_matters": "one sentence on why a reader interested in {interests} might care, or empty",
   "category": ["1-2 from: {categories}"],
-  "topics": ["up to 3 specific names or subjects, e.g. Nvidia, interest rates"],
+  "topics": ["up to 3 specific named things the issue is about (companies, products, people, places, laws, events) in their usual short name, e.g. Nvidia, Federal Reserve, EU AI Act; never broad subjects such as AI, technology or markets"],
   "thin_content": true or false
 }`;
 
