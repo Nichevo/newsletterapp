@@ -220,6 +220,8 @@ export interface Source {
   pausedAt: number | null;
   /** Show each post's picture in the inbox's Expanded view (comic feeds). */
   showPicture: boolean;
+  /** Each check's new posts arrive as one item with all of them inside (feeds that post in bursts). */
+  bundle: boolean;
   /** Feeds only: when it usually posts, learnt from its posts. Null until first learnt. */
   rhythm: FeedRhythm | null;
 }
@@ -423,6 +425,7 @@ export interface SourceUpdate {
   fullText?: FullTextMode;
   linkHint?: string | null;
   showPicture?: boolean;
+  bundle?: boolean;
   /** Minutes between checks; null = automatic (feeds follow their learnt rhythm). */
   checkMinutes?: number | null;
   paused?: boolean;

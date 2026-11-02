@@ -71,6 +71,7 @@ export interface SourceRow {
   start_count: number | null;
   rhythm: string | null;
   show_picture?: number | null;
+  bundle?: number | null;
 }
 
 export interface ItemRow {
@@ -331,5 +332,6 @@ export function toSource(
     pausedAt: row.paused_at ?? null,
     rhythm: row.kind === 'feed' ? parseRhythm(row.rhythm) : null,
     showPicture: row.show_picture === 1,
+    bundle: row.bundle === 1,
   };
 }
