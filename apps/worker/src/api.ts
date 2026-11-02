@@ -313,6 +313,16 @@ app.get('/api/items/:id/body', async (c) => {
   return c.json(body, 200, { 'Cache-Control': 'private, max-age=604800' });
 });
 
+// A post's picture as the PC downloaded it (comics whose own picture links expire).
+app.get('/api/items/:id/picture', async (c) => {
+  const id = c.req.param('id');
+  const obj = /^[\w-]{1,64}$/.test(id) ? await c.env.RAW.get(`items/${id}/picture`) : null;
+  if (!obj) return c.json({ error: 'not found' }, 404);
+  return new Response(obj.body, {
+    headers: { 'Content-Type': obj.httpMetadata?.contentType ?? 'image/jpeg', 'Cache-Control': 'private, max-age=31536000, immutable' },
+  });
+});
+
 app.get('/api/items/:id/raw', async (c) => {
   const row = await c.env.DB.prepare('SELECT raw_key FROM items WHERE id = ?')
     .bind(c.req.param('id'))
@@ -598,6 +608,25 @@ async function backfillPictures(env: Env, sourceId: string) {
     .filter((f) => f.picture)
     .map((f) => env.DB.prepare('UPDATE items SET lead_image = ?, lead_image_title = ? WHERE id = ?').bind(f.picture!.src, f.picture!.title, f.id));
   if (updates.length) await env.DB.batch(updates);
+
+  // The latest few posts also go back to the PC once, which picks the picture from the whole
+  // page and keeps a copy: saved copies can miss the comic, and some sites' picture links expire.
+  const t = now();
+  const recent = await env.DB.prepare(
+    `SELECT items.id, items.web_url FROM items INDEXED BY items_source JOIN sources ON sources.id = items.source_id
+     WHERE items.source_id = ? AND sources.kind IN ('feed', 'site') AND items.web_url IS NOT NULL
+       AND (items.lead_image IS NULL OR items.lead_image NOT LIKE '/api/%')
+     ORDER BY items.received_at DESC LIMIT 5`,
+  )
+    .bind(sourceId)
+    .all<{ id: string; web_url: string }>();
+  const jobs = recent.results.map((r) =>
+    env.DB.prepare(
+      `INSERT INTO fetch_jobs (id, kind, source_id, item_id, url, created_at)
+       SELECT ?1, 'article', ?2, ?3, ?4, ?5 WHERE NOT EXISTS (SELECT 1 FROM fetch_jobs WHERE item_id = ?3 AND kind = 'article')`,
+    ).bind(newId(), sourceId, r.id, r.web_url, t),
+  );
+  if (jobs.length) await env.DB.batch(jobs);
 }
 
 // Items, reads and stars per source over the last 90 days: one grouped read of

@@ -501,6 +501,8 @@ export interface FetchJob {
   knownKeys: string[];
   /** First check of a source: learn what is there and bring in only the latest few. */
   firstRun: boolean;
+  /** The source shows pictures in the inbox: pick each post's picture from its page and download it. */
+  wantPicture?: boolean;
 }
 
 export interface FetchJobResult {
@@ -592,7 +594,7 @@ export interface HelperHeartbeat {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.3.1';
+export const HELPER_VERSION = '0.3.2';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {

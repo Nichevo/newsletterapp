@@ -19,7 +19,9 @@ import {
   type NewSourceResult,
   type OpmlImportResult,
   type ParsedFeed,
+  type Picture,
 } from '@newsletterapp/shared';
+import { Buffer } from 'node:buffer';
 import type { Hono } from 'hono';
 import { toSource, type SourceRow } from './db';
 import type { AppVariables, Env } from './env';
@@ -130,6 +132,22 @@ async function seenKeys(env: Env, sourceId: string, keys: string[]): Promise<Set
   return seen;
 }
 
+/**
+ * Keeps the PC's download of a post's picture in R2 and returns the address the
+ * app serves it from; without a download, the picture's own address.
+ */
+function keepPicture(env: Env, itemId: string, p: Picture, puts: Promise<unknown>[]): { src: string; title: string | null } {
+  if (!p.data) return { src: p.src, title: p.title };
+  puts.push(env.RAW.put(`items/${itemId}/picture`, Buffer.from(p.data, 'base64'), { httpMetadata: { contentType: p.type || 'image/jpeg' } }));
+  return { src: `/api/items/${itemId}/picture`, title: p.title };
+}
+
+/** The saved page shows the kept copy too, so the reader's picture doesn't break when the site's link expires. */
+function swapPictureSrc(html: string, from: string, to: string): string {
+  if (from === to) return html;
+  return html.split(from).join(to).split(from.replace(/&/g, '&amp;')).join(to);
+}
+
 async function runBatches(env: Env, stmts: D1PreparedStatement[]) {
   for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
 }
@@ -157,10 +175,15 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
   const puts: Promise<unknown>[] = [];
   for (const e of take) {
     const id = newId();
-    const html = e.html;
+    let html = e.html;
     const text = e.text ?? (html ? htmlToText(html) : null);
     const quick = quickSummary(html, text);
-    const picture = html || e.image ? leadImage(html ?? '', e.url ?? source.url, e.image) : null;
+    const picture = e.picture
+      ? keepPicture(env, id, e.picture, puts)
+      : html || e.image
+        ? leadImage(html ?? '', e.url ?? source.url, e.image)
+        : null;
+    if (html && e.picture && picture) html = swapPictureSrc(html, e.picture.src, picture.src);
     const needArticle =
       source.kind === 'feed' && e.url !== null && (source.full_text === 'always' || (source.full_text === 'auto' && quick.wordCount < TEASER_WORDS));
     const htmlKey = html ? `items/${id}/body.html` : null;
@@ -688,6 +711,7 @@ export function registerFeeds(app: App) {
         lastModified: j.kind === 'feed' && s?.last_ok_at ? s.last_modified : null,
         knownKeys: known.results.map((r) => r.key),
         firstRun: s ? s.last_ok_at === null : false,
+        wantPicture: s?.show_picture === 1,
       });
     }
     return c.json({ jobs });
@@ -717,23 +741,29 @@ export function registerFeeds(app: App) {
         : null;
       // Asked for from the reader: the page as it is now replaces the saved copy, whatever its length.
       const wanted = job.force ? Boolean(a?.html && a.wordCount > 0) : Boolean(a?.html && a.wordCount > Math.max(item?.word_count ?? 0, 50));
+      // The post's picture: a copy the PC downloaded always wins (some sites' picture links expire);
+      // otherwise the feed's own picture stays, and a post with none (or only a logo) takes the page's.
+      let picture: { src: string; title: string | null } | null = null;
+      if (item && a) {
+        const puts: Promise<unknown>[] = [];
+        if (a.picture?.data) picture = keepPicture(c.env, item.id, a.picture, puts);
+        else if (!item.lead_image || junkImage(item.lead_image)) picture = a.picture ?? (a.html ? leadImage(a.html, null, a.image) : null);
+        await Promise.all(puts);
+        if (picture) {
+          await c.env.DB.prepare('UPDATE items SET lead_image = ?, lead_image_title = ? WHERE id = ?').bind(picture.src, picture.title, item.id).run();
+        }
+      }
       if (item && a && a.html && wanted) {
         const quick = quickSummary(a.html, a.text);
         const key = `items/${item.id}/body.html`;
-        await c.env.RAW.put(key, a.html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
+        const html = a.picture && picture ? swapPictureSrc(a.html, a.picture.src, picture.src) : a.html;
+        await c.env.RAW.put(key, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
         await c.env.DB.prepare(
           `UPDATE items SET html_key = ?, has_html = 1, word_count = ?, snippet = ?, preheader = COALESCE(preheader, ?), sponsored = ?,
              ai_status = COALESCE(ai_status, 'pending'), body_v = body_v + 1 WHERE id = ?`,
         )
           .bind(key, quick.wordCount, snippetOf(a.text), quick.preheader, quick.sponsored ? 1 : 0, item.id)
           .run();
-        // The feed's own picture stays; a post whose feed had none (or only a logo) takes the page's.
-        if (!item.lead_image || junkImage(item.lead_image)) {
-          const picture = leadImage(a.html, null, a.image);
-          if (picture) {
-            await c.env.DB.prepare('UPDATE items SET lead_image = ?, lead_image_title = ? WHERE id = ?').bind(picture.src, picture.title, item.id).run();
-          }
-        }
       } else if (!r.ok && job.attempts < JOB_MAX_ATTEMPTS && !r.blocked) {
         await c.env.DB.prepare("UPDATE fetch_jobs SET status = 'pending', claimed_at = NULL, error = ? WHERE id = ?").bind(error, job.id).run();
         return c.json({ ok: true, retry: true });

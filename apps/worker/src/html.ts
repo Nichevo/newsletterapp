@@ -66,55 +66,5 @@ export function findWebVersionUrl(html: string): string | null {
   return null;
 }
 
-const JUNK_IMAGE = /pixel|tracking|spacer|avatar|gravatar|emoji|logo|icon|sprite|badge|\/ads?\/|social/i;
-const JUNK_HOST = /feeds\.feedburner|doubleclick|googlesyndication|gravatar/i;
-
-/** Site furniture rather than the post's own picture: logos, icons, share buttons, tracking pixels. */
-export function junkImage(src: string, alt?: string | null): boolean {
-  let path = src;
-  try {
-    path = new URL(src).pathname; // a site called "iconic-comics.com" is still fine
-  } catch {
-    // keep the whole string
-  }
-  return JUNK_IMAGE.test(path) || JUNK_HOST.test(src) || /\blogo\b/i.test(alt ?? '');
-}
-
-/**
- * The post's picture (skipping tracking pixels, logos, icons and data URLs),
- * with its hover text, e.g. a comic and its punchline. A whole saved page can
- * hold a site logo before the strip, so among the first 40 images one with
- * hover text, a comic-like address or a big size wins over the first one.
- * `fallback` (a feed enclosure or the page's og:image) is used when the body
- * has no picture of its own.
- */
-export function leadImage(html: string, base: string | null, fallback?: string | null): { src: string; title: string | null } | null {
-  const re = /<img\b[^>]*>/gi;
-  let m: RegExpExecArray | null;
-  let best: { src: string; title: string | null; score: number } | null = null;
-  for (let n = 0; n < 40 && (m = re.exec(html)) !== null; n++) {
-    const tag = m[0];
-    const plain = attr(tag, 'src');
-    // Lazy-loaded images keep a placeholder in src and the real address in data-src.
-    const raw = plain && !plain.startsWith('data:') ? plain : attr(tag, 'data-src');
-    if (!raw || raw.startsWith('data:')) continue;
-    const src = base ? absoluteUrl(raw, base) : /^https?:\/\//i.test(raw) ? raw : null;
-    if (!src) continue;
-    const w = Number(attr(tag, 'width') ?? 0);
-    const h = Number(attr(tag, 'height') ?? 0);
-    if ((w && w < 80) || (h && h < 60)) continue; // pixels, avatars, icons
-    const hover = attr(tag, 'title');
-    const alt = attr(tag, 'alt');
-    if (junkImage(src, alt)) continue;
-    const where = `${src} ${attr(tag, 'id') ?? ''} ${attr(tag, 'class') ?? ''}`;
-    const score = (hover ? 3 : 0) + (/comic|strip|cartoon/i.test(where) ? 3 : 0) + (w >= 300 || h >= 300 ? 1 : 0);
-    if (!best || score > best.score) {
-      const title = hover || alt || null;
-      best = { src: src.slice(0, 1000), title: title ? title.slice(0, 500) : null, score };
-      if (score >= 6) break;
-    }
-  }
-  if (best) return { src: best.src, title: best.title };
-  if (fallback && /^https?:\/\//i.test(fallback) && !junkImage(fallback)) return { src: fallback.slice(0, 1000), title: null };
-  return null;
-}
+// The picture picker lives in the shared package so the PC helper uses the same rules.
+export { junkImage, leadImage } from '@newsletterapp/shared';
