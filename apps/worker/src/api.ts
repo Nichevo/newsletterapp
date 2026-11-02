@@ -45,6 +45,7 @@ import {
 import { buildDigestIfDue, topicsOf } from './digest';
 import { normalizeUrl, registerFeeds, startCount } from './feeds';
 import { registerExport } from './export';
+import { leadImage } from './html';
 import { registerHighlights } from './highlights';
 import { registerHighlightPages } from './highlight-pages';
 import { registerWebSearch } from './websearch';
@@ -94,7 +95,7 @@ registerReading(app);
 
 // ---------- Items ----------
 
-const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category, sources.ai_mode AS source_ai_mode, sources.ai_since AS source_ai_since,
+const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category, sources.ai_mode AS source_ai_mode, sources.ai_since AS source_ai_since, sources.show_picture AS source_show_picture,
     ai_runs.provider AS run_provider, ai_runs.model AS run_model, ai_runs.prompt_version AS run_prompt_version,
     ai_runs.seconds AS run_seconds, ai_runs.rating AS run_rating
   FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN ai_runs ON ai_runs.id = items.ai_run_id`;
@@ -600,6 +601,30 @@ app.get('/api/sources', async (c) => {
   return c.json(rows.results.map(toSource));
 });
 
+/**
+ * Picks out the picture for a source's latest posts that came in before
+ * pictures were looked for, so switching "show the picture" on fills the
+ * inbox straight away. A handful of saved copies, read once.
+ */
+async function backfillPictures(env: Env, sourceId: string) {
+  const rows = await env.DB.prepare(
+    `SELECT id, html_key, web_url FROM items INDEXED BY items_source
+     WHERE source_id = ? AND html_key IS NOT NULL AND lead_image IS NULL ORDER BY received_at DESC LIMIT 12`,
+  )
+    .bind(sourceId)
+    .all<{ id: string; html_key: string; web_url: string | null }>();
+  const found = await Promise.all(
+    rows.results.map(async (r) => {
+      const html = await env.RAW.get(r.html_key).then((o) => o?.text() ?? null);
+      return { id: r.id, picture: html ? leadImage(html, r.web_url) : null };
+    }),
+  );
+  const updates = found
+    .filter((f) => f.picture)
+    .map((f) => env.DB.prepare('UPDATE items SET lead_image = ?, lead_image_title = ? WHERE id = ?').bind(f.picture!.src, f.picture!.title, f.id));
+  if (updates.length) await env.DB.batch(updates);
+}
+
 // Items, reads and stars per source over the last 90 days: one grouped read of
 // those 90 days' items, only when Your sources or a source page is open.
 app.get('/api/sources/activity', async (c) => {
@@ -685,6 +710,7 @@ app.post('/api/sources/:id', async (c) => {
   // The rest only mean something for feeds and websites.
   if (input.fetchVia === 'cloud' || input.fetchVia === 'pc') set("fetch_via = CASE WHEN kind = 'feed' THEN ? ELSE 'pc' END", input.fetchVia);
   if (typeof input.render === 'boolean') set('render = ?', input.render ? 1 : 0);
+  if (typeof input.showPicture === 'boolean') set('show_picture = ?', input.showPicture ? 1 : 0);
   if (input.fullText !== undefined) {
     if (!FULL_TEXT.includes(input.fullText)) return c.json({ error: 'bad fullText' }, 400);
     set('full_text = ?', input.fullText);
@@ -738,6 +764,7 @@ app.post('/api/sources/:id', async (c) => {
   }
   // Items parked while this source's AI was off rejoin the queue; the cron parks any still off.
   if (input.aiMode !== undefined) await unparkHeld(c.env, id);
+  if (input.showPicture === true) await backfillPictures(c.env, id);
   if (switchedOnSince !== null) {
     // Older items brought in by the backdate join the queue now, for the waiting-time stats.
     await c.env.DB.prepare(

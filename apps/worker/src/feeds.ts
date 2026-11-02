@@ -23,7 +23,7 @@ import {
 import type { Hono } from 'hono';
 import { toSource, type SourceRow } from './db';
 import type { AppVariables, Env } from './env';
-import { htmlToText, snippetOf } from './html';
+import { htmlToText, leadImage, snippetOf } from './html';
 import { newId, now } from './ids';
 import { categoryFromRules, quickSummary } from './quick';
 import { loadSettings } from './settings';
@@ -160,6 +160,7 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
     const html = e.html;
     const text = e.text ?? (html ? htmlToText(html) : null);
     const quick = quickSummary(html, text);
+    const picture = html ? leadImage(html, e.url ?? source.url) : null;
     const needArticle =
       source.kind === 'feed' && e.url !== null && (source.full_text === 'always' || (source.full_text === 'auto' && quick.wordCount < TEASER_WORDS));
     const htmlKey = html ? `items/${id}/body.html` : null;
@@ -168,8 +169,8 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
       env.DB.prepare(
         `INSERT INTO items (
            id, source_id, kind, status, subject, from_name, snippet, received_at, message_id, html_key, has_html,
-           web_url, created_at, preheader, word_count, category, sponsored, ai_status
-         ) VALUES (?, ?, ?, 'inbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           web_url, created_at, preheader, word_count, category, sponsored, ai_status, lead_image, lead_image_title
+         ) VALUES (?, ?, ?, 'inbox', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         id,
         source.id,
@@ -189,6 +190,8 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
         quick.sponsored ? 1 : 0,
         // Teasers wait for the full article before going to the AI.
         needArticle ? null : 'pending',
+        picture?.src ?? null,
+        picture?.title ?? null,
       ),
     );
     if (needArticle) {

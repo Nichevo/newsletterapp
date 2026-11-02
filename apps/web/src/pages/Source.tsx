@@ -346,6 +346,14 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
           <input type="checkbox" checked={source.render} onChange={(e) => onUpdate({ render: e.target.checked })} />
         </label>
         <span className="hint" style={{ margin: 0 }}>Your PC opens these pages in a hidden Edge or Chrome window. Slower, so only when needed.</span>
+        <label className="switchrow">
+          <span style={{ fontSize: 15 }}>Show the picture in the inbox</span>
+          <input type="checkbox" checked={source.showPicture} onChange={(e) => onUpdate({ showPicture: e.target.checked })} />
+        </label>
+        <span className="hint" style={{ margin: 0 }}>
+          For comics and photo feeds: in the Expanded inbox view, each post shows its picture and hover text, so you can read it without
+          opening it.
+        </span>
       </section>
     </div>
   );
