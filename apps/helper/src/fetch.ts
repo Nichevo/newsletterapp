@@ -8,7 +8,8 @@ import {
   looksBlocked,
   looksScripted,
   pageTitle,
-  storyLinks,
+  renderStoryLinks,
+  storyLinkRows,
   parseFeed,
   type FeedEntry,
   type FetchJob,
@@ -176,12 +177,39 @@ async function pageJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult>
   return { jobId: job.id, ok: true, title: pageTitle(page.body), entries, seenKeys: job.firstRun ? links.map((l) => l.url) : [] };
 }
 
-/** Aggregators (Techmeme): the other links the post's own page lists for the story, as a list under the article. */
+/** A page's headline (og:title, else <title>), for "More" links that come without one. */
+async function headlineOf(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, { headers: FETCH_HEADERS, redirect: 'follow', signal: AbortSignal.timeout(8_000) });
+    if (!res.ok || !(res.headers.get('content-type') ?? '').includes('html')) return '';
+    const head = (await res.text()).slice(0, 300_000);
+    const og = /<meta[^>]+property\s*=\s*["']og:title["'][^>]*>/i.exec(head)?.[0];
+    const content = og ? /\bcontent\s*=\s*["']([^"']+)["']/i.exec(og)?.[1] : null;
+    return (content ?? pageTitle(head) ?? '').trim().slice(0, 300);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Aggregators (Techmeme): the other links the post's own page lists for the
+ * story, laid out like Techmeme under the article. "More" links without hover
+ * text get their headline from the page itself (a few at a time).
+ */
 async function addStoryLinks(article: Article, postUrl: string, skip: string[], cfg: LocalConfig): Promise<void> {
   try {
     const post = await get(postUrl, cfg);
     if (post.status >= 400) return;
-    const links = storyLinks(post.body, postUrl, skip);
+    const rows = storyLinkRows(post.body, postUrl, skip);
+    const missing = rows.filter((r) => r.group === 'more' && !r.peek).slice(0, 12);
+    for (let i = 0; i < missing.length; i += 4) {
+      await Promise.all(
+        missing.slice(i, i + 4).map(async (r) => {
+          r.peek = await headlineOf(r.url);
+        }),
+      );
+    }
+    const links = renderStoryLinks(rows);
     if (!links) return;
     article.html += `\n${links.html}`;
     article.text += `\n\n${links.text}`;
