@@ -64,7 +64,8 @@ export function InboxPage({
     // A link like /?source=<id> (from Settings) opens the inbox on that source.
     const linked = searchParams.get('source');
     const stored = loadFilters(mode);
-    return linked ? { ...stored, view: mode === 'inbox' ? 'inbox' : mode, source: linked, category: null, kind: null } : stored;
+    const linkedView = VIEWS.find((v) => v === searchParams.get('view'));
+    return linked ? { ...stored, view: linkedView ?? (mode === 'inbox' ? 'inbox' : mode), source: linked, category: null, kind: null } : stored;
   });
   const [items, setItems] = useState<ItemSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);

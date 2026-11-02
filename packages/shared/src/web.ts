@@ -323,7 +323,7 @@ function parseAtom(xml: string, base: string, limit: number): ParsedFeed {
       title: cleanTitle(tagValue(block, ['title'])),
       author: authorBlock ? tagValue(authorBlock, ['name']) : null,
       date: tagValue(block, ['published', 'updated', 'issued']),
-      html: content && content.length >= (summary?.length ?? 0) ? content : summary,
+      html: (content && content.length >= (summary?.length ?? 0) ? content : summary) || mediaGroupHtml(block, atomLink(block)),
       image: attachedImage(block),
     });
   });
@@ -345,6 +345,22 @@ interface JsonFeedItem {
 }
 
 const s = (v: unknown): string | null => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : null);
+/** YouTube-style entries: a picture and a plain-text description in media:group. */
+function mediaGroupHtml(block: string, link: string | null): string | null {
+  const desc = tagValue(block, ['media:description']);
+  const thumb = /<media:thumbnail\b[^>]*\burl\s*=\s*["']([^"']+)["']/i.exec(block)?.[1];
+  if (!desc && !thumb) return null;
+  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const pic = thumb ? `<p>${link ? `<a href="${esc(link)}">` : ''}<img src="${esc(thumb)}" alt="">${link ? '</a>' : ''}</p>` : '';
+  const text = desc
+    ? `<p>${esc(desc)
+        .replace(/https?:\/\/[^\s<]+/g, (u) => `<a href="${u}">${u}</a>`)
+        .replace(/\n\n+/g, '</p><p>')
+        .replace(/\n/g, '<br>')}</p>`
+    : '';
+  return pic + text;
+}
+
 const escapeHtml = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function parseJsonFeed(body: string, base: string, limit: number): ParsedFeed | null {
