@@ -702,7 +702,7 @@ function writeFlag(key: string, value: boolean) {
   }
 }
 
-/** "You've read about this before": older issues on the same topics. */
+/** "You've read about this before": older items you read that share a specific topic. */
 function RelatedList({ related }: { related: RelatedItem[] }) {
   return (
     <section className="card related" aria-label="Related reading">
@@ -717,7 +717,7 @@ function RelatedList({ related }: { related: RelatedItem[] }) {
               {r.sourceName ?? ''}
               {r.sourceName ? ' · ' : ''}
               {r.readAt ? `read ${shortTime(r.readAt)}` : `arrived ${shortTime(r.receivedAt)}, unread`}
-              {r.shared.length > 0 ? ` · ${r.shared.slice(0, 3).join(', ')}` : ''}
+              {r.shared.length > 0 ? ` · both about ${r.shared.slice(0, 3).join(', ')}` : ''}
             </span>
           </li>
         ))}

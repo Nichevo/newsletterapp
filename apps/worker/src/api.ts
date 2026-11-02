@@ -19,7 +19,6 @@ import type {
   Me,
   ReadingEventInput,
   ReadingEventType,
-  RelatedItem,
   SourceUpdate,
   UnsubscribeResult,
   ReadDevice,
@@ -42,7 +41,8 @@ import {
   type SenderRow,
   type SourceRow,
 } from './db';
-import { buildDigestIfDue, topicsOf } from './digest';
+import { buildDigestIfDue } from './digest';
+import { relatedItems } from './related';
 import { normalizeUrl, registerFeeds, startCount } from './feeds';
 import { registerExport } from './export';
 import { leadImage } from './html';
@@ -349,40 +349,10 @@ async function logEvent(env: Env, itemId: string, type: ReadingEventType, value?
 
 // ---------- "You've read about this before" ----------
 
-const RELATED_LIMIT = 5;
-
-/** Older items sharing topic tags (or distinctive subject words) with this one, the ones you read first. */
+/** Older items you read that share a specific topic with this one. */
 app.get('/api/items/:id/related', async (c) => {
-  const id = c.req.param('id');
-  const row = await c.env.DB.prepare('SELECT id, subject, tags, received_at FROM items WHERE id = ?')
-    .bind(id)
-    .first<{ id: string; subject: string; tags: string | null; received_at: number }>();
-  if (!row) return c.json({ error: 'not found' }, 404);
-  const topics = topicsOf(row);
-  if (topics.length === 0) return c.json([] satisfies RelatedItem[]);
-
-  // Candidates: anything older that mentions one of the topics in its tags or subject.
-  const likes = topics.map(() => "(LOWER(items.subject) LIKE ? OR LOWER(COALESCE(items.tags, '')) LIKE ?)").join(' OR ');
-  const binds = topics.flatMap((t) => [`%${t}%`, `%${t}%`]);
-  const rows = await c.env.DB.prepare(
-    `SELECT items.id, items.subject, items.tags, items.received_at, items.read_at, items.saved_at, sources.name AS source_name
-     FROM items LEFT JOIN sources ON sources.id = items.source_id
-     WHERE items.id != ? AND items.received_at < ? AND items.status IN ('inbox', 'archived') AND (${likes})
-     ORDER BY items.received_at DESC LIMIT 60`,
-  )
-    .bind(id, row.received_at, ...binds)
-    .all<{ id: string; subject: string; tags: string | null; received_at: number; read_at: number | null; saved_at: number | null; source_name: string | null }>();
-
-  const related: RelatedItem[] = rows.results
-    .map((r) => {
-      const theirs = new Set([...topicsOf(r), ...r.subject.toLowerCase().split(/[^a-z0-9]+/)]);
-      const shared = topics.filter((t) => theirs.has(t) || r.subject.toLowerCase().includes(t));
-      return { id: r.id, subject: r.subject, sourceName: r.source_name, receivedAt: r.received_at, readAt: r.read_at, savedAt: r.saved_at, shared };
-    })
-    .filter((r) => r.shared.length > 0)
-    // Things you actually read come first, then the most topic overlap, then the most recent.
-    .sort((a, b) => Number(Boolean(b.readAt)) - Number(Boolean(a.readAt)) || b.shared.length - a.shared.length || b.receivedAt - a.receivedAt)
-    .slice(0, RELATED_LIMIT);
+  const related = await relatedItems(c.env, c.req.param('id'));
+  if (!related) return c.json({ error: 'not found' }, 404);
   return c.json(related);
 });
 
