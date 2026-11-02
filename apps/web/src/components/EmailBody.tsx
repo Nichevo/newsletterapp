@@ -16,7 +16,52 @@ const BASE_CSS = `
   pre { white-space: pre-wrap; }
   a { color: var(--teal); }
   body { margin: 0; }
+  :host { position: relative; }
+  .story-links { margin-top: 1.5em; padding-top: 0.6em; border-top: 1px solid rgba(127,127,127,0.3); }
+  .story-links h2 { font-size: 1em; margin: 0 0 0.4em; }
+  .story-links__row { margin: 0.35em 0; font-size: 0.95em; line-height: 1.6; }
+  .story-links__all summary { cursor: pointer; color: var(--teal); font-size: 0.9em; margin-top: 0.4em; }
+  .story-links__all li { margin: 0.3em 0; font-size: 0.92em; }
+  a[data-peek] { position: relative; text-decoration-style: dotted; text-underline-offset: 3px; }
+  @media (hover: hover) {
+    a[data-peek]:hover::after {
+      content: attr(data-peek); position: absolute; left: 0; top: 100%; z-index: 5; margin-top: 4px;
+      width: max-content; max-width: min(320px, 70vw); padding: 6px 9px; border-radius: 8px;
+      background: var(--surface, #fff); color: var(--ink, #1d2327); box-shadow: 0 4px 18px rgba(0,0,0,0.22);
+      font-size: 0.85em; font-weight: normal; line-height: 1.35; white-space: normal; pointer-events: none;
+    }
+  }
+  .peek {
+    position: absolute; z-index: 10; max-width: min(320px, calc(100% - 8px)); padding: 9px 11px; border-radius: 10px;
+    background: var(--surface, #fff); color: var(--ink, #1d2327); box-shadow: 0 6px 22px rgba(0,0,0,0.25);
+    font-size: 0.88em; line-height: 1.4;
+  }
+  .peek__open { display: inline-block; margin-top: 6px; font-weight: 600; }
 `;
+
+/** Phones and tablets: no hover, so a first tap on a Techmeme-style link shows its headline or comment. */
+const touchOnly = () => typeof matchMedia === 'function' && matchMedia('(hover: none)').matches;
+
+function showPeek(root: ShadowRoot, host: HTMLElement, anchor: HTMLAnchorElement) {
+  const bubble = document.createElement('div');
+  bubble.className = 'peek';
+  bubble.dataset.for = anchor.href;
+  const text = document.createElement('div');
+  text.textContent = anchor.dataset.peek ?? '';
+  const open = document.createElement('a');
+  open.className = 'peek__open';
+  open.href = anchor.href;
+  open.target = '_blank';
+  open.rel = 'noopener noreferrer nofollow';
+  open.textContent = `Open ${anchor.textContent?.trim() || 'link'} ↗`;
+  bubble.append(text, open);
+  root.append(bubble);
+  const hostBox = host.getBoundingClientRect();
+  const a = anchor.getBoundingClientRect();
+  const width = bubble.offsetWidth;
+  bubble.style.top = `${a.bottom - hostBox.top + 6}px`;
+  bubble.style.left = `${Math.max(0, Math.min(a.left - hostBox.left, hostBox.width - width - 4))}px`;
+}
 
 const REMOTE = /^(https?:)?\/\//i;
 
@@ -183,6 +228,16 @@ export function EmailBody({
       const path = e.composedPath();
       const anchor = path.find((n): n is HTMLAnchorElement => n instanceof HTMLAnchorElement);
       const href = anchor?.getAttribute('href') ?? null;
+      // Tap-to-peek: the first tap shows the headline or comment, a second tap (or Open) follows the link.
+      const root = host.shadowRoot;
+      const bubble = root?.querySelector<HTMLElement>('.peek') ?? null;
+      const inBubble = bubble !== null && path.includes(bubble);
+      if (bubble && !inBubble) bubble.remove();
+      if (root && anchor?.dataset.peek && !inBubble && touchOnly() && bubble?.dataset.for !== anchor.href) {
+        e.preventDefault();
+        showPeek(root, host, anchor);
+        return;
+      }
       if (anchor && isInternal(href) && onInternalLink) {
         e.preventDefault();
         onInternalLink(href!);
