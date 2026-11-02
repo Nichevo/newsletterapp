@@ -6,7 +6,7 @@ import { EmailBody } from '../components/EmailBody';
 import { AiNotes, HighlightSheet, SelectionBar, TextBody, useArticleSelection } from '../components/Highlights';
 import { revealMark } from '../highlight';
 import { aiAttribution, longDate, readingMinutes, shortTime } from '../format';
-import { IconArchive, IconBack, IconBookmark, IconCheck, IconChevron, IconExternal, IconImage, IconStar, IconThumbDown, IconThumbUp } from '../icons';
+import { IconArchive, IconBack, IconBookmark, IconCheck, IconChevron, IconExternal, IconImage, IconSettings, IconStar, IconThumbDown, IconThumbUp } from '../icons';
 import { getHideSponsored, getNotesPlace, getTextSize, imagesAllowed, setImagesAllowed, textSizePx, type AskOutputPref } from '../prefs';
 import { outlineOf } from '../quick';
 import { neighbours } from '../readingList';
@@ -125,7 +125,15 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
           <IconBack />
         </button>
         <div className="reader__who">
-          <strong>{item?.sourceName ?? item?.fromName ?? item?.fromEmail ?? ''}</strong>
+          {item?.sourceId ? (
+            // Tap the name to open the source's settings (AI, pictures, category, pause...).
+            <Link to={`/source/${item.sourceId}`} className="reader__source" title="Source settings">
+              <strong>{item.sourceName ?? item.fromName ?? item.fromEmail ?? ''}</strong>
+              <IconSettings size={13} />
+            </Link>
+          ) : (
+            <strong>{item?.sourceName ?? item?.fromName ?? item?.fromEmail ?? ''}</strong>
+          )}
           <span>
             {item ? `${KIND_NAME[item.kind]} · ${readingMinutes(item.wordCount ?? body?.text)} min read` : ''}
           </span>
