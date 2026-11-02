@@ -238,14 +238,19 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
         ? leadImage(html ?? '', e.url ?? source.url, e.image)
         : null;
     if (html && e.picture && picture) html = swapPictureSrc(html, e.picture.src, picture.src);
+    // Aggregators (Techmeme): the PC fetches the outside article the post links to.
+    const outside = source.follow_link === 1 && html ? outsideLink(html, [e.url, source.url, source.feed_url]) : null;
+    const articleUrl = outside ?? e.url;
     // Reddit posts always go to the PC, which brings in the post and its top comments.
     const needArticle =
       !bundled &&
       status === 'inbox' &&
       source.kind === 'feed' &&
-      e.url !== null &&
-      !isVideoPost(e.url) &&
-      (source.full_text === 'always' || (source.full_text === 'auto' && (quick.wordCount < TEASER_WORDS || isRedditPost(e.url))));
+      articleUrl !== null &&
+      !isVideoPost(articleUrl) &&
+      (outside !== null ||
+        source.full_text === 'always' ||
+        (source.full_text === 'auto' && (quick.wordCount < TEASER_WORDS || isRedditPost(e.url))));
     const htmlKey = html ? `items/${id}/body.html` : null;
     if (html) puts.push(env.RAW.put(htmlKey!, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } }));
     stmts.push(
@@ -284,7 +289,7 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
           newId(),
           source.id,
           id,
-          e.url,
+          articleUrl,
           t,
         ),
       );
@@ -476,6 +481,30 @@ function postsPerDay(entries: FeedEntry[]): number | null {
   const days = (Math.max(...dates) - Math.min(...dates)) / 86_400_000;
   // A burst all at once (or no real dates) reads as "a lot".
   return days > 0 ? Math.round(((dates.length - 1) / days) * 10) / 10 : dates.length;
+}
+
+/** Sites that are discussion, not the story itself. */
+const NOT_THE_STORY = /(^|\.)(twitter\.com|x\.com|bsky\.app|threads\.net|facebook\.com|linkedin\.com|reddit\.com|news\.ycombinator\.com|mastodon\.\w+)$/i;
+
+/** The first link in a post that leads off the aggregator to the story itself. */
+export function outsideLink(html: string, own: (string | null)[]): string | null {
+  const hostOf = (u: string | null) => {
+    try {
+      return u ? new URL(u).hostname.replace(/^www\./, '').toLowerCase() : null;
+    } catch {
+      return null;
+    }
+  };
+  const ownHosts = new Set(own.map(hostOf).filter((h): h is string => h !== null));
+  const re = /<a\b[^>]*\bhref\s*=\s*["'](https?:\/\/[^"']+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const url = m[1]!.replace(/&amp;/g, '&');
+    const host = hostOf(url);
+    if (!host || ownHosts.has(host) || [...ownHosts].some((h) => host.endsWith(`.${h}`)) || NOT_THE_STORY.test(host)) continue;
+    return url;
+  }
+  return null;
 }
 
 async function tryFeed(url: string): Promise<DiscoveredFeed | null> {
@@ -788,6 +817,10 @@ export function registerFeeds(app: App) {
     const jobs: FetchJob[] = [];
     for (const j of claimed.results) {
       const s = j.source_id ? await loadSourceRow(c.env, j.source_id) : null;
+      const post =
+        j.kind === 'article' && s?.follow_link === 1 && j.item_id
+          ? await c.env.DB.prepare('SELECT web_url FROM items WHERE id = ?').bind(j.item_id).first<{ web_url: string | null }>()
+          : null;
       const known =
         j.kind === 'page' && s
           ? await c.env.DB.prepare('SELECT key FROM source_seen WHERE source_id = ? ORDER BY at DESC LIMIT 500').bind(s.id).all<{ key: string }>()
@@ -805,6 +838,7 @@ export function registerFeeds(app: App) {
         knownKeys: known.results.map((r) => r.key),
         firstRun: s ? s.last_ok_at === null : false,
         wantPicture: s?.show_picture === 1,
+        postUrl: post?.web_url ?? null,
       });
     }
     return c.json({ jobs });
@@ -828,9 +862,9 @@ export function registerFeeds(app: App) {
     if (job.kind === 'article') {
       const a = r.ok ? r.article : undefined;
       const item = job.item_id
-        ? await c.env.DB.prepare('SELECT id, word_count, lead_image FROM items WHERE id = ?')
+        ? await c.env.DB.prepare('SELECT id, word_count, lead_image, html_key FROM items WHERE id = ?')
             .bind(job.item_id)
-            .first<{ id: string; word_count: number | null; lead_image: string | null }>()
+            .first<{ id: string; word_count: number | null; lead_image: string | null; html_key: string | null }>()
         : null;
       // Asked for from the reader: the page as it is now replaces the saved copy, whatever its length.
       const wanted = job.force ? Boolean(a?.html && a.wordCount > 0) : Boolean(a?.html && a.wordCount > Math.max(item?.word_count ?? 0, 50));
@@ -849,7 +883,12 @@ export function registerFeeds(app: App) {
       if (item && a && a.html && wanted) {
         const quick = quickSummary(a.html, a.text);
         const key = `items/${item.id}/body.html`;
-        const html = a.picture && picture ? swapPictureSrc(a.html, a.picture.src, picture.src) : a.html;
+        let html = a.picture && picture ? swapPictureSrc(a.html, a.picture.src, picture.src) : a.html;
+        if (source?.follow_link === 1 && !job.force && item.html_key) {
+          // The aggregator's own summary stays on top, the linked article under it.
+          const feedCopy = await (await c.env.RAW.get(item.html_key))?.text();
+          if (feedCopy && !feedCopy.includes('data-linked-article')) html = `${feedCopy}\n<hr data-linked-article>\n${html}`;
+        }
         await c.env.RAW.put(key, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
         await c.env.DB.prepare(
           `UPDATE items SET html_key = ?, has_html = 1, word_count = ?, snippet = ?, preheader = COALESCE(preheader, ?), sponsored = ?,

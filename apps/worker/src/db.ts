@@ -73,6 +73,7 @@ export interface SourceRow {
   rhythm: string | null;
   show_picture?: number | null;
   bundle?: number | null;
+  follow_link?: number | null;
   post_filter?: string | null;
   daily_cap?: number | null;
   flood_at?: number | null;
@@ -338,6 +339,7 @@ export function toSource(
     rhythm: row.kind === 'feed' ? parseRhythm(row.rhythm) : null,
     showPicture: row.show_picture === 1,
     bundle: row.bundle === 1,
+    followLink: row.follow_link === 1,
     postFilter: sourcePostFilter(row),
     dailyCap: row.daily_cap ?? DEFAULT_DAILY_CAP,
     floodAt: row.flood_at ?? null,

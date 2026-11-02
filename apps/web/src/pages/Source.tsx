@@ -368,6 +368,18 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
           For feeds that post several at once (TED Talks): everything new from one check arrives as a single inbox item, with each post as
           its own section and link inside.
         </span>
+        {source.kind === 'feed' && (
+          <>
+            <label className="switchrow">
+              <span style={{ fontSize: 15 }}>Fetch the article it links to</span>
+              <input type="checkbox" checked={source.followLink} onChange={(e) => onUpdate({ followLink: e.target.checked })} />
+            </label>
+            <span className="hint" style={{ margin: 0 }}>
+              For sites that point to other people's stories (Techmeme): your PC saves the original article under the post's summary, plus a
+              list of the story's other links with each one's publication or quoted comment. Applies to new posts.
+            </span>
+          </>
+        )}
       </section>
     </div>
   );

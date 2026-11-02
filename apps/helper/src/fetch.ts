@@ -8,6 +8,7 @@ import {
   looksBlocked,
   looksScripted,
   pageTitle,
+  storyLinks,
   parseFeed,
   type FeedEntry,
   type FetchJob,
@@ -175,6 +176,21 @@ async function pageJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult>
   return { jobId: job.id, ok: true, title: pageTitle(page.body), entries, seenKeys: job.firstRun ? links.map((l) => l.url) : [] };
 }
 
+/** Aggregators (Techmeme): the other links the post's own page lists for the story, as a list under the article. */
+async function addStoryLinks(article: Article, postUrl: string, skip: string[], cfg: LocalConfig): Promise<void> {
+  try {
+    const post = await get(postUrl, cfg);
+    if (post.status >= 400) return;
+    const links = storyLinks(post.body, postUrl, skip);
+    if (!links) return;
+    article.html += `\n${links.html}`;
+    article.text += `\n\n${links.text}`;
+    article.wordCount = countWords(article.text);
+  } catch {
+    // The article alone is still worth keeping.
+  }
+}
+
 interface RedditThing {
   kind: string;
   data: {
@@ -247,9 +263,16 @@ async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResu
   }
   const page = await get(job.url, cfg, { render: job.render });
   const bad = failed(job, page);
-  if (bad) return bad;
+  if (bad) {
+    // The linked article is paywalled or blocked: the story's other links are still worth having.
+    if (!job.postUrl) return bad;
+    const article: Article = { title: null, author: null, publishedAt: null, html: '', text: '', wordCount: 0 };
+    await addStoryLinks(article, job.postUrl, [job.url], cfg);
+    return article.wordCount > 0 ? { jobId: job.id, ok: true, article } : bad;
+  }
   const article = extractArticle(page.body, page.url);
   if (job.wantPicture) article.picture = await pagePicture(page.body, page.url, article.image);
+  if (job.postUrl) await addStoryLinks(article, job.postUrl, [job.url, page.url], cfg);
   return { jobId: job.id, ok: true, article };
 }
 
