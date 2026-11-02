@@ -693,13 +693,24 @@ export function storyLinkRows(html: string, postUrl: string, skip: string[] = []
   const hash = decodeURIComponent(page.hash.slice(1));
   if (!hash) return [];
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const start = new RegExp(`\\b(?:name|id)\\s*=\\s*["']${esc(hash)}["']`, 'i').exec(html);
-  if (!start) return [];
-  const rest = html.slice(start.index + start[0].length);
-  // The next story's anchor: the same shape with other numbers.
-  const shape = esc(hash).replace(/\d+/g, '\\d+');
-  const next = new RegExp(`\\b(?:name|id)\\s*=\\s*["']${shape}["']`, 'i').exec(rest);
-  const slice = rest.slice(0, next ? next.index : 40_000);
+  // Story anchors share a shape (a261102p20, a261102p21...): the same with other numbers.
+  const shape = new RegExp(`\\b(?:name|id)\\s*=\\s*["']?${esc(hash).replace(/\d+/g, '\\d+')}["'\\s>]`, 'gi');
+  let from = -1;
+  const own = new RegExp(`\\b(?:name|id)\\s*=\\s*["']?${esc(hash)}["'\\s>]`, 'i').exec(html);
+  if (own) from = own.index + own[0].length;
+  else {
+    // Not on this page by its anchor (e.g. the front page): find the story by its main article's link,
+    // starting from the story anchor just before it.
+    const at = skip.map((u) => html.indexOf(u.replace(/#.*$/, ''))).filter((i) => i >= 0).sort((a, b) => a - b)[0];
+    if (at === undefined) return [];
+    from = at;
+    for (const m of html.slice(0, at).matchAll(shape)) from = m.index! + m[0].length;
+  }
+  const rest = html.slice(from);
+  shape.lastIndex = 0;
+  const next = shape.exec(rest);
+  // Without anchors to go by, a story's links sit close to its headline.
+  const slice = rest.slice(0, next ? next.index : own ? 40_000 : 12_000);
 
   const ownHost = page.hostname.replace(/^www\./, '').toLowerCase();
   const hostOf = (u: string) => {

@@ -763,11 +763,28 @@ export function registerFeeds(app: App) {
 
   app.post('/api/items/:id/fetch-page', async (c) => {
     const id = c.req.param('id');
-    const item = await c.env.DB.prepare('SELECT id, source_id, web_url FROM items WHERE id = ?')
+    const item = await c.env.DB.prepare(
+      'SELECT items.id, items.source_id, items.web_url, items.html_key, sources.follow_link, sources.url AS source_url, sources.feed_url FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE items.id = ?',
+    )
       .bind(id)
-      .first<{ id: string; source_id: string | null; web_url: string | null }>();
+      .first<{
+        id: string;
+        source_id: string | null;
+        web_url: string | null;
+        html_key: string | null;
+        follow_link: number | null;
+        source_url: string | null;
+        feed_url: string | null;
+      }>();
     if (!item) return c.json({ error: 'not found' }, 404);
     if (!item.web_url) return c.json({ error: 'This item has no web page to fetch' }, 400);
+    // Aggregators: fetch the article the post links to (and the story's other links), not the aggregator's page.
+    let url = item.web_url;
+    if (item.follow_link === 1 && item.html_key) {
+      const body = await (await c.env.RAW.get(item.html_key))?.text();
+      const feedPart = body?.split('<hr data-linked-article>')[0];
+      url = (feedPart && outsideLink(feedPart, [item.web_url, item.source_url, item.feed_url])) || url;
+    }
     const t = now();
     await c.env.DB.batch([
       // Any earlier request for this item (waiting or failed) gives way to this one.
@@ -775,7 +792,7 @@ export function registerFeeds(app: App) {
       c.env.DB.prepare(
         `INSERT INTO fetch_jobs (id, kind, source_id, item_id, url, created_at, force)
          SELECT ?1, 'article', ?2, ?3, ?4, ?5, 1 WHERE NOT EXISTS (SELECT 1 FROM fetch_jobs WHERE item_id = ?3 AND kind = 'article')`,
-      ).bind(newId(), item.source_id, id, item.web_url, t),
+      ).bind(newId(), item.source_id, id, url, t),
     ]);
     const status: FetchPageStatus = { pending: true, error: null, helperOnline: await helperOnline(c.env) };
     return c.json(status);
@@ -886,10 +903,10 @@ export function registerFeeds(app: App) {
         const quick = quickSummary(a.html, a.text);
         const key = `items/${item.id}/body.html`;
         let html = a.picture && picture ? swapPictureSrc(a.html, a.picture.src, picture.src) : a.html;
-        if (source?.follow_link === 1 && !job.force && item.html_key) {
-          // The aggregator's own summary stays on top, the linked article under it.
-          const feedCopy = await (await c.env.RAW.get(item.html_key))?.text();
-          if (feedCopy && !feedCopy.includes('data-linked-article')) html = `${feedCopy}\n<hr data-linked-article>\n${html}`;
+        if (source?.follow_link === 1 && item.html_key) {
+          // The aggregator's own summary stays on top, the linked article under it (replaced on a re-fetch).
+          const feedCopy = (await (await c.env.RAW.get(item.html_key))?.text())?.split('<hr data-linked-article>')[0];
+          if (feedCopy) html = `${feedCopy}\n<hr data-linked-article>\n${html}`;
         }
         await c.env.RAW.put(key, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
         await c.env.DB.prepare(
