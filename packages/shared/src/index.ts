@@ -138,6 +138,13 @@ export interface ItemListResponse {
    * the inbox totals it already has.
    */
   counts?: { shown: number; unread: number };
+  /**
+   * First page with a category filter and no source picked: the sources that
+   * have items in that category (under the other filters), so the filter bar
+   * offers just those. Items often take their category from keyword rules or the
+   * AI rather than their source, so the source's own category isn't enough.
+   */
+  categorySources?: string[];
 }
 
 /** Marks a set of items read or unread at once (the inbox's "Mark these read", and its Undo). */
