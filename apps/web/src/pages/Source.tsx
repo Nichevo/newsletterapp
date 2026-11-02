@@ -404,9 +404,13 @@ function PostFilterSection({ source, onUpdate }: { source: Source; onUpdate: (p:
               <span className="notice__title">
                 Flood guard set aside {source.floodCount} post{source.floodCount === 1 ? '' : 's'} today
               </span>
-              <Link to={`/?source=${source.id}&view=archived`} className="notice__sub">
-                They're in Archived. Raise the limit below if you want them in the inbox.
-              </Link>
+              {source.floodSkip ? (
+                <span className="notice__sub">They were binned, as set below. Raise the limit if you want them in the inbox.</span>
+              ) : (
+                <Link to={`/?source=${source.id}&view=archived`} className="notice__sub">
+                  They're in Archived. Raise the limit below if you want them in the inbox.
+                </Link>
+              )}
             </div>
           </div>
         )}
@@ -458,6 +462,24 @@ function PostFilterSection({ source, onUpdate }: { source: Source; onUpdate: (p:
         )}
         <span className="label" style={{ marginTop: 8 }}>Flood guard</span>
         <DailyCapPicker value={source.dailyCap} onChange={(n) => onUpdate({ dailyCap: n })} />
+        {source.dailyCap > 0 && (
+          <>
+            <span className="hint" style={{ margin: 0 }}>Posts over the limit:</span>
+            <div className="segmented" role="group" aria-label="Posts over the limit">
+              <button aria-pressed={!source.floodSkip} onClick={() => onUpdate({ floodSkip: false })}>
+                Go to Archived
+              </button>
+              <button aria-pressed={source.floodSkip} onClick={() => onUpdate({ floodSkip: true })}>
+                Bin them
+              </button>
+            </div>
+            <span className="hint" style={{ margin: 0 }}>
+              {source.floodSkip
+                ? "Binned posts are never saved, so they won't show up in Archived or Search."
+                : 'Archived posts stay searchable but skip your inbox and the AI.'}
+            </span>
+          </>
+        )}
         <span className="hint" style={{ margin: 0 }}>Changes apply to new posts from now on.</span>
       </section>
     </div>

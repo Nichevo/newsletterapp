@@ -209,7 +209,7 @@ export function DailyCapPicker({ value, onChange }: { value: number; onChange: (
         ))}
       </select>
       <span className="hint" style={{ margin: 0, flexBasis: '100%' }}>
-        Any more that day go straight to Archived, so they're still searchable but don't fill your inbox.
+        Any more that day skip your inbox and go to Archived. On the source's page you can choose to bin them instead.
       </span>
     </label>
   );

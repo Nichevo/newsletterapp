@@ -226,6 +226,8 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
   const stmts: D1PreparedStatement[] = [];
   const puts: Promise<unknown>[] = [];
   for (const [index, e] of take.entries()) {
+    // Past the limit with "bin them" chosen: only remembered as seen, so they never come back.
+    if (index >= room && source.flood_skip === 1) continue;
     const id = newId();
     // Newest first, so the newest posts get the room left today.
     const status = index < room ? 'inbox' : 'archived';
