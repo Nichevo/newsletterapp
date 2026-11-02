@@ -38,6 +38,8 @@ export interface ItemSummary {
   savedAt: number | null;
   /** Starred as Interesting: it mattered (separate from Save for later). */
   interestingAt: number | null;
+  /** Close in meaning to what you marked Interesting (worked out on the PC helper). */
+  likely: boolean;
   archivedAt: number | null;
   hasHtml: boolean;
   /** Goes up each time the saved copy is replaced (e.g. Fetch full page); part of the body's address so a new copy isn't served from cache. */
@@ -97,6 +99,8 @@ export interface RelatedItem {
   savedAt: number | null;
   /** The topics or words the two items share, for the "because" line. */
   shared: string[];
+  /** How close the two are in meaning (0-1), when the PC helper's embeddings found it. */
+  similarity?: number;
 }
 
 export interface UnsubscribeResult {
@@ -142,7 +146,7 @@ export interface BulkReadInput {
   action: 'read' | 'unread';
 }
 
-export type ItemView = 'inbox' | 'unread' | 'saved' | 'interesting' | 'archived';
+export type ItemView = 'inbox' | 'unread' | 'saved' | 'interesting' | 'likely' | 'archived';
 
 /** Per-source AI switch. "default" follows the setting for the source's kind. */
 export type AiMode = 'default' | 'on' | 'off';
@@ -578,10 +582,17 @@ export interface HelperHeartbeat {
   load?: HelperLoad;
   /** Which web search the helper can use (a key in its config), if any. */
   webSearch?: 'brave' | null;
+  /**
+   * The helper's local store of item embeddings (id and model). When it changes (a new PC,
+   * a lost store or another embedding model) the app queues every item to be embedded again.
+   */
+  embedStore?: string | null;
+  /** Items in that store. */
+  embedCount?: number;
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.2.7';
+export const HELPER_VERSION = '0.3.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -602,6 +613,29 @@ export interface HelperConfig {
   asksWaiting?: number;
   /** How often to check for asks between the normal rounds. */
   askPollSeconds?: number;
+  /** Items waiting to be embedded for related reading and Likely interesting. */
+  embedWaiting?: boolean;
+  /** Changes whenever an item is marked or unmarked Interesting, so the helper rescores. */
+  interestingKey?: string;
+}
+
+/** One item for the helper to embed: its text and when it arrived. */
+export interface EmbedJob {
+  itemId: string;
+  receivedAt: number;
+  text: string;
+}
+
+/** The nearest older items to an embedded one, as [itemId, cosine similarity]. */
+export interface EmbedResult {
+  itemId: string;
+  neighbours: [string, number][];
+}
+
+/** What the helper needs to score Likely interesting. */
+export interface LikelyState {
+  interesting: string[];
+  likely: string[];
 }
 
 export interface HelperJob {

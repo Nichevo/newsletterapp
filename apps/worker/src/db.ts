@@ -103,6 +103,7 @@ export interface ItemRow {
   read_device: string | null;
   saved_at: number | null;
   interesting_at: number | null;
+  likely: number | null;
   body_v?: number | null;
   lead_image?: string | null;
   lead_image_title?: string | null;
@@ -214,6 +215,7 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<Summa
     readDevice: (row.read_device as ItemSummary['readDevice']) ?? null,
     savedAt: row.saved_at,
     interestingAt: row.interesting_at ?? null,
+    likely: row.likely === 1,
     archivedAt: row.archived_at,
     hasHtml: row.has_html === 1,
     bodyVersion: row.body_v ?? 0,
