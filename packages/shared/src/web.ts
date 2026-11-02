@@ -647,3 +647,86 @@ export function leadImage(html: string, base: string | null, fallback?: string |
   if (fallback && /^https?:\/\//i.test(fallback) && !junkImage(fallback)) return { src: fallback.slice(0, 1000), title: null };
   return null;
 }
+
+// ---------- An aggregator's links for one story (Techmeme's "More:" and discussion) ----------
+
+export interface StoryLinks {
+  html: string;
+  text: string;
+  count: number;
+}
+
+const plain = (html: string) =>
+  decodeEntities(html.replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * The outside links an aggregator page lists for one story, each with the text
+ * around it (publication and headline, or the quoted comment). The story is the
+ * part of the page from the anchor in the post's link (#a261102p5) to the next
+ * anchor of the same shape; without such an anchor there's no telling which
+ * links belong to the story, so nothing is returned.
+ */
+export function storyLinks(html: string, postUrl: string, skip: string[] = []): StoryLinks | null {
+  let page: URL;
+  try {
+    page = new URL(postUrl);
+  } catch {
+    return null;
+  }
+  const hash = decodeURIComponent(page.hash.slice(1));
+  if (!hash) return null;
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const start = new RegExp(`\\b(?:name|id)\\s*=\\s*["']${esc(hash)}["']`, 'i').exec(html);
+  if (!start) return null;
+  const rest = html.slice(start.index + start[0].length);
+  // The next story's anchor: the same shape with other numbers.
+  const shape = esc(hash).replace(/\d+/g, '\\d+');
+  const next = new RegExp(`\\b(?:name|id)\\s*=\\s*["']${shape}["']`, 'i').exec(rest);
+  const slice = rest.slice(0, next ? next.index : 40_000);
+
+  const ownHost = page.hostname.replace(/^www\./, '');
+  const skipped = new Set(skip.map((u) => u.replace(/#.*$/, '')));
+  const seen = new Set<string>();
+  const rows: { url: string; label: string; context: string }[] = [];
+  for (const chunk of slice.split(/<(?:div|p|li|br|tr|h\d|blockquote)\b[^>]*>/i)) {
+    const re = /<a\b[^>]*\bhref\s*=\s*["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    let m: RegExpExecArray | null;
+    // The words around the links (a quoted comment, a headline), only when the block has one link.
+    const links = [...chunk.matchAll(/<a\b[^>]*\bhref\s*=\s*["'](https?:\/\/[^"'/]+)/gi)].filter(
+      (x) => !x[1]!.replace(/^https?:\/\/(www\.)?/i, '').toLowerCase().endsWith(ownHost.toLowerCase()),
+    ).length;
+    let around = links === 1 ? plain(chunk.replace(/<a\b[\s\S]*?<\/a>/gi, ' ')).replace(/^[\s:—–·,-]+|[\s:—–·,-]+$/g, '') : '';
+    if (around.length < 12) around = '';
+    let first = true;
+    while ((m = re.exec(chunk))) {
+      const url = decodeEntities(m[1]!);
+      let host: string;
+      try {
+        host = new URL(url).hostname.replace(/^www\./, '');
+      } catch {
+        continue;
+      }
+      const key = url.replace(/#.*$/, '');
+      if (host === ownHost || host.endsWith(`.${ownHost}`) || skipped.has(key) || seen.has(key)) continue;
+      const label = plain(m[2] ?? '') || host;
+      seen.add(key);
+      let context = first ? around : '';
+      if (context.length > 300) context = `${context.slice(0, 297).trimEnd()}…`;
+      rows.push({ url, label, context });
+      first = false;
+      if (rows.length >= 30) break;
+    }
+    if (rows.length >= 30) break;
+  }
+  if (rows.length === 0) return null;
+  const h = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return {
+    html: `<h2>More on this story</h2>\n<ul>\n${rows
+      .map((r) => `<li><a href="${h(r.url)}">${h(r.label)}</a>${r.context ? ` · ${h(r.context)}` : ''}</li>`)
+      .join('\n')}\n</ul>`,
+    text: `More on this story:\n${rows.map((r) => `- ${r.label}${r.context ? `: ${r.context}` : ''}`).join('\n')}`,
+    count: rows.length,
+  };
+}

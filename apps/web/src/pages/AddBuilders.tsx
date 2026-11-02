@@ -193,18 +193,18 @@ export function QuickForm({ mode, onLook }: { mode: Exclude<Mode, 'site'>; onLoo
   return <YoutubeForm onLook={onLook} />;
 }
 
-const CAP_OPTIONS = [5, 10, 20, 30, 50, 100];
+const CAP_OPTIONS = [5, 10, 20, 30, 50, 100, 0];
 
 /** The flood guard: at most this many new posts a day go to the inbox; the rest go to Archived. */
 export function DailyCapPicker({ value, onChange }: { value: number; onChange: (n: number) => void }) {
-  const options = CAP_OPTIONS.includes(value) ? CAP_OPTIONS : [...CAP_OPTIONS, value].sort((a, b) => a - b);
+  const options = CAP_OPTIONS.includes(value) ? CAP_OPTIONS : [...CAP_OPTIONS.filter((n) => n > 0), value, 0].sort((a, b) => (a || 1e9) - (b || 1e9));
   return (
     <label className="inline" style={{ flexWrap: 'wrap', gap: 8 }}>
-      <span className="hint" style={{ margin: 0 }}>At most</span>
+      <span className="hint" style={{ margin: 0 }}>Daily limit</span>
       <select className="input" style={{ flex: '1 1 120px' }} value={value} onChange={(e) => onChange(Number(e.target.value))}>
         {options.map((n) => (
           <option key={n} value={n}>
-            {n} new posts a day{n === DEFAULT_DAILY_CAP ? ' (usual)' : ''}
+            {n === 0 ? 'No limit (flood guard off)' : `${n} new posts a day${n === DEFAULT_DAILY_CAP ? ' (usual)' : ''}`}
           </option>
         ))}
       </select>
@@ -218,7 +218,7 @@ export function DailyCapPicker({ value, onChange }: { value: number; onChange: (
 /** "About N posts a day", with a warning when that would be a lot. */
 export function PerDayLine({ perDay, cap }: { perDay: number | null; cap: number }) {
   if (perDay === null) return null;
-  const busy = perDay > cap;
+  const busy = cap > 0 && perDay > cap;
   const text =
     perDay >= 1 ? `About ${Math.round(perDay)} post${Math.round(perDay) === 1 ? '' : 's'} a day` : perDay * 7 >= 1 ? `About ${Math.round(perDay * 7)} a week` : 'A few a month';
   return (

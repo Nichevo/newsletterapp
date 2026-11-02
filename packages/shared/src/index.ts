@@ -222,9 +222,12 @@ export interface Source {
   showPicture: boolean;
   /** Each check's new posts arrive as one item with all of them inside (feeds that post in bursts). */
   bundle: boolean;
+  /** Fetch the outside article each post links to (aggregators like Techmeme), kept under the post's summary. */
+  followLink: boolean;
   /** Which posts come in at all (by title). */
   postFilter: PostFilter;
   /** Flood guard: at most this many new posts a day reach the inbox; the rest go to Archived. */
+  /** New posts a day before the rest go to Archived; 0 = no limit. */
   dailyCap: number;
   /** When the flood guard last set posts aside, and how many that day. */
   floodAt: number | null;
@@ -433,6 +436,7 @@ export interface SourceUpdate {
   linkHint?: string | null;
   showPicture?: boolean;
   bundle?: boolean;
+  followLink?: boolean;
   postFilter?: PostFilter;
   dailyCap?: number;
   /** Minutes between checks; null = automatic (feeds follow their learnt rhythm). */
@@ -532,6 +536,8 @@ export interface FetchJob {
   firstRun: boolean;
   /** The source shows pictures in the inbox: pick each post's picture from its page and download it. */
   wantPicture?: boolean;
+  /** Follow-link sources: the aggregator's own page for the post, to list its other links for the story. */
+  postUrl?: string | null;
 }
 
 export interface FetchJobResult {
@@ -623,7 +629,7 @@ export interface HelperHeartbeat {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.3.3';
+export const HELPER_VERSION = '0.3.4';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
