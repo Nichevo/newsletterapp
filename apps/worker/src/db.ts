@@ -73,6 +73,7 @@ export interface SourceRow {
   rhythm: string | null;
   show_picture?: number | null;
   bundle?: number | null;
+  wait_hours?: number | null;
   follow_link?: number | null;
   flood_skip?: number | null;
   post_filter?: string | null;
@@ -342,6 +343,7 @@ export function toSource(
     rhythm: row.kind === 'feed' ? parseRhythm(row.rhythm) : null,
     showPicture: row.show_picture === 1,
     bundle: row.bundle === 1,
+    waitHours: row.wait_hours ?? 0,
     platform: platformOf(row.feed_url),
     followLink: row.follow_link === 1,
     floodSkip: row.flood_skip === 1,

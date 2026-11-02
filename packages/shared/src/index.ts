@@ -241,6 +241,8 @@ export interface Source {
   /** Reddit, YouTube or GitHub when the feed is from there. */
   platform: Platform | null;
   bundle: boolean;
+  /** New posts are held until they are this many hours old (0 = straight away). */
+  waitHours: number;
   /** Fetch the outside article each post links to (aggregators like Techmeme), kept under the post's summary. */
   followLink: boolean;
   /** Posts past the daily limit are dropped instead of going to Archived. */
@@ -457,6 +459,7 @@ export interface SourceUpdate {
   linkHint?: string | null;
   showPicture?: boolean;
   bundle?: boolean;
+  waitHours?: number;
   followLink?: boolean;
   floodSkip?: boolean;
   postFilter?: PostFilter;
@@ -524,6 +527,7 @@ export interface NewSourceInput {
   startWith?: number;
   postFilter?: PostFilter;
   dailyCap?: number;
+  waitHours?: number;
 }
 
 export interface NewSourceResult {
@@ -651,7 +655,7 @@ export interface HelperHeartbeat {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.3.6';
+export const HELPER_VERSION = '0.3.7';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {

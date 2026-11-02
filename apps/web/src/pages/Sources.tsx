@@ -1,12 +1,13 @@
-import type { Source, SourceActivity } from '@newsletterapp/shared';
+import { SOURCE_TYPES, type Source, type SourceActivity, type SourceType } from '@newsletterapp/shared';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { activityView, nextTime, rhythmText, type ActivityView } from '../format';
 import { IconBack } from '../icons';
+import { KIND_LABEL, sourceType } from '../components/FilterBar';
 import { CategoriesSection, useAppSettings } from './Settings';
 
-type Show = 'all' | 'quiet' | 'unread';
+type Show = 'all' | 'quiet' | 'unread' | 'paused';
 type Sort = 'latest' | 'name' | 'reads';
 const SORT_LABEL: Record<Sort, string> = { latest: 'Latest', name: 'Name', reads: 'Most read' };
 interface Row {
@@ -23,6 +24,9 @@ export function SourcesPage() {
   const [activity, setActivity] = useState<Map<string, SourceActivity>>(new Map());
   const [show, setShow] = useState<Show>('all');
   const [sort, setSort] = useState<Sort>('latest');
+  const [query, setQuery] = useState('');
+  const [type, setType] = useState<SourceType | ''>('');
+  const [category, setCategory] = useState('');
 
   useEffect(() => {
     api
@@ -38,8 +42,23 @@ export function SourcesPage() {
   const rows: Row[] = (sources ?? []).map((s) => ({ source: s, view: activityView(activity.get(s.id), s) }));
   const quietCount = rows.filter((r) => r.view.quiet).length;
   const unreadCount = rows.filter((r) => r.view.unread).length;
+  const pausedCount = rows.filter((r) => r.source.pausedAt !== null).length;
+  const types = SOURCE_TYPES.filter((t) => rows.some((r) => sourceType(r.source) === t));
+  const categories = [...new Set(rows.map((r) => r.source.category).filter((c): c is string => Boolean(c)))].sort();
+  const words = query.trim().toLowerCase();
   const picked = rows
-    .filter((r) => show === 'all' || (show === 'quiet' ? r.view.quiet : r.view.unread))
+    .filter((r) =>
+      show === 'all' ? true : show === 'quiet' ? r.view.quiet : show === 'unread' ? r.view.unread : r.source.pausedAt !== null,
+    )
+    .filter((r) => !type || sourceType(r.source) === type)
+    .filter((r) => !category || (category === '-' ? !r.source.category : r.source.category === category))
+    .filter(
+      (r) =>
+        !words ||
+        [r.source.name, r.source.url, r.source.feedUrl, r.source.senderEmail]
+          .filter(Boolean)
+          .some((v) => String(v).toLowerCase().includes(words)),
+    )
     .sort((a, b) =>
       sort === 'name'
         ? a.source.name.localeCompare(b.source.name)
@@ -93,12 +112,45 @@ export function SourcesPage() {
 
       {sources && sources.length > 0 && (
         <div className="section">
+          <input
+            className="input"
+            type="search"
+            placeholder="Find a source by name or address"
+            aria-label="Find a source"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <div className="inline" style={{ flexWrap: 'wrap' }}>
+            <select className="input" style={{ flex: '1 1 130px' }} aria-label="Type" value={type} onChange={(e) => setType(e.target.value as SourceType | '')}>
+              <option value="">All types</option>
+              {types.map((t) => (
+                <option key={t} value={t}>
+                  {KIND_LABEL[t]}
+                </option>
+              ))}
+            </select>
+            <select className="input" style={{ flex: '1 1 130px' }} aria-label="Category" value={category} onChange={(e) => setCategory(e.target.value)}>
+              <option value="">All categories</option>
+              {categories.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+              <option value="-">No category</option>
+            </select>
+          </div>
           <div className="pills">
-            {(['all', 'quiet', 'unread'] as Show[]).map((v) => (
-              <button key={v} className="pill" aria-pressed={show === v} onClick={() => setShow(v)}>
-                {v === 'all' ? 'All' : v === 'quiet' ? `Quiet (${quietCount})` : `Unread (${unreadCount})`}
-              </button>
-            ))}
+            {(['all', 'quiet', 'unread', 'paused'] as Show[])
+              .filter((v) => v !== 'paused' || pausedCount > 0)
+              .map((v) => (
+                <button key={v} className="pill" aria-pressed={show === v} onClick={() => setShow(v)}>
+                  {v === 'all'
+                    ? 'All'
+                    : v === 'quiet'
+                      ? `Quiet (${quietCount})`
+                      : v === 'unread'
+                        ? `Unread (${unreadCount})`
+                        : `Paused (${pausedCount})`}
+                </button>
+              ))}
           </div>
           <div className="pills">
             <span className="label" style={{ alignSelf: 'center' }}>
@@ -118,7 +170,13 @@ export function SourcesPage() {
       )}
       {sources && sources.length > 0 && picked.length === 0 && (
         <p className="hint" style={{ padding: '0 16px' }}>
-          {show === 'quiet' ? 'No quiet sources: everything has posted recently.' : 'No unread sources: you read something from each.'}
+          {query || type || category
+            ? 'No sources match these filters.'
+            : show === 'quiet'
+              ? 'No quiet sources: everything has posted recently.'
+              : show === 'paused'
+                ? 'No paused sources.'
+                : 'No unread sources: you read something from each.'}
         </p>
       )}
 

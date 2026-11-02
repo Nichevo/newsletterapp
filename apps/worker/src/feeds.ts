@@ -25,6 +25,7 @@ import {
   passesPostFilter,
   isRedditPost,
   isVideoPost,
+  platformOf,
 } from '@newsletterapp/shared';
 import { Buffer } from 'node:buffer';
 import type { Hono } from 'hono';
@@ -195,7 +196,13 @@ function bundleEntries(source: SourceRow, entries: FeedEntry[]): FeedEntry {
 export async function storeEntries(env: Env, source: SourceRow, entries: FeedEntry[], alsoSeen: string[] = []): Promise<number> {
   const t = now();
   const unique = new Map<string, FeedEntry>();
-  for (const e of entries) if (e.key && !unique.has(e.key)) unique.set(e.key, e);
+  // Posts younger than the source's wait aren't taken (or remembered) yet; a later check brings them in.
+  const waitUntil = (source.wait_hours ?? 0) > 0 ? t - source.wait_hours! * 3_600_000 : null;
+  for (const e of entries) {
+    if (!e.key || unique.has(e.key)) continue;
+    if (waitUntil !== null && e.publishedAt !== null && e.publishedAt > waitUntil) continue;
+    unique.set(e.key, e);
+  }
   const allKeys = [...new Set([...unique.keys(), ...alsoSeen.filter(Boolean).map((k) => k.slice(0, 500))])];
   if (allKeys.length === 0) return 0;
   const seen = await seenKeys(env, source.id, allKeys);
@@ -708,8 +715,8 @@ export function registerFeeds(app: App) {
     const fetchVia = input.kind === 'site' || input.fetchVia === 'pc' ? 'pc' : 'cloud';
     await c.env.DB.prepare(
       `INSERT INTO sources (id, kind, name, url, feed_url, fetch_via, render, link_hint, category, created_at, next_check_at, start_count,
-         post_filter, daily_cap)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         post_filter, daily_cap, wait_hours)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         id,
@@ -726,6 +733,12 @@ export function registerFeeds(app: App) {
         startCount(input.startWith),
         input.postFilter ? JSON.stringify(normalizePostFilter(input.postFilter)) : null,
         typeof input.dailyCap === 'number' ? Math.min(Math.max(Math.round(input.dailyCap), 0), 500) : null,
+        // Reddit posts wait a few hours by default, so votes and comments have built up.
+        typeof input.waitHours === 'number'
+          ? Math.min(Math.max(Math.round(input.waitHours), 0), 72)
+          : platformOf(feedUrl) === 'reddit'
+            ? 6
+            : 0,
       )
       .run();
     const row = (await loadSourceRow(c.env, id))!;
@@ -873,8 +886,11 @@ export function registerFeeds(app: App) {
       item_id: string | null;
       attempts: number;
       force: number | null;
+      url: string;
     }>();
     if (!job) return c.json({ error: 'not found' }, 404);
+    // Reddit: the PC sends only the top comments, which go under the post from the feed.
+    const comments = isRedditPost(job.url);
     const source = job.source_id ? await loadSourceRow(c.env, job.source_id) : null;
     const error = String(r.error || 'Fetch failed on the PC').slice(0, 300);
 
@@ -886,7 +902,8 @@ export function registerFeeds(app: App) {
             .first<{ id: string; word_count: number | null; lead_image: string | null; html_key: string | null }>()
         : null;
       // Asked for from the reader: the page as it is now replaces the saved copy, whatever its length.
-      const wanted = job.force ? Boolean(a?.html && a.wordCount > 0) : Boolean(a?.html && a.wordCount > Math.max(item?.word_count ?? 0, 50));
+      const wanted =
+        job.force || comments ? Boolean(a?.html && a.wordCount > 0) : Boolean(a?.html && a.wordCount > Math.max(item?.word_count ?? 0, 50));
       // The post's picture: a copy the PC downloaded always wins (some sites' picture links expire);
       // otherwise the feed's own picture stays, and a post with none (or only a logo) takes the page's.
       let picture: { src: string; title: string | null } | null = null;
@@ -903,17 +920,25 @@ export function registerFeeds(app: App) {
         const quick = quickSummary(a.html, a.text);
         const key = `items/${item.id}/body.html`;
         let html = a.picture && picture ? swapPictureSrc(a.html, a.picture.src, picture.src) : a.html;
-        if (source?.follow_link === 1 && item.html_key) {
+        if ((source?.follow_link === 1 || comments) && item.html_key) {
           // The aggregator's own summary stays on top, the linked article under it (replaced on a re-fetch).
           const feedCopy = (await (await c.env.RAW.get(item.html_key))?.text())?.split('<hr data-linked-article>')[0];
           if (feedCopy) html = `${feedCopy}\n<hr data-linked-article>\n${html}`;
         }
         await c.env.RAW.put(key, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
         await c.env.DB.prepare(
-          `UPDATE items SET html_key = ?, has_html = 1, word_count = ?, snippet = ?, preheader = COALESCE(preheader, ?), sponsored = ?,
+          `UPDATE items SET html_key = ?, has_html = 1, word_count = ?, snippet = COALESCE(?, snippet), preheader = COALESCE(preheader, ?), sponsored = ?,
              ai_status = COALESCE(ai_status, 'pending'), body_v = body_v + 1 WHERE id = ?`,
         )
-          .bind(key, quick.wordCount, snippetOf(a.text), quick.preheader, quick.sponsored ? 1 : 0, item.id)
+          .bind(
+            key,
+            // Comments add to the post's own words; the post keeps its own snippet.
+            comments ? (item.word_count ?? 0) + a.wordCount : quick.wordCount,
+            comments ? null : snippetOf(a.text),
+            quick.preheader,
+            quick.sponsored ? 1 : 0,
+            item.id,
+          )
           .run();
       } else if (!r.ok && job.attempts < JOB_MAX_ATTEMPTS && !r.blocked) {
         await c.env.DB.prepare("UPDATE fetch_jobs SET status = 'pending', claimed_at = NULL, error = ? WHERE id = ?").bind(error, job.id).run();
