@@ -1,4 +1,13 @@
-import { DEFAULT_SETTINGS, type AppSettings, type DigestOptions, type SavedFilter, type SummaryKind } from '@newsletterapp/shared';
+import {
+  DEFAULT_SETTINGS,
+  SOURCE_TYPES,
+  formatFilterSet,
+  parseFilterSet,
+  type AppSettings,
+  type DigestOptions,
+  type SavedFilter,
+  type SummaryKind,
+} from '@newsletterapp/shared';
 import type { Env } from './env';
 import { now } from './ids';
 
@@ -74,6 +83,11 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
       : bd.skipCategories,
     doneMarksRead: typeof d.doneMarksRead === 'boolean' ? d.doneMarksRead : bd.doneMarksRead,
   };
+  const cleanTypes = (v: string) => {
+    const set = parseFilterSet(v);
+    const ok = (t: string) => (SOURCE_TYPES as string[]).includes(t);
+    return formatFilterSet({ include: set.include.filter(ok), exclude: set.exclude.filter(ok) });
+  };
   const savedFilters: SavedFilter[] = Array.isArray(input.savedFilters)
     ? input.savedFilters
         .map((f) => ({
@@ -81,8 +95,8 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
           view: (['inbox', 'unread', 'saved', 'interesting', 'likely', 'archived'] as const).find((v) => v === f?.view) ?? 'inbox',
           sort: (['newest', 'oldest', 'top'] as const).find((v) => v === f?.sort) ?? 'newest',
           source: typeof f?.source === 'string' ? f.source.slice(0, 64) : null,
-          category: typeof f?.category === 'string' ? str(f.category, 40) || null : null,
-          kind: (['newsletter', 'feed', 'site', 'ai'] as const).find((v) => v === f?.kind) ?? null,
+          category: typeof f?.category === 'string' ? str(f.category, 400) || null : null,
+          kind: typeof f?.kind === 'string' ? cleanTypes(f.kind) : null,
         }))
         .filter((f) => f.name)
         .slice(0, 20)

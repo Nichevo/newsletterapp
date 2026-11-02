@@ -1,4 +1,15 @@
-import { SOURCE_TYPES, type ItemSort, type ItemView, type SavedFilter, type Source, type SourceType } from '@newsletterapp/shared';
+import {
+  SOURCE_TYPES,
+  cycleFilterValue,
+  filterState,
+  matchesFilterSet,
+  parseFilterSet,
+  type ItemSort,
+  type ItemView,
+  type SavedFilter,
+  type Source,
+  type SourceType,
+} from '@newsletterapp/shared';
 import { useState } from 'react';
 import { IconChevron, IconFilter } from '../icons';
 
@@ -6,8 +17,35 @@ export interface Filters {
   view: ItemView;
   sort: ItemSort;
   source: string | null;
+  /** Categories to show or hide, e.g. "AI|Tech" or "!Comics" (see FilterSet). */
   category: string | null;
-  kind: SourceType | null;
+  /** Types to show or hide, e.g. "!reddit|!github". */
+  kind: string | null;
+}
+
+/** "Reddit, GitHub" or "Not Reddit, GitHub" (or both parts), for the bar's one-line summary. */
+function setLabel(value: string | null, label: (v: string) => string): string | null {
+  const set = parseFilterSet(value);
+  const parts = [
+    set.include.length ? set.include.map(label).join(', ') : null,
+    set.exclude.length ? `Not ${set.exclude.map(label).join(', ')}` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+/** A chip that cycles: off → only these → hide these → off. */
+function TriPill({ value, token, label, onChange }: { value: string | null; token: string; label: string; onChange: (v: string | null) => void }) {
+  const state = filterState(value, token);
+  return (
+    <button
+      className={state === 'exclude' ? 'pill pill--excluded' : 'pill'}
+      aria-pressed={state === 'include'}
+      aria-label={state === 'exclude' ? `${label} (hidden)` : label}
+      onClick={() => onChange(cycleFilterValue(value, token))}
+    >
+      {state === 'exclude' ? `✕ ${label}` : label}
+    </button>
+  );
 }
 
 export const KIND_LABEL: Record<SourceType, string> = {
@@ -78,11 +116,14 @@ export function FilterBar({
   // For a category, that's the sources with items in it (items often get their category from keyword
   // rules or the AI, not their source); until the server has said, sources set to that category.
   const inCategory = categorySources ? new Set(categorySources) : null;
+  const kindSet = parseFilterSet(filters.kind);
+  const catSet = parseFilterSet(filters.category);
   const matchingSources = sources.filter(
     (s) =>
       s.id === filters.source ||
-      ((!filters.kind || sourceType(s) === filters.kind) &&
-        (!filters.category || s.category === filters.category || (inCategory ? inCategory.has(s.id) : false))),
+      (matchesFilterSet(sourceType(s), kindSet) &&
+        (!catSet.include.length || catSet.include.includes(s.category ?? '') || (inCategory ? inCategory.has(s.id) : false)) &&
+        !catSet.exclude.includes(s.category ?? '')),
   );
   // Reddit, YouTube and GitHub only show up as types once you follow something there.
   const types = new Set<SourceType>(['newsletter', 'feed', 'site', 'ai', ...sources.map(sourceType)]);
@@ -94,8 +135,8 @@ export function FilterBar({
     : matchingSources;
   const summary = [
     fixedView ? null : VIEW_LABEL[filters.view],
-    filters.kind ? KIND_LABEL[filters.kind] : null,
-    filters.category,
+    setLabel(filters.kind, (k) => KIND_LABEL[k as SourceType] ?? k),
+    setLabel(filters.category, (c) => c),
     sourceName,
     SORT_LABEL[filters.sort],
   ]
@@ -149,17 +190,11 @@ export function FilterBar({
               <button className="pill" aria-pressed={filters.kind === null} onClick={() => onChange({ ...filters, kind: null })}>
                 All
               </button>
-              {SOURCE_TYPES.filter((k) => !types || types.has(k) || filters.kind === k).map((k) => (
-                <button
-                  key={k}
-                  className="pill"
-                  aria-pressed={filters.kind === k}
-                  onClick={() => onChange({ ...filters, kind: k, source: null })}
-                >
-                  {KIND_LABEL[k]}
-                </button>
+              {SOURCE_TYPES.filter((k) => types.has(k) || filterState(filters.kind, k) !== null).map((k) => (
+                <TriPill key={k} value={filters.kind} token={k} label={KIND_LABEL[k]} onChange={(v) => onChange({ ...filters, kind: v, source: null })} />
               ))}
             </div>
+            <span className="hint">Types and categories: tap once to show only that, again to hide it (✕), once more to clear. Pick as many as you like.</span>
           </div>
           {categories.length > 0 && (
             <div className="filterbar__group">
@@ -169,14 +204,7 @@ export function FilterBar({
                   All
                 </button>
                 {categories.map((cat) => (
-                  <button
-                    key={cat}
-                    className="pill"
-                    aria-pressed={filters.category === cat}
-                    onClick={() => onChange({ ...filters, category: cat })}
-                  >
-                    {cat}
-                  </button>
+                  <TriPill key={cat} value={filters.category} token={cat} label={cat} onChange={(v) => onChange({ ...filters, category: v })} />
                 ))}
               </div>
             </div>
