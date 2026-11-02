@@ -1,4 +1,5 @@
 import type {
+  FetchPageStatus,
   SearchResponse,
   SourceActivity,
   Address,
@@ -105,7 +106,10 @@ export const api = {
     return get<ItemListResponse>(`/api/items?${q}`);
   },
   item: (id: string) => get<ItemSummary>(`/api/items/${id}`),
-  itemBody: (id: string) => get<ItemBody>(`/api/items/${id}/body`),
+  // A replaced copy has its own address (?v=), so the week-long cache never serves the old one.
+  itemBody: (id: string, version = 0) => get<ItemBody>(`/api/items/${id}/body${version ? `?v=${version}` : ''}`),
+  fetchPage: (id: string) => post<FetchPageStatus>(`/api/items/${id}/fetch-page`),
+  fetchPageStatus: (id: string) => get<FetchPageStatus>(`/api/items/${id}/fetch-page`),
   itemAction: (id: string, action: 'read' | 'unread' | 'save' | 'unsave' | 'interesting' | 'uninteresting' | 'archive' | 'unarchive') =>
     post<ItemSummary>(`/api/items/${id}/${action}`, action === 'read' ? { device: isPhone() } : undefined),
   bulkRead: (input: BulkReadInput) => post<{ changed: number }>('/api/items/bulk-read', { ...input, device: isPhone() }),

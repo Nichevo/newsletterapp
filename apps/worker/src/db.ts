@@ -102,6 +102,7 @@ export interface ItemRow {
   read_device: string | null;
   saved_at: number | null;
   interesting_at: number | null;
+  body_v?: number | null;
   archived_at: number | null;
   summary: string | null;
   key_points: string | null;
@@ -211,6 +212,7 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<Summa
     interestingAt: row.interesting_at ?? null,
     archivedAt: row.archived_at,
     hasHtml: row.has_html === 1,
+    bodyVersion: row.body_v ?? 0,
     listUnsubscribe: row.list_unsubscribe,
     oneClickUnsubscribe: isOneClick(row.list_unsubscribe, row.list_unsubscribe_post),
     webUrl: row.web_url,

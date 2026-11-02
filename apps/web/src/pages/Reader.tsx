@@ -1,4 +1,4 @@
-import type { AskPreset, ItemBody, ItemHighlights, ItemSummary, RelatedItem, UnsubscribeResult } from '@newsletterapp/shared';
+import type { AskPreset, FetchPageStatus, ItemBody, ItemHighlights, ItemSummary, RelatedItem, UnsubscribeResult } from '@newsletterapp/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
@@ -60,7 +60,9 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
     setSponsoredCount(0);
     setShowSponsored(false);
     Promise.all([api.item(id), api.itemBody(id)])
-      .then(([i, b]) => {
+      .then(async ([i, b]) => {
+        // A copy fetched again since: ask for that version (rare, so the first request stays parallel).
+        if (i.bodyVersion > 0) b = await api.itemBody(id, i.bodyVersion);
         if (cancelled) return;
         setItem(i);
         setBody(b);
@@ -178,6 +180,17 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             />
           )}
           {marks.place === 'top' && marks.notes}
+          {item.webUrl && item.kind !== 'newsletter' && item.kind !== 'ai' && (
+            <FetchPage
+              item={item}
+              onFetched={async () => {
+                const i = await api.item(item.id);
+                const b = await api.itemBody(item.id, i.bodyVersion);
+                setItem(i);
+                setBody(b);
+              }}
+            />
+          )}
           {hasRemoteImages && !loadImages && (
             <div className="reader__images">
               <span>
@@ -850,4 +863,74 @@ function readLabel(item: ItemSummary): string {
   const how = item.readVia ? READ_VIA_LABEL[item.readVia] : 'Read';
   const where = item.readDevice ? ` on ${item.readDevice}` : '';
   return `${how}${where}, ${item.readAt ? longDate(item.readAt) : ''}`.replace(/, $/, '');
+}
+
+/**
+ * "Fetch full page": the PC fetches the post's web page again and its article
+ * replaces the saved copy. Checks back every 10 seconds while it waits.
+ */
+function FetchPage({ item, onFetched }: { item: ItemSummary; onFetched: () => Promise<void> }) {
+  const [status, setStatus] = useState<FetchPageStatus | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const fetched = useRef(onFetched);
+  fetched.current = onFetched;
+
+  useEffect(() => {
+    let stop = false;
+    api
+      .fetchPageStatus(item.id)
+      .then((s) => !stop && setStatus(s))
+      .catch(() => undefined);
+    return () => {
+      stop = true;
+    };
+  }, [item.id]);
+
+  useEffect(() => {
+    if (!status?.pending) return;
+    const started = Date.now();
+    const timer = setInterval(() => {
+      api
+        .fetchPageStatus(item.id)
+        .then(async (s) => {
+          if (s.pending && Date.now() - started < 10 * 60_000) return;
+          setStatus(s);
+          if (!s.pending && !s.error) {
+            await fetched.current();
+            setNote('Fetched: this is the page as it is now.');
+          }
+        })
+        .catch(() => undefined);
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [status?.pending, item.id]);
+
+  async function start() {
+    setNote(null);
+    try {
+      setStatus(await api.fetchPage(item.id));
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : 'Could not ask for the page');
+    }
+  }
+
+  const label = item.hasHtml ? 'Fetch full page again' : 'Fetch full page';
+  return (
+    <div className="reader__images">
+      <span>
+        {status?.pending
+          ? status.helperOnline
+            ? 'Fetching the page on your PC…'
+            : 'Waiting for your PC to come online to fetch the page…'
+          : status?.error
+            ? `Last try: ${status.error}`
+            : (note ?? 'Only a summary or the wrong text? Your PC can fetch the whole article from the web page.')}
+      </span>
+      {!status?.pending && (
+        <button className="btn btn--small" onClick={() => void start()}>
+          {status?.error ? 'Try again' : label}
+        </button>
+      )}
+    </div>
+  );
 }

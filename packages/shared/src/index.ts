@@ -40,6 +40,8 @@ export interface ItemSummary {
   interestingAt: number | null;
   archivedAt: number | null;
   hasHtml: boolean;
+  /** Goes up each time the saved copy is replaced (e.g. Fetch full page); part of the body's address so a new copy isn't served from cache. */
+  bodyVersion: number;
   listUnsubscribe: string | null;
   /** The sender supports RFC 8058 one-click unsubscribe (a POST to the https link). */
   oneClickUnsubscribe: boolean;
@@ -146,6 +148,16 @@ export type ItemSort = 'newest' | 'oldest' | 'top';
 
 /** Narrowing for the Search page; every field optional. */
 export type SearchState = 'unread' | 'read' | 'saved' | 'interesting' | 'archived';
+/** A "Fetch full page" request from the reader, as it stands. */
+export interface FetchPageStatus {
+  /** Waiting for or being fetched by the PC. */
+  pending: boolean;
+  /** Set when the last request failed. */
+  error: string | null;
+  /** Whether the PC helper has checked in recently (it does the fetching). */
+  helperOnline: boolean;
+}
+
 export interface SearchResponse {
   items: ItemSummary[];
   /** Matches in all, on the first page only. */
