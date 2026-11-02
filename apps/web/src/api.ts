@@ -1,4 +1,5 @@
 import type {
+  SearchResponse,
   SourceActivity,
   Address,
   AskPreset,
@@ -139,6 +140,7 @@ export const api = {
   exportMeta: () => get<{ exportedAt: number; sources: unknown[]; settings: unknown; highlights: unknown[] }>('/api/export/meta'),
   exportItems: (after: number) => get<{ items: Record<string, unknown>[]; next: number | null }>(`/api/export/items?after=${after}`),
   exportEvents: (after: number) => get<{ events: Record<string, unknown>[]; next: number | null }>(`/api/export/events?after=${after}`),
+  search: (query: string) => get<SearchResponse>(`/api/search?${query}`),
   sourceActivity: () => get<SourceActivity[]>('/api/sources/activity'),
   checkSource: (id: string) => post<{ added: number; waitingForPc: boolean; source: Source }>(`/api/sources/${id}/check`),
 

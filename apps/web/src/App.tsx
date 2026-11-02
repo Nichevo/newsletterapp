@@ -17,6 +17,7 @@ import { SendersPage } from './pages/Senders';
 import { SettingsPage } from './pages/Settings';
 import { SourcePage } from './pages/Source';
 import { ExportPage } from './pages/Export';
+import { SearchPage } from './pages/Search';
 import { SourcesPage } from './pages/Sources';
 import { ReadingStatsPage } from './pages/ReadingStats';
 import { StatsPage } from './pages/Stats';
@@ -75,6 +76,7 @@ export default function App() {
         <Route path="/senders" element={<SendersPage onChanged={refreshCounts} />} />
         <Route path="/add" element={<AddPage me={me} />} />
         <Route path="/ask" element={<AskPage />} />
+        <Route path="/search" element={<SearchPage />} />
         <Route path="/settings" element={<SettingsPage me={me} />} />
         <Route path="/source/:id" element={<SourcePage />} />
         <Route path="/settings/ai" element={<AiSettingsPage />} />
