@@ -131,6 +131,12 @@ export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeA
           </span>
         </div>
         <span className="row__title">{item.subject}</span>
+        {expanded && item.leadImage && (
+          <figure className="row__picture">
+            <img src={item.leadImage.src} alt={item.leadImage.title ?? ''} loading="lazy" referrerPolicy="no-referrer" />
+            {item.leadImage.title && <figcaption>{item.leadImage.title}</figcaption>}
+          </figure>
+        )}
         {showPreview ? (
           <span className="row__snippet" style={{ WebkitLineClamp: previewLines }}>
             {preview}

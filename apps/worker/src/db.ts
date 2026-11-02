@@ -70,6 +70,7 @@ export interface SourceRow {
   paused_at: number | null;
   start_count: number | null;
   rhythm: string | null;
+  show_picture?: number | null;
 }
 
 export interface ItemRow {
@@ -103,6 +104,8 @@ export interface ItemRow {
   saved_at: number | null;
   interesting_at: number | null;
   body_v?: number | null;
+  lead_image?: string | null;
+  lead_image_title?: string | null;
   archived_at: number | null;
   summary: string | null;
   key_points: string | null;
@@ -134,6 +137,7 @@ export interface ItemJoined {
   source_category?: string | null;
   source_ai_mode?: AiMode | null;
   source_ai_since?: number | null;
+  source_show_picture?: number | null;
   run_provider?: string | null;
   run_model?: string | null;
   run_prompt_version?: number | null;
@@ -213,6 +217,7 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<Summa
     archivedAt: row.archived_at,
     hasHtml: row.has_html === 1,
     bodyVersion: row.body_v ?? 0,
+    leadImage: row.source_show_picture === 1 && row.lead_image ? { src: row.lead_image, title: row.lead_image_title ?? null } : null,
     listUnsubscribe: row.list_unsubscribe,
     oneClickUnsubscribe: isOneClick(row.list_unsubscribe, row.list_unsubscribe_post),
     webUrl: row.web_url,
@@ -321,5 +326,6 @@ export function toSource(
     errorCount: row.error_count ?? 0,
     pausedAt: row.paused_at ?? null,
     rhythm: row.kind === 'feed' ? parseRhythm(row.rhythm) : null,
+    showPicture: row.show_picture === 1,
   };
 }

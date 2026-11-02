@@ -1,5 +1,5 @@
 import { SavedTabs } from './Highlights';
-import type { ItemKind, ItemListResponse, ItemSummary, ItemView, Me, Source } from '@newsletterapp/shared';
+import type { ItemKind, ItemListResponse, ItemSummary, ItemView, Me, SavedFilter, Source } from '@newsletterapp/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { rememberList } from '../readingList';
@@ -72,6 +72,16 @@ export function InboxPage({
   const [error, setError] = useState<string | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[] | null>(null);
+  async function storeFilters(list: SavedFilter[]) {
+    const before = savedFilters;
+    setSavedFilters(list);
+    try {
+      setSavedFilters((await api.saveSettings({ savedFilters: list })).savedFilters);
+    } catch {
+      setSavedFilters(before);
+    }
+  }
   const [aiPaused, setAiPaused] = useState<string | null>(null);
   const [listCounts, setListCounts] = useState<ItemListResponse['counts'] | null>(null);
   const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
@@ -113,7 +123,10 @@ export function InboxPage({
     api.sources().then(setSources).catch(() => undefined);
     api
       .settings()
-      .then((s) => setCategories(s.categories))
+      .then((s) => {
+        setCategories(s.categories);
+        setSavedFilters(s.savedFilters);
+      })
       .catch(() => undefined);
     api
       .aiStatus()
@@ -295,6 +308,8 @@ export function InboxPage({
         count={total}
         fixedView={mode !== 'inbox'}
         onBulk={bulk}
+        saved={mode === 'inbox' ? (savedFilters ?? undefined) : undefined}
+        onSaved={mode === 'inbox' && savedFilters ? (list) => void storeFilters(list) : undefined}
       />
 
       {mode === 'inbox' && counts.pendingSenders > 0 && (

@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, type AppSettings, type DigestOptions, type SummaryKind } from '@newsletterapp/shared';
+import { DEFAULT_SETTINGS, type AppSettings, type DigestOptions, type SavedFilter, type SummaryKind } from '@newsletterapp/shared';
 import type { Env } from './env';
 import { now } from './ids';
 
@@ -71,5 +71,18 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
       : bd.skipCategories,
     doneMarksRead: typeof d.doneMarksRead === 'boolean' ? d.doneMarksRead : bd.doneMarksRead,
   };
-  return { categories, keywordRules, aiByKind, interests, digestHour, timezone, digest };
+  const savedFilters: SavedFilter[] = Array.isArray(input.savedFilters)
+    ? input.savedFilters
+        .map((f) => ({
+          name: str(f?.name, 40),
+          view: (['inbox', 'unread', 'saved', 'interesting', 'archived'] as const).find((v) => v === f?.view) ?? 'inbox',
+          sort: (['newest', 'oldest', 'top'] as const).find((v) => v === f?.sort) ?? 'newest',
+          source: typeof f?.source === 'string' ? f.source.slice(0, 64) : null,
+          category: typeof f?.category === 'string' ? str(f.category, 40) || null : null,
+          kind: (['newsletter', 'feed', 'site', 'ai'] as const).find((v) => v === f?.kind) ?? null,
+        }))
+        .filter((f) => f.name)
+        .slice(0, 20)
+    : base.savedFilters;
+  return { categories, keywordRules, aiByKind, interests, digestHour, timezone, digest, savedFilters };
 }

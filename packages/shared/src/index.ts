@@ -42,6 +42,8 @@ export interface ItemSummary {
   hasHtml: boolean;
   /** Goes up each time the saved copy is replaced (e.g. Fetch full page); part of the body's address so a new copy isn't served from cache. */
   bodyVersion: number;
+  /** The post's picture, for sources set to show it in the inbox (comics); null otherwise. */
+  leadImage: { src: string; title: string | null } | null;
   listUnsubscribe: string | null;
   /** The sender supports RFC 8058 one-click unsubscribe (a POST to the https link). */
   oneClickUnsubscribe: boolean;
@@ -205,6 +207,8 @@ export interface Source {
   errorCount: number;
   /** Set when you stop following; nothing is fetched until you resume. */
   pausedAt: number | null;
+  /** Show each post's picture in the inbox's Expanded view (comic feeds). */
+  showPicture: boolean;
   /** Feeds only: when it usually posts, learnt from its posts. Null until first learnt. */
   rhythm: FeedRhythm | null;
 }
@@ -306,6 +310,17 @@ export interface AppSettings {
   timezone: string;
   /** How the daily digest is put together. */
   digest: DigestOptions;
+  /** Named inbox filters, shown as one-tap presets in the filter bar on every device. */
+  savedFilters: SavedFilter[];
+}
+
+export interface SavedFilter {
+  name: string;
+  view: ItemView;
+  sort: ItemSort;
+  source: string | null;
+  category: string | null;
+  kind: ItemKind | null;
 }
 
 export interface DigestOptions {
@@ -340,6 +355,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   digestHour: 7,
   timezone: 'UTC',
   digest: DEFAULT_DIGEST_OPTIONS,
+  savedFilters: [],
 };
 
 // ---------- Daily digest ----------
@@ -389,6 +405,7 @@ export interface SourceUpdate {
   render?: boolean;
   fullText?: FullTextMode;
   linkHint?: string | null;
+  showPicture?: boolean;
   /** Minutes between checks; null = automatic (feeds follow their learnt rhythm). */
   checkMinutes?: number | null;
   paused?: boolean;

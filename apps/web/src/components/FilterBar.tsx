@@ -1,4 +1,4 @@
-import type { ItemKind, ItemSort, ItemView, Source } from '@newsletterapp/shared';
+import type { ItemKind, ItemSort, ItemView, SavedFilter, Source } from '@newsletterapp/shared';
 import { useState } from 'react';
 import { IconChevron, IconFilter } from '../icons';
 
@@ -30,6 +30,8 @@ export function FilterBar({
   count,
   fixedView,
   onBulk,
+  saved,
+  onSaved,
 }: {
   filters: Filters;
   onChange: (f: Filters) => void;
@@ -40,7 +42,20 @@ export function FilterBar({
   fixedView?: boolean;
   /** Mark all read / archive all for the selected source, when one is selected. */
   onBulk?: (sourceId: string, action: 'read-all' | 'archive-all') => void;
+  /** Named filters (kept in app settings); shown as one-tap presets when given. */
+  saved?: SavedFilter[];
+  onSaved?: (list: SavedFilter[]) => void;
 }) {
+  const same = (f: SavedFilter) =>
+    f.view === filters.view && f.sort === filters.sort && f.source === filters.source && f.category === filters.category && f.kind === filters.kind;
+  const current = saved?.find(same) ?? null;
+  function saveCurrent() {
+    if (!saved || !onSaved) return;
+    const name = window.prompt('Name this filter', current?.name ?? '')?.trim();
+    if (!name) return;
+    const entry: SavedFilter = { name: name.slice(0, 40), ...filters };
+    onSaved([...saved.filter((f) => f.name !== entry.name && !same(f)), entry]);
+  }
   const [open, setOpen] = useState(false);
   const [allSources, setAllSources] = useState(false);
   const sourceName = filters.source ? (sources.find((s) => s.id === filters.source)?.name ?? 'One source') : 'All sources';
@@ -75,6 +90,20 @@ export function FilterBar({
         {count !== null && <span className="filterbar__count">{count}</span>}
         <IconChevron size={18} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms' }} />
       </button>
+      {saved && saved.length > 0 && (
+        <div className="filterbar__presets" role="group" aria-label="Saved filters">
+          {saved.map((f) => (
+            <button
+              key={f.name}
+              className="pill"
+              aria-pressed={same(f)}
+              onClick={() => onChange({ view: f.view, sort: f.sort, source: f.source, category: f.category, kind: f.kind })}
+            >
+              {f.name}
+            </button>
+          ))}
+        </div>
+      )}
       {open && (
         <div className="filterbar__panel">
           {!fixedView && (
@@ -183,6 +212,22 @@ export function FilterBar({
                   Archive all
                 </button>
               </div>
+            </div>
+          )}
+          {saved && onSaved && (
+            <div className="filterbar__group">
+              <span className="label">Saved filters</span>
+              <div className="inline">
+                <button className="btn btn--small" onClick={saveCurrent}>
+                  {current ? `Rename “${current.name}”` : 'Save this filter'}
+                </button>
+                {current && (
+                  <button className="btn btn--ghost btn--small" onClick={() => onSaved(saved.filter((f) => f !== current))}>
+                    Remove “{current.name}”
+                  </button>
+                )}
+              </div>
+              <span className="hint">Saved filters show as one-tap buttons under this bar, on your phone and PC.</span>
             </div>
           )}
           <div className="inline" style={{ justifyContent: 'space-between' }}>

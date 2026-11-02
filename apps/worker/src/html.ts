@@ -1,3 +1,5 @@
+import { absoluteUrl, attr } from '@newsletterapp/shared';
+
 // Light-touch helpers for email bodies. The web app does the real
 // sanitising (DOMPurify in a shadow root); here we only keep the Worker
 // cheap and derive a plain-text snippet for list views.
@@ -60,6 +62,30 @@ export function findWebVersionUrl(html: string): string | null {
       const href = m[1] ?? '';
       if (/^https?:\/\//i.test(href)) return href;
     }
+  }
+  return null;
+}
+
+/**
+ * The first real picture in a post (skipping tracking pixels, icons and data
+ * URLs), with its hover text, e.g. a comic and its punchline. Looks at the first
+ * 30 images at most, so a long page costs little.
+ */
+export function leadImage(html: string, base: string | null): { src: string; title: string | null } | null {
+  const re = /<img\b[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  for (let n = 0; n < 30 && (m = re.exec(html)) !== null; n++) {
+    const tag = m[0];
+    const raw = attr(tag, 'src') ?? attr(tag, 'data-src');
+    if (!raw || raw.startsWith('data:')) continue;
+    const src = base ? absoluteUrl(raw, base) : /^https?:\/\//i.test(raw) ? raw : null;
+    if (!src) continue;
+    const w = Number(attr(tag, 'width') ?? 0);
+    const h = Number(attr(tag, 'height') ?? 0);
+    if ((w && w < 80) || (h && h < 60)) continue; // pixels, avatars, icons
+    if (/pixel|tracking|spacer|avatar|gravatar|emoji|feeds\.feedburner|\/ads?\//i.test(src)) continue;
+    const title = attr(tag, 'title') || attr(tag, 'alt') || null;
+    return { src: src.slice(0, 1000), title: title ? title.slice(0, 500) : null };
   }
   return null;
 }

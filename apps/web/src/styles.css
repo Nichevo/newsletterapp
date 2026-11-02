@@ -1898,3 +1898,32 @@ a.pill {
   color: var(--amber-ink);
   font-weight: 600;
 }
+
+.filterbar__presets {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 0 0;
+  scrollbar-width: none;
+}
+.filterbar__presets .pill {
+  flex: none;
+}
+
+.row__picture {
+  margin: 6px 0 2px;
+}
+.row__picture img {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  height: auto;
+  border-radius: 8px;
+  background: var(--surface);
+}
+.row__picture figcaption {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--quiet);
+  margin-top: 4px;
+}
