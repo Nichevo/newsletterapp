@@ -10,6 +10,7 @@ import {
   pageTitle,
   renderStoryLinks,
   storyLinkRows,
+  type StoryLinkRow,
   parseFeed,
   type FeedEntry,
   type FetchJob,
@@ -198,9 +199,19 @@ async function headlineOf(url: string): Promise<string> {
  */
 async function addStoryLinks(article: Article, postUrl: string, skip: string[], cfg: LocalConfig): Promise<void> {
   try {
-    const post = await get(postUrl, cfg);
-    if (post.status >= 400) return;
-    const rows = storyLinkRows(post.body, postUrl, skip);
+    // The post's own page; if the site turns the PC away, try a browser, then the site's front page
+    // (the story is found there by its main article's link).
+    let rows: StoryLinkRow[] = [];
+    for (const attempt of [
+      () => get(postUrl, cfg),
+      () => get(postUrl, cfg, { render: true }),
+      () => get(new URL('/', postUrl).toString(), cfg),
+    ]) {
+      const post = await attempt().catch(() => null);
+      if (!post || post.status >= 400 || looksBlocked(post.status, post.body)) continue;
+      rows = storyLinkRows(post.body, postUrl, skip);
+      if (rows.length) break;
+    }
     const missing = rows.filter((r) => r.group === 'more' && !r.peek).slice(0, 12);
     for (let i = 0; i < missing.length; i += 4) {
       await Promise.all(
