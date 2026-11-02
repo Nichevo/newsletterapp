@@ -152,6 +152,35 @@ async function runBatches(env: Env, stmts: D1PreparedStatement[]) {
   for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
 }
 
+const escapeHtml = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/**
+ * Several new posts as one entry: titled after the newest ("… + 3 more"), each
+ * post a section with its own heading and link, newest first.
+ */
+function bundleEntries(source: SourceRow, entries: FeedEntry[]): FeedEntry {
+  const [first] = entries as [FeedEntry, ...FeedEntry[]];
+  const html = entries
+    .map((e) => {
+      const heading = e.url ? `<a href="${escapeHtml(e.url)}">${escapeHtml(e.title)}</a>` : escapeHtml(e.title);
+      return `<section><h2>${heading}</h2>${e.html ?? ''}</section>`;
+    })
+    .join('<hr>');
+  const text = entries.map((e) => [e.title, e.text ?? (e.html ? htmlToText(e.html) : '')].filter(Boolean).join('\n\n')).join('\n\n');
+  const dates = entries.map((e) => e.publishedAt).filter((d): d is number => d !== null);
+  return {
+    key: `bundle:${first.key}`.slice(0, 500),
+    url: source.url ?? first.url,
+    title: `${first.title} + ${entries.length - 1} more`,
+    author: source.name,
+    publishedAt: dates.length ? Math.max(...dates) : null,
+    html,
+    text,
+    image: entries.find((e) => e.image)?.image ?? null,
+    picture: entries.find((e) => e.picture)?.picture ?? null,
+  };
+}
+
 /**
  * Turns posts the source hasn't seen before into inbox items, newest first.
  * On a source's first check only the latest few come in; everything else is
@@ -168,7 +197,10 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
   const fresh = [...unique.values()].filter((e) => !seen.has(e.key));
   // Newest first; posts without a date keep the feed's (or page's) own order.
   fresh.sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0));
-  const take = fresh.slice(0, source.last_ok_at === null ? (source.start_count ?? FIRST_RUN_KEEP) : MAX_NEW_PER_CHECK);
+  let take = fresh.slice(0, source.last_ok_at === null ? (source.start_count ?? FIRST_RUN_KEEP) : MAX_NEW_PER_CHECK);
+  // Sources that post in bursts can bring each check's new posts in as one item.
+  const bundled = source.bundle === 1 && take.length > 1;
+  if (bundled) take = [bundleEntries(source, take)];
 
   const settings = take.length ? await loadSettings(env) : null;
   const stmts: D1PreparedStatement[] = [];
@@ -185,7 +217,10 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
         : null;
     if (html && e.picture && picture) html = swapPictureSrc(html, e.picture.src, picture.src);
     const needArticle =
-      source.kind === 'feed' && e.url !== null && (source.full_text === 'always' || (source.full_text === 'auto' && quick.wordCount < TEASER_WORDS));
+      !bundled &&
+      source.kind === 'feed' &&
+      e.url !== null &&
+      (source.full_text === 'always' || (source.full_text === 'auto' && quick.wordCount < TEASER_WORDS));
     const htmlKey = html ? `items/${id}/body.html` : null;
     if (html) puts.push(env.RAW.put(htmlKey!, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } }));
     stmts.push(
