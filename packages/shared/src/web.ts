@@ -22,6 +22,8 @@ export interface FeedEntry {
    * used for the inbox picture when the body itself has none.
    */
   image?: string | null;
+  /** The post's picture, downloaded by the PC (website watches of sources that show pictures). */
+  picture?: Picture | null;
 }
 
 export interface ParsedFeed {
@@ -40,6 +42,20 @@ export interface Article {
   wordCount: number;
   /** The page's own share picture (og:image / twitter:image); for comics it is usually the strip itself. */
   image?: string | null;
+  /** The post's picture picked from the whole page, downloaded by the PC; only when the source shows pictures. */
+  picture?: Picture | null;
+}
+
+/** A post's picture for the inbox, e.g. a comic strip and its hover text. */
+export interface Picture {
+  src: string;
+  title: string | null;
+  /**
+   * The picture itself, base64, when the PC downloaded it. Some sites (Ctrl+Alt+Del)
+   * hand out picture links that stop working after a day or two, so the app keeps its own copy.
+   */
+  data?: string;
+  type?: string;
 }
 
 export interface PageLink {
@@ -552,4 +568,66 @@ export function looksScripted(html: string): boolean {
   const text = stripTags(withoutChrome(html)).length;
   const scripts = (html.match(/<script\b/gi) ?? []).length;
   return text < 400 && (scripts >= 3 || /<div id=["'](root|app|__next)["']>\s*<\/div>/i.test(html));
+}
+
+// ---------- Pictures (comics in the inbox) ----------
+
+const JUNK_IMAGE = /pixel|tracking|spacer|avatar|gravatar|emoji|logo|icon|sprite|badge|\/ads?\/|social|patreon|ko-?fi|promo|advert/i;
+const JUNK_HOST = /feeds\.feedburner|doubleclick|googlesyndication|gravatar/i;
+
+/** Site furniture rather than the post's own picture: logos, icons, share buttons, tracking pixels. */
+export function junkImage(src: string, alt?: string | null): boolean {
+  let path = src;
+  try {
+    path = new URL(src).pathname; // a site called "iconic-comics.com" is still fine
+  } catch {
+    // keep the whole string
+  }
+  return JUNK_IMAGE.test(path) || JUNK_HOST.test(src) || /\blogo\b/i.test(alt ?? '');
+}
+
+/**
+ * The post's picture (skipping tracking pixels, logos, icons and data URLs),
+ * with its hover text, e.g. a comic and its punchline. A whole saved page can
+ * hold a site logo before the strip, so among the first 40 images one with
+ * hover text, a comic-like address or a big size wins over the first one.
+ * `fallback` (a feed enclosure or the page's og:image) is used when the body
+ * has no picture of its own.
+ */
+export function leadImage(html: string, base: string | null, fallback?: string | null): { src: string; title: string | null } | null {
+  const re = /<img\b[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  let best: { src: string; title: string | null; score: number } | null = null;
+  for (let n = 0; n < 40 && (m = re.exec(html)) !== null; n++) {
+    const tag = m[0];
+    const plain = attr(tag, 'src');
+    // Lazy-loaded images keep a placeholder in src and the real address in data-src.
+    const raw = plain && !plain.startsWith('data:') ? plain : attr(tag, 'data-src');
+    if (!raw || raw.startsWith('data:')) continue;
+    const src = base ? absoluteUrl(raw, base) : /^https?:\/\//i.test(raw) ? raw : null;
+    if (!src) continue;
+    const w = Number(attr(tag, 'width') ?? 0);
+    const h = Number(attr(tag, 'height') ?? 0);
+    if ((w && w < 80) || (h && h < 60)) continue; // pixels, avatars, icons
+    const hover = attr(tag, 'title');
+    const alt = attr(tag, 'alt');
+    if (junkImage(src, alt)) continue;
+    // The address's path only: on a site called cad-comic.com every image would look like a comic.
+    let path = src;
+    try {
+      path = new URL(src).pathname;
+    } catch {
+      // keep the whole address
+    }
+    const where = `${path} ${attr(tag, 'id') ?? ''} ${attr(tag, 'class') ?? ''}`;
+    const score = (hover ? 3 : 0) + (/comic|strip|cartoon/i.test(where) ? 3 : 0) + (w >= 300 || h >= 300 ? 1 : 0);
+    if (!best || score > best.score) {
+      const title = hover || alt || null;
+      best = { src: src.slice(0, 1000), title: title ? title.slice(0, 500) : null, score };
+      if (score >= 6) break;
+    }
+  }
+  if (best) return { src: best.src, title: best.title };
+  if (fallback && /^https?:\/\//i.test(fallback) && !junkImage(fallback)) return { src: fallback.slice(0, 1000), title: null };
+  return null;
 }

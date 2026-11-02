@@ -2,6 +2,7 @@ import {
   FETCH_HEADERS,
   extractArticle,
   extractLinks,
+  leadImage,
   looksBlocked,
   looksScripted,
   pageTitle,
@@ -9,6 +10,7 @@ import {
   type FeedEntry,
   type FetchJob,
   type FetchJobResult,
+  type Picture,
 } from '@newsletterapp/shared';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -23,6 +25,7 @@ import { dataDir, type LocalConfig } from './config';
 // nothing extra needs installing.
 
 const FIRST_RUN_ARTICLES = 5;
+const PICTURE_MAX_BYTES = 4_000_000;
 const ARTICLES_PER_CHECK = 10;
 
 interface Page {
@@ -103,6 +106,27 @@ function failed(job: FetchJob, page: Page): FetchJobResult | null {
   return null;
 }
 
+/**
+ * The post's picture for sources that show pictures in the inbox: picked from
+ * the whole page (the cleaned-up article can lose a comic that sits outside the
+ * text), then downloaded straight away, because some sites' picture links stop
+ * working after a day or two. Without the download the app still gets the address.
+ */
+async function pagePicture(body: string, pageUrl: string, fallback: string | null | undefined): Promise<Picture | null> {
+  const pick = leadImage(body, pageUrl, fallback);
+  if (!pick) return null;
+  try {
+    const res = await fetch(pick.src, { headers: { ...FETCH_HEADERS, Accept: 'image/*', Referer: pageUrl }, redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+    const type = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
+    if (!res.ok || !type.startsWith('image/')) return pick;
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (bytes.length === 0 || bytes.length > PICTURE_MAX_BYTES) return pick;
+    return { ...pick, data: bytes.toString('base64'), type };
+  } catch {
+    return pick;
+  }
+}
+
 async function feedJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult> {
   const page = await get(job.url, cfg, { etag: job.etag, lastModified: job.lastModified });
   if (page.status === 304) return { jobId: job.id, ok: true, notModified: true, etag: page.etag, lastModified: page.lastModified };
@@ -136,6 +160,7 @@ async function pageJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult>
       if (!failed(job, art)) {
         const a = extractArticle(art.body, art.url);
         entry = { ...entry, title: a.title || link.title, author: a.author, publishedAt: a.publishedAt, html: a.html || null, text: a.text, image: a.image ?? null };
+        if (job.wantPicture) entry.picture = await pagePicture(art.body, art.url, a.image);
       }
     } catch {
       // The headline and link still come in; the reader can open the live page.
@@ -151,7 +176,9 @@ async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResu
   const page = await get(job.url, cfg, { render: job.render });
   const bad = failed(job, page);
   if (bad) return bad;
-  return { jobId: job.id, ok: true, article: extractArticle(page.body, page.url) };
+  const article = extractArticle(page.body, page.url);
+  if (job.wantPicture) article.picture = await pagePicture(page.body, page.url, article.image);
+  return { jobId: job.id, ok: true, article };
 }
 
 /** The readable text of a web page, for lookups. Opens it in a browser only when it was built by JavaScript. */
