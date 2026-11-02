@@ -816,7 +816,9 @@ select {
   border-top: 1px solid var(--border);
   background: var(--surface);
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* One row however many buttons there are (Save, Star, Archive, Mark read, Original, Inbox). */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   z-index: 10;
 }
 
@@ -829,8 +831,11 @@ select {
   align-items: center;
   justify-content: center;
   gap: 4px;
+  min-width: 0;
+  padding: 0 2px;
   color: var(--ink);
-  font: 500 11px var(--font);
+  font: 500 11px/1.15 var(--font);
+  text-align: center;
   text-decoration: none;
 }
 
