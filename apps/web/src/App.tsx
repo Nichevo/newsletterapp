@@ -52,8 +52,9 @@ export default function App() {
       });
   }, [refreshCounts]);
 
+  // Not on opening an article: the reader shows no counts, and the inbox refreshes them on the way back.
   useEffect(() => {
-    if (me) refreshCounts();
+    if (me && !location.pathname.startsWith('/item/')) refreshCounts();
   }, [location.pathname, me, refreshCounts]);
 
   if (authError) return <SetupNotice error={authError} />;
