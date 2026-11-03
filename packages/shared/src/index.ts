@@ -62,7 +62,8 @@ export interface ItemSummary {
   /** Goes up each time the saved copy is replaced (e.g. Fetch full page); part of the body's address so a new copy isn't served from cache. */
   bodyVersion: number;
   /** The post's picture, for sources set to show it in the inbox (comics); null otherwise. */
-  leadImage: { src: string; title: string | null } | null;
+  /** title = hover text, alt = the picture's description (when different). */
+  leadImage: { src: string; title: string | null; alt: string | null } | null;
   listUnsubscribe: string | null;
   /** The sender supports RFC 8058 one-click unsubscribe (a POST to the https link). */
   oneClickUnsubscribe: boolean;

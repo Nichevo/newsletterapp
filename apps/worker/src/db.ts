@@ -116,6 +116,7 @@ export interface ItemRow {
   body_v?: number | null;
   lead_image?: string | null;
   lead_image_title?: string | null;
+  lead_image_alt?: string | null;
   archived_at: number | null;
   summary: string | null;
   key_points: string | null;
@@ -232,7 +233,7 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<Summa
     hasHtml: row.has_html === 1,
     bodyVersion: row.body_v ?? 0,
     platform: platformOf(row.source_feed_url),
-    leadImage: row.source_show_picture === 1 && row.lead_image ? { src: row.lead_image, title: row.lead_image_title ?? null } : null,
+    leadImage: row.source_show_picture === 1 && row.lead_image ? { src: row.lead_image, title: row.lead_image_title ?? null, alt: row.lead_image_alt ?? null } : null,
     listUnsubscribe: row.list_unsubscribe,
     oneClickUnsubscribe: isOneClick(row.list_unsubscribe, row.list_unsubscribe_post),
     webUrl: row.web_url,

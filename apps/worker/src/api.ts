@@ -648,7 +648,9 @@ async function backfillPictures(env: Env, sourceId: string) {
   );
   const updates = found
     .filter((f) => f.picture)
-    .map((f) => env.DB.prepare('UPDATE items SET lead_image = ?, lead_image_title = ? WHERE id = ?').bind(f.picture!.src, f.picture!.title, f.id));
+    .map((f) =>
+      env.DB.prepare('UPDATE items SET lead_image = ?, lead_image_title = ?, lead_image_alt = ? WHERE id = ?').bind(f.picture!.src, f.picture!.title, f.picture!.alt, f.id),
+    );
   if (updates.length) await env.DB.batch(updates);
 
   // The latest few posts also go back to the PC once, which picks the picture from the whole
