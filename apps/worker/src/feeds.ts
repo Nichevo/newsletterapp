@@ -6,6 +6,7 @@ import {
   extractLinks,
   findFeedLinks,
   looksBlocked,
+  looksBotCheck,
   looksScripted,
   pageTitle,
   parseFeed,
@@ -918,7 +919,8 @@ export function registerFeeds(app: App) {
     const error = String(r.error || 'Fetch failed on the PC').slice(0, 300);
 
     if (job.kind === 'article') {
-      const a = r.ok ? r.article : undefined;
+      // A bot-check page ("unusual activity from your computer network") is never kept as the article.
+      const a = r.ok && r.article && !looksBotCheck(r.article.text) ? r.article : undefined;
       const item = job.item_id
         ? await c.env.DB.prepare('SELECT id, word_count, lead_image, html_key FROM items WHERE id = ?')
             .bind(job.item_id)

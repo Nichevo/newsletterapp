@@ -575,11 +575,38 @@ export function extractArticle(html: string, pageUrl: string): Article {
   };
 }
 
+/** Words that only a "prove you're not a robot" page says (Bloomberg's reads "unusual activity from your computer network"). */
+const BOT_CHECK_WORDS =
+  /unusual activity from your (computer )?network|(verify|confirm) (that )?you(['’]re| are) (a )?(human|not a robot)|are you a robot\?|let us know you['’]re not a robot|press (&|&amp;|and) hold|checking (if the site connection is secure|your browser before)|enable (javascript and cookies|cookies and javascript) to continue/i;
+
+/** Readable text that is a bot check rather than an article (short, and saying so). */
+export function looksBotCheck(text: string): boolean {
+  return text.length < 3000 && BOT_CHECK_WORDS.test(text);
+}
+
 /** A response that is a bot check or a block rather than the real page. */
 export function looksBlocked(status: number, body: string): boolean {
   if (status === 403 || status === 429 || status === 503) return true;
   const head = body.slice(0, 6000);
-  return /<title>\s*(just a moment|attention required|access denied|are you a robot|security check)/i.test(head) || /cf-chl-|captcha-delivery|px-captcha/i.test(head);
+  if (/<title>[^<]{0,80}?(just a moment|attention required|access denied|are you a robot|security check|robot check|verify you are human|captcha)/i.test(head)) return true;
+  if (/cf-chl-|captcha-delivery|px-captcha/i.test(body.slice(0, 200_000))) return true;
+  return body.length < 400_000 && looksBotCheck(stripTags(withoutChrome(body, false)));
+}
+
+/**
+ * Sites whose bot checks flag a home network after a few plain fetches, and
+ * whose articles sit behind a paywall anyway: the PC never fetches them.
+ * The reader's Live page still opens them in your own browser.
+ */
+const BOT_WALLED = ['bloomberg.com', 'wsj.com', 'ft.com', 'barrons.com'];
+
+export function botWalled(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return BOT_WALLED.some((d) => host === d || host.endsWith(`.${d}`));
+  } catch {
+    return false;
+  }
 }
 
 /** Pages that render their content with JavaScript: lots of script and almost no text. */
