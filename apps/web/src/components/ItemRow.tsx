@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useDensity, useViewOptions } from './DensityToggle';
+import { TagChip } from './TagChip';
 import { readingMinutes, shortTime } from '../format';
 import { IconBookmark, IconCheck, IconHighlight, IconSparkle } from '../icons';
 
@@ -180,9 +181,7 @@ export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeA
             {item.category && <span className="chip chip--category">{item.category}</span>}
             {item.sponsored && <span className="chip chip--outline">Sponsored</span>}
             {item.tags.map((t) => (
-              <span key={t} className="chip chip--outline">
-                {t}
-              </span>
+              <TagChip key={t} tag={t} inRow />
             ))}
           </div>
         )}

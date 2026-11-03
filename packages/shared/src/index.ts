@@ -85,6 +85,8 @@ export interface ItemSummary {
   whyItMatters: string | null;
   /** Topic tags picked by the AI. */
   tags: string[];
+  /** How many items carry each of those tags (keyed as in tags); only on a single item. */
+  tagCounts?: Record<string, number>;
   thinContent: boolean;
   /** Who wrote the AI summary, for the italic attribution line. */
   ai: AiAttribution | null;
@@ -371,6 +373,8 @@ export interface AppSettings {
   pcSkipSites: string[];
   /** Categories whose items are fetched from those sites anyway. */
   pcSkipAllowCategories: string[];
+  /** Named filter sets for the Topics map. */
+  topicFilters: TopicFilter[];
 }
 
 export interface SavedFilter {
@@ -420,6 +424,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   savedFilters: [],
   pcSkipSites: [...DEFAULT_SKIP_SITES],
   pcSkipAllowCategories: [],
+  topicFilters: [],
 };
 
 // ---------- Daily digest ----------
@@ -1052,4 +1057,66 @@ export function filterState(value: string | null | undefined, token: string): 'i
 export function matchesFilterSet(value: string | null | undefined, set: FilterSet): boolean {
   if (set.include.length && !set.include.includes(value ?? '')) return false;
   return !set.exclude.includes(value ?? '');
+}
+
+// ---------- Tags and the Topics map ----------
+
+/** The key a tag is grouped under: "Tinybuild" and "tinybuild " are the same tag. */
+export function tagKey(label: string): string {
+  return label.trim().toLowerCase();
+}
+
+/** Everything about one tag: its numbers and its items, newest first. */
+export interface TagPage {
+  tag: string;
+  label: string;
+  /** Items with the tag (inbox and archived), and how many are unread. Counted on the first page only. */
+  total: number;
+  unread: number;
+  firstAt: number | null;
+  /** Items per week, oldest first, ending with the current week. */
+  weeks: { start: number; n: number }[];
+  /** Other tags on the same items, most often first. */
+  seenWith: { tag: string; label: string; n: number }[];
+  sources: { id: string | null; name: string; n: number }[];
+  items: ItemSummary[];
+  nextOffset: number | null;
+}
+
+export type TopicsDays = 7 | 30 | 90;
+export const TOPICS_DAYS: TopicsDays[] = [7, 30, 90];
+
+/**
+ * One item on the Topics map, packed small: source and category are indexes into
+ * TopicsData.sources / categories (-1 = none), flags bit 1 = read, bit 2 = starred,
+ * then when it arrived and the indexes of its tags.
+ */
+export type TopicsItem = [source: number, category: number, flags: number, receivedAt: number, tags: number[]];
+
+/** The Topics map's data for one period. Filters are applied in the app, so changing them costs no reads. */
+export interface TopicsData {
+  days: TopicsDays;
+  generatedAt: number;
+  sources: { id: string; name: string; type: SourceType }[];
+  categories: string[];
+  tags: { key: string; label: string }[];
+  items: TopicsItem[];
+}
+
+export type TopicsRead = 'all' | 'unread' | 'read' | 'starred';
+
+/** A saved set of Topics map filters. */
+export interface TopicFilter {
+  name: string;
+  days: TopicsDays;
+  categories: string[];
+  /** Source ids. */
+  sources: string[];
+  types: SourceType[];
+  read: TopicsRead;
+  /** How many tags to show, most common first; 0 = all. */
+  top: number;
+  /** Only tags on at least this many items. */
+  min: number;
+  showSources: boolean;
 }
