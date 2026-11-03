@@ -2,7 +2,7 @@
 // Timestamps are Unix milliseconds.
 
 import type { AiLimitHit } from './usage';
-import type { Article, FeedEntry } from './web';
+import { DEFAULT_SKIP_SITES, type Article, type FeedEntry } from './web';
 
 export * from './web';
 export * from './highlights';
@@ -364,6 +364,13 @@ export interface AppSettings {
   digest: DigestOptions;
   /** Named inbox filters, shown as one-tap presets in the filter bar on every device. */
   savedFilters: SavedFilter[];
+  /**
+   * Sites the PC never fetches (and their subdomains), e.g. bloomberg.com: their bot
+   * checks flag a home network quickly. The reader's Live page still opens them.
+   */
+  pcSkipSites: string[];
+  /** Categories whose items are fetched from those sites anyway. */
+  pcSkipAllowCategories: string[];
 }
 
 export interface SavedFilter {
@@ -411,6 +418,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   timezone: 'UTC',
   digest: DEFAULT_DIGEST_OPTIONS,
   savedFilters: [],
+  pcSkipSites: [...DEFAULT_SKIP_SITES],
+  pcSkipAllowCategories: [],
 };
 
 // ---------- Daily digest ----------
@@ -567,6 +576,8 @@ export interface FetchJob {
   wantPicture?: boolean;
   /** Follow-link sources: the aggregator's own page for the post, to list its other links for the story. */
   postUrl?: string | null;
+  /** Sites the PC must not fetch for this job (settings, less any category exception). */
+  skipSites?: string[];
 }
 
 export interface FetchJobResult {
@@ -655,6 +666,44 @@ export interface HelperHeartbeat {
   embedStore?: string | null;
   /** Items in that store. */
   embedCount?: number;
+  /** Fetches the PC held back or slowed down since its last heartbeat, by site. */
+  holds?: PcHoldCount[];
+  /** Sites the PC is leaving alone right now after a bot check. */
+  resting?: PcRest[];
+}
+
+/** One site's held-back fetches since the helper last reported. */
+export interface PcHoldCount {
+  site: string;
+  /** Not fetched: the site is on the Sites the PC leaves alone list. */
+  skipped: number;
+  /** Not fetched: the site showed a bot check and is resting. */
+  rested: number;
+  /** Bot checks (or 429s) seen, each starting or lengthening a rest. */
+  flagged: number;
+  /** Fetches that waited for the same-site gap, and how long in all. */
+  waited: number;
+  waitMs: number;
+  /** The limits in force: the gap between requests and the longest rest started. */
+  gapMs: number;
+  restMs: number;
+}
+
+export interface PcRest {
+  site: string;
+  until: number;
+  ms: number;
+}
+
+/** Settings > PC helper and AI > Sites the PC leaves alone: limits, rests now and the last days' counts. */
+export interface PcHoldsView {
+  gapMs: number;
+  restFirstMs: number;
+  restMaxMs: number;
+  resting: PcRest[];
+  reportedAt: number | null;
+  days: ({ day: string } & Omit<PcHoldCount, 'site'>)[];
+  sites: PcHoldCount[];
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
@@ -683,6 +732,8 @@ export interface HelperConfig {
   embedWaiting?: boolean;
   /** Changes whenever an item is marked or unmarked Interesting, so the helper rescores. */
   interestingKey?: string;
+  /** Sites the PC must not fetch for lookups outside a fetch job (highlight questions). */
+  skipSites?: string[];
 }
 
 /** One item for the helper to embed: its text and when it arrived. */

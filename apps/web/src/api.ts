@@ -33,6 +33,7 @@ import type {
   AiUsageSettings,
   AiUsageView,
   AppSettings,
+  PcHoldsView,
   ModelInfo,
   ModelMode,
   ModelRating,
@@ -156,6 +157,7 @@ export const api = {
   digestUndone: (day: string) => post<{ readAt: null }>(`/api/digests/${day}/undone`),
 
   settings: () => get<AppSettings>('/api/settings'),
+  pcHolds: () => get<PcHoldsView>('/api/pc-holds'),
   saveSettings: (settings: Partial<AppSettings>) => put<AppSettings>('/api/settings', settings),
 
   // AI summaries (written by the PC helper)

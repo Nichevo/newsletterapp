@@ -7,7 +7,7 @@ import { UPDATED_EXIT_CODE } from './constants';
 import { configPath, loadConfig, type LocalConfig } from './config';
 import { Embeddings } from './embed';
 import { askLookups, lookupsText, summaryLookups, toSources, type Lookups } from './lookups';
-import { runFetchJob } from './fetch';
+import { holdReport, holdsSent, runFetchJob, setSkipSites } from './fetch';
 import { log } from './log';
 import { findProvider, providersFrom, type Provider } from './providers';
 import { currentLoad, powerMeter } from './system';
@@ -70,7 +70,8 @@ async function heartbeat(): Promise<HelperConfig> {
       providerErrors.push({ provider: p.name, error: err instanceof Error ? err.message : String(err) });
     }
   }
-  return app.heartbeat({
+  const report = holdReport();
+  const config = await app.heartbeat({
     version: HELPER_VERSION,
     hostname: hostname(),
     models,
@@ -79,7 +80,11 @@ async function heartbeat(): Promise<HelperConfig> {
     webSearch: cfg.braveApiKey ? 'brave' : null,
     embedStore: embeddings.model ? embeddings.store : null,
     embedCount: embeddings.count,
+    ...report,
   });
+  holdsSent(report.holds);
+  setSkipSites(config.skipSites);
+  return config;
 }
 
 function userMessage(job: Pick<HelperJob, 'sourceName' | 'fromName' | 'subject' | 'html' | 'text'>, c: LocalConfig): string {

@@ -595,15 +595,26 @@ export function looksBlocked(status: number, body: string): boolean {
 
 /**
  * Sites whose bot checks flag a home network after a few plain fetches, and
- * whose articles sit behind a paywall anyway: the PC never fetches them.
- * The reader's Live page still opens them in your own browser.
+ * whose articles sit behind a paywall anyway: by default the PC never fetches
+ * them (Settings can change the list). The reader's Live page still opens them.
  */
-const BOT_WALLED = ['bloomberg.com', 'wsj.com', 'ft.com', 'barrons.com'];
+export const DEFAULT_SKIP_SITES = ['bloomberg.com', 'wsj.com', 'ft.com', 'barrons.com'];
 
-export function botWalled(url: string): boolean {
+/** A site as typed ("https://www.Bloomberg.com/news") reduced to its name ("bloomberg.com"). */
+export function siteName(input: string): string {
+  const s = input.trim().toLowerCase();
+  if (!s) return '';
+  try {
+    return new URL(/^[a-z]+:\/\//.test(s) ? s : `https://${s}`).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+export function botWalled(url: string, sites: string[] = DEFAULT_SKIP_SITES): boolean {
   try {
     const host = new URL(url).hostname.toLowerCase();
-    return BOT_WALLED.some((d) => host === d || host.endsWith(`.${d}`));
+    return sites.some((d) => host === d || host.endsWith(`.${d}`));
   } catch {
     return false;
   }

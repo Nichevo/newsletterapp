@@ -28,6 +28,7 @@ import { fetchJobsWaiting } from './feeds';
 import { ASK_POLL_SECONDS, asksWaiting } from './highlights';
 import { countSearches, searchAllowance, summarySearches } from './websearch';
 import { loadSettings } from './settings';
+import { recordHolds } from './pcholds';
 import { jobsThatFit, limitState } from './usage';
 
 // The AI job queue. The PC helper checks in, claims a few items, summarises
@@ -278,7 +279,13 @@ export function registerAi(app: App) {
     const hb = (await c.req.json().catch(() => null)) as HelperHeartbeat | null;
     if (!hb || !Array.isArray(hb.models)) return c.json({ error: 'bad heartbeat' }, 400);
     const t = now();
-    const before = await readJson<{ models?: unknown; modelsSyncedAt?: number }>(c.env, 'helper');
+    const [before, settings] = await Promise.all([
+      readJson<{ models?: unknown; modelsSyncedAt?: number; resting?: unknown; holdsReportedAt?: number }>(c.env, 'helper'),
+      loadSettings(c.env),
+    ]);
+    // Fetches the PC held back or slowed down since its last heartbeat (helpers from 0.3.10).
+    const holds = Array.isArray(hb.holds) ? hb.holds : [];
+    if (holds.length) await recordHolds(c.env, holds, settings.timezone);
     // The model list rarely changes, so only rewrite it when it does (or hourly, to keep last seen fresh).
     const sameModels = JSON.stringify(before?.models ?? null) === JSON.stringify(hb.models.slice(0, 100));
     const syncModels = !sameModels || t - (before?.modelsSyncedAt ?? 0) >= 3_600_000;
@@ -290,6 +297,15 @@ export function registerAi(app: App) {
       load: hb.load ?? {},
       // Only helpers from 0.2.4 say whether they have a search key; older ones leave it out.
       ...('webSearch' in hb ? { webSearch: hb.webSearch === 'brave' ? 'brave' : null } : {}),
+      // Sites the PC is leaving alone after a bot check, as of this heartbeat.
+      ...(Array.isArray(hb.resting)
+        ? {
+            resting: hb.resting
+              .slice(0, 50)
+              .map((r) => ({ site: String(r.site).slice(0, 120), until: Number(r.until) || 0, ms: Number(r.ms) || 0 })),
+          }
+        : { resting: before?.resting ?? [] }),
+      holdsReportedAt: holds.length ? t : (before?.holdsReportedAt ?? null),
       lastSeenAt: t,
       modelsSyncedAt: syncModels ? t : (before?.modelsSyncedAt ?? 0),
     });
@@ -334,6 +350,7 @@ export function registerAi(app: App) {
       limited: usage.limited,
       asksWaiting: await asksWaiting(c.env, state.paused),
       askPollSeconds: ASK_POLL_SECONDS,
+      skipSites: settings.pcSkipSites,
       ...(await embedHeartbeat(c.env, hb)),
     };
     return c.json(config);

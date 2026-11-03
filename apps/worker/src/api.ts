@@ -27,6 +27,7 @@ import type {
   ReadVia,
 } from '@newsletterapp/shared';
 import { registerAi } from './ai';
+import { registerPcHolds } from './pcholds';
 import { registerBacklog, unparkHeld } from './backlog';
 import { AuthError, authenticate } from './auth';
 import {
@@ -96,6 +97,7 @@ registerExport(app);
 registerUsage(app);
 registerBacklog(app);
 registerReading(app);
+registerPcHolds(app);
 
 // ---------- Items ----------
 

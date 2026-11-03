@@ -1,5 +1,7 @@
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_SKIP_SITES,
+  siteName,
   SOURCE_TYPES,
   formatFilterSet,
   parseFilterSet,
@@ -101,5 +103,23 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
         .filter((f) => f.name)
         .slice(0, 20)
     : base.savedFilters;
-  return { categories, keywordRules, aiByKind, aiOffCategories, interests, digestHour, timezone, digest, savedFilters };
+  const pcSkipSites = Array.isArray(input.pcSkipSites)
+    ? [...new Set(input.pcSkipSites.map((x) => siteName(str(x, 200))).filter(Boolean))].slice(0, 60)
+    : (base.pcSkipSites ?? [...DEFAULT_SKIP_SITES]);
+  const pcSkipAllowCategories = Array.isArray(input.pcSkipAllowCategories)
+    ? [...new Set(input.pcSkipAllowCategories.map((c) => str(c, 40)).filter(Boolean))].slice(0, 40)
+    : (base.pcSkipAllowCategories ?? []);
+  return {
+    categories,
+    keywordRules,
+    aiByKind,
+    aiOffCategories,
+    interests,
+    digestHour,
+    timezone,
+    digest,
+    savedFilters,
+    pcSkipSites,
+    pcSkipAllowCategories,
+  };
 }
