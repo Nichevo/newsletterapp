@@ -6,6 +6,8 @@ import {
   isRedditPost,
   leadImage,
   looksBlocked,
+  looksBotCheck,
+  botWalled,
   looksScripted,
   pageTitle,
   renderStoryLinks,
@@ -17,6 +19,8 @@ import {
   type Article,
   type FetchJobResult,
   type Picture,
+  type PcHoldCount,
+  type PcRest,
   HELPER_VERSION,
 } from '@newsletterapp/shared';
 import { execFile } from 'node:child_process';
@@ -42,6 +46,8 @@ interface Page {
   body: string;
   etag: string | null;
   lastModified: string | null;
+  /** Set when the page was not fetched at all: why the PC is leaving the site alone. */
+  held?: string;
 }
 
 function browserCandidates(cfg: LocalConfig): string[] {
@@ -91,22 +97,135 @@ function renderInBrowser(url: string, cfg: LocalConfig): Promise<Page> {
   });
 }
 
-async function get(url: string, cfg: LocalConfig, opts: { render?: boolean; etag?: string | null; lastModified?: string | null } = {}): Promise<Page> {
-  if (opts.render) return renderInBrowser(url, cfg);
-  const headers: Record<string, string> = { ...FETCH_HEADERS };
-  if (opts.etag) headers['If-None-Match'] = opts.etag;
-  if (opts.lastModified) headers['If-Modified-Since'] = opts.lastModified;
-  const res = await fetch(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+// ---------- Being polite to sites from your home network ----------
+// Fetching many pages from one site in a burst, or carrying on after it shows a
+// "prove you're not a robot" page, gets the home network flagged, and then you
+// see the check in your own browser too. So: a gap between requests to the same
+// site, and after a site turns the PC away, a rest from it (doubling, up to a day).
+
+const SAME_SITE_GAP_MS = 3_000;
+const REST_FIRST_MS = 3 * 3_600_000;
+const REST_MAX_MS = 24 * 3_600_000;
+
+const nextTurn = new Map<string, number>();
+const resting = new Map<string, { until: number; ms: number }>();
+
+/** Sites on the app's "leave alone" list, from the last heartbeat (fetch jobs bring their own). */
+let appSkipSites: string[] | null = null;
+export function setSkipSites(sites: string[] | undefined): void {
+  if (Array.isArray(sites)) appSkipSites = sites;
+}
+const skipFor = (job?: { skipSites?: string[] }) => job?.skipSites ?? appSkipSites ?? undefined;
+
+/** Held-back and slowed fetches since the last heartbeat, by site (sent to the app, then cleared). */
+const holds = new Map<string, PcHoldCount>();
+function count(site: string, add: Partial<Omit<PcHoldCount, 'site'>>): void {
+  if (!site) return;
+  const h = holds.get(site) ?? { site, skipped: 0, rested: 0, flagged: 0, waited: 0, waitMs: 0, gapMs: SAME_SITE_GAP_MS, restMs: 0 };
+  h.skipped += add.skipped ?? 0;
+  h.rested += add.rested ?? 0;
+  h.flagged += add.flagged ?? 0;
+  h.waited += add.waited ?? 0;
+  h.waitMs += add.waitMs ?? 0;
+  h.restMs = Math.max(h.restMs, add.restMs ?? 0);
+  holds.set(site, h);
+}
+
+/** What to send with the heartbeat. Call holdsSent() once the app has them. */
+export function holdReport(): { holds: PcHoldCount[]; resting: PcRest[] } {
+  const t = Date.now();
   return {
-    status: res.status,
-    url: res.url || url,
-    body: res.status === 304 ? '' : await res.text(),
-    etag: res.headers.get('etag'),
-    lastModified: res.headers.get('last-modified'),
+    holds: [...holds.values()],
+    resting: [...resting].filter(([, r]) => r.until > t).map(([site, r]) => ({ site, until: r.until, ms: r.ms })),
   };
+}
+export function holdsSent(sent: PcHoldCount[]): void {
+  for (const h of sent) if (holds.get(h.site) === h) holds.delete(h.site);
+}
+
+function siteOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/** Waits until it is this site's turn again. */
+async function waitTurn(url: string): Promise<void> {
+  const site = siteOf(url);
+  if (!site) return;
+  const t = Date.now();
+  const slot = Math.max(t, nextTurn.get(site) ?? 0);
+  nextTurn.set(site, slot + SAME_SITE_GAP_MS);
+  if (slot > t) {
+    count(site, { waited: 1, waitMs: slot - t });
+    await new Promise((r) => setTimeout(r, slot - t));
+  }
+}
+
+/** Why the PC leaves this address alone for now, or null when it may fetch it. */
+function holdOff(url: string, skip: string[] | undefined): string | null {
+  if (botWalled(url, skip)) {
+    count(siteOf(url), { skipped: 1 });
+    return `${siteOf(url)} is on your Sites the PC leaves alone list (Settings > PC helper and AI), so the PC leaves it to your browser`;
+  }
+  const rest = resting.get(siteOf(url));
+  if (rest && rest.until > Date.now()) {
+    count(siteOf(url), { rested: 1 });
+    return `${siteOf(url)} showed a bot check, so the PC is leaving it alone until ${new Date(rest.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  }
+  return null;
+}
+
+function noteAnswer(url: string, blocked: boolean): void {
+  const site = siteOf(url);
+  if (!site) return;
+  if (!blocked) {
+    resting.delete(site);
+    return;
+  }
+  const ms = Math.min((resting.get(site)?.ms ?? REST_FIRST_MS / 2) * 2, REST_MAX_MS);
+  resting.set(site, { until: Date.now() + ms, ms });
+  count(site, { flagged: 1, restMs: ms });
+  log(`${site} turned the PC away (bot check or block); leaving it alone for ${Math.round(ms / 3_600_000)}h`);
+}
+
+/** A page that was never fetched, because the PC is leaving that site alone. */
+const heldOff = (url: string, why: string): Page => ({ status: 429, url, body: '', etag: null, lastModified: null, held: why });
+
+async function get(
+  url: string,
+  cfg: LocalConfig,
+  opts: { render?: boolean; etag?: string | null; lastModified?: string | null; skip?: string[] } = {},
+): Promise<Page> {
+  const why = holdOff(url, opts.skip);
+  if (why) return heldOff(url, why);
+  await waitTurn(url);
+  let page: Page;
+  if (opts.render) page = await renderInBrowser(url, cfg);
+  else {
+    const headers: Record<string, string> = { ...FETCH_HEADERS };
+    if (opts.etag) headers['If-None-Match'] = opts.etag;
+    if (opts.lastModified) headers['If-Modified-Since'] = opts.lastModified;
+    const res = await fetch(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+    page = {
+      status: res.status,
+      url: res.url || url,
+      body: res.status === 304 ? '' : await res.text(),
+      etag: res.headers.get('etag'),
+      lastModified: res.headers.get('last-modified'),
+    };
+  }
+  // A plain 403 is often just "no programs here"; a 429 or a bot-check page is the network being flagged.
+  const flagged = page.status === 429 || (page.status !== 403 && page.status !== 304 && looksBlocked(page.status, page.body));
+  noteAnswer(url, flagged);
+  if (page.url !== url && siteOf(page.url) !== siteOf(url)) noteAnswer(page.url, flagged);
+  return page;
 }
 
 function failed(job: FetchJob, page: Page): FetchJobResult | null {
+  if (page.held) return { jobId: job.id, ok: false, blocked: true, error: page.held };
   if (looksBlocked(page.status, page.body)) {
     return { jobId: job.id, ok: false, blocked: true, error: `The site turned the PC away too (${page.status})` };
   }
@@ -136,7 +255,7 @@ async function pagePicture(body: string, pageUrl: string, fallback: string | nul
 }
 
 async function feedJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult> {
-  const page = await get(job.url, cfg, { etag: job.etag, lastModified: job.lastModified });
+  const page = await get(job.url, cfg, { etag: job.etag, lastModified: job.lastModified, skip: skipFor(job) });
   if (page.status === 304) return { jobId: job.id, ok: true, notModified: true, etag: page.etag, lastModified: page.lastModified };
   const bad = failed(job, page);
   if (bad) return bad;
@@ -146,7 +265,7 @@ async function feedJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult>
 }
 
 async function pageJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult> {
-  const page = await get(job.url, cfg, { render: job.render });
+  const page = await get(job.url, cfg, { render: job.render, skip: skipFor(job) });
   const bad = failed(job, page);
   if (bad) return bad;
   const asFeed = parseFeed(page.body, page.url, 60);
@@ -164,7 +283,7 @@ async function pageJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult>
   for (const link of fresh) {
     let entry: FeedEntry = { key: link.url, url: link.url, title: link.title, author: null, publishedAt: null, html: null };
     try {
-      const art = await get(link.url, cfg, { render: job.render });
+      const art = await get(link.url, cfg, { render: job.render, skip: skipFor(job) });
       if (!failed(job, art)) {
         const a = extractArticle(art.body, art.url);
         entry = { ...entry, title: a.title || link.title, author: a.author, publishedAt: a.publishedAt, html: a.html || null, text: a.text, image: a.image ?? null };
@@ -209,11 +328,18 @@ async function xPostText(url: string): Promise<string> {
 }
 
 /** A page's headline (og:title, else <title>), for "More" links that come without one. */
-async function headlineOf(url: string): Promise<string> {
+async function headlineOf(url: string, skip: string[] | undefined): Promise<string> {
+  if (holdOff(url, skip)) return '';
   try {
+    await waitTurn(url);
     const res = await fetch(url, { headers: FETCH_HEADERS, redirect: 'follow', signal: AbortSignal.timeout(8_000) });
+    if (res.status === 429) noteAnswer(url, true);
     if (!res.ok || !(res.headers.get('content-type') ?? '').includes('html')) return '';
     const head = (await res.text()).slice(0, 300_000);
+    if (looksBlocked(res.status, head)) {
+      noteAnswer(url, true);
+      return '';
+    }
     const og = /<meta[^>]+property\s*=\s*["']og:title["'][^>]*>/i.exec(head)?.[0];
     const content = og ? /\bcontent\s*=\s*["']([^"']+)["']/i.exec(og)?.[1] : null;
     return (content ?? pageTitle(head) ?? '').trim().slice(0, 300);
@@ -227,19 +353,21 @@ async function headlineOf(url: string): Promise<string> {
  * story, laid out like Techmeme under the article. "More" links without hover
  * text get their headline from the page itself (a few at a time).
  */
-async function addStoryLinks(article: Article, postUrl: string, skip: string[], cfg: LocalConfig): Promise<void> {
+async function addStoryLinks(article: Article, postUrl: string, seen: string[], cfg: LocalConfig, skip: string[] | undefined): Promise<void> {
   try {
     // The post's own page; if the site turns the PC away, try a browser, then the site's front page
     // (the story is found there by its main article's link).
     let rows: StoryLinkRow[] = [];
     for (const attempt of [
-      () => get(postUrl, cfg),
-      () => get(postUrl, cfg, { render: true }),
-      () => get(new URL('/', postUrl).toString(), cfg),
+      () => get(postUrl, cfg, { skip }),
+      () => get(postUrl, cfg, { render: true, skip }),
+      () => get(new URL('/', postUrl).toString(), cfg, { skip }),
     ]) {
       const post = await attempt().catch(() => null);
+      // Held off or flagged: no browser or front-page tries, they only make it worse.
+      if (post?.held || post?.status === 429) break;
       if (!post || post.status >= 400 || looksBlocked(post.status, post.body)) continue;
-      rows = storyLinkRows(post.body, postUrl, skip);
+      rows = storyLinkRows(post.body, postUrl, seen);
       if (rows.length) break;
     }
     // Headlines for coverage links, and the post's words for X posts, when the page gave none.
@@ -247,7 +375,7 @@ async function addStoryLinks(article: Article, postUrl: string, skip: string[], 
     for (let i = 0; i < missing.length; i += 4) {
       await Promise.all(
         missing.slice(i, i + 4).map(async (r) => {
-          r.peek = r.group === 'more' ? await headlineOf(r.url) : await xPostText(r.url);
+          r.peek = r.group === 'more' ? await headlineOf(r.url, skip) : await xPostText(r.url);
         }),
       );
     }
@@ -428,30 +556,40 @@ async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResu
     const article = await redditComments(job.url, cfg).catch(() => null);
     return article ? { jobId: job.id, ok: true, article } : { jobId: job.id, ok: false, error: `Reddit gave no comments (or turned the PC away): ${redditTrail.join('; ')}`.slice(0, 300) };
   }
-  const page = await get(job.url, cfg, { render: job.render });
+  const page = await get(job.url, cfg, { render: job.render, skip: skipFor(job) });
   const bad = failed(job, page);
   if (bad) {
     // The linked article is paywalled or blocked: the story's other links are still worth having.
     if (!job.postUrl) return bad;
     const article: Article = { title: null, author: null, publishedAt: null, html: '', text: '', wordCount: 0 };
-    await addStoryLinks(article, job.postUrl, [job.url], cfg);
+    await addStoryLinks(article, job.postUrl, [job.url], cfg, skipFor(job));
     return article.wordCount > 0 ? { jobId: job.id, ok: true, article } : bad;
   }
   const article = extractArticle(page.body, page.url);
+  if (looksBotCheck(article.text)) {
+    // A bot check that got past the page checks: never kept as the article.
+    noteAnswer(page.url, true);
+    if (!job.postUrl) return { jobId: job.id, ok: false, blocked: true, error: 'The site showed a bot check instead of the article' };
+    const links: Article = { title: null, author: null, publishedAt: null, html: '', text: '', wordCount: 0 };
+    await addStoryLinks(links, job.postUrl, [job.url, page.url], cfg, skipFor(job));
+    return links.wordCount > 0 ? { jobId: job.id, ok: true, article: links } : { jobId: job.id, ok: false, blocked: true, error: 'The site showed a bot check instead of the article' };
+  }
   if (job.wantPicture) article.picture = await pagePicture(page.body, page.url, article.image);
-  if (job.postUrl) await addStoryLinks(article, job.postUrl, [job.url, page.url], cfg);
+  if (job.postUrl) await addStoryLinks(article, job.postUrl, [job.url, page.url], cfg, skipFor(job));
   return { jobId: job.id, ok: true, article };
 }
 
 /** The readable text of a web page, for lookups. Opens it in a browser only when it was built by JavaScript. */
 export async function fetchArticleText(url: string, cfg: LocalConfig): Promise<{ title: string | null; text: string; url: string }> {
-  let page = await get(url, cfg);
+  let page = await get(url, cfg, { skip: skipFor() });
+  if (page.held) throw new Error(page.held);
   if (page.status >= 400 || looksBlocked(page.status, page.body)) throw new Error(`the site answered ${page.status}`);
   let article = extractArticle(page.body, page.url);
   if (article.wordCount < 80 && looksScripted(page.body)) {
-    page = await get(url, cfg, { render: true });
+    page = await get(url, cfg, { render: true, skip: skipFor() });
     article = extractArticle(page.body, page.url);
   }
+  if (looksBotCheck(article.text)) throw new Error('the site showed a bot check');
   return { title: article.title, text: article.text, url: page.url };
 }
 

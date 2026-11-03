@@ -10,6 +10,8 @@ import { AiUsagePage } from './pages/AiUsage';
 import { HighlightsPage } from './pages/Highlights';
 import { HighlightPromptsPage } from './pages/HighlightPrompts';
 import { WebSearchPage } from './pages/WebSearch';
+import { PcSitesPage } from './pages/PcSites';
+import { PcFetchStatsPage } from './pages/PcFetchStats';
 import { DigestPage } from './pages/Digest';
 import { InboxPage } from './pages/Inbox';
 import { ReaderPage } from './pages/Reader';
@@ -84,11 +86,13 @@ export default function App() {
         <Route path="/settings/ai/usage" element={<AiUsagePage />} />
         <Route path="/settings/ai/highlights" element={<HighlightPromptsPage />} />
         <Route path="/settings/ai/web-search" element={<WebSearchPage />} />
+        <Route path="/settings/ai/sites" element={<PcSitesPage />} />
         <Route path="/settings/sources" element={<SourcesPage />} />
         <Route path="/settings/export" element={<ExportPage />} />
         <Route path="/stats" element={<ReadingStatsPage />} />
         <Route path="/stats/reading" element={<ReadingStatsPage />} />
         <Route path="/stats/ai" element={<StatsPage />} />
+        <Route path="/stats/pc" element={<PcFetchStatsPage />} />
         <Route path="*" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
       </Routes>
       {!isReader && <TabBar pendingSenders={counts.pendingSenders} />}
