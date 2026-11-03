@@ -17,11 +17,13 @@ import {
   type Article,
   type FetchJobResult,
   type Picture,
+  HELPER_VERSION,
 } from '@newsletterapp/shared';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { dataDir, type LocalConfig } from './config';
+import { log } from './log';
 
 // Fetches the app hands to the PC: feeds and websites that turn Cloudflare
 // away, website watches (find new article links on a page, then pull each
@@ -281,30 +283,87 @@ interface RedditComment {
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const TOP_COMMENTS = 8;
 
+/**
+ * Reddit turns away programs that pretend to be a browser more often than ones
+ * that say who they are (its own rules ask for a descriptive name), so that goes first.
+ */
+const REDDIT_UA = `windows:newsletterapp-helper:${HELPER_VERSION} (personal reader)`;
+const REDDIT_AGENTS = [REDDIT_UA, FETCH_HEADERS['User-Agent']!];
+
+/** Why the last Reddit attempts failed, for the helper's log. */
+let redditTrail: string[] = [];
+
 /** Top comments from Reddit's JSON (www, then old.reddit.com). */
 async function redditJsonComments(url: string): Promise<RedditComment[] | null> {
   const u = new URL(url);
   u.hash = '';
   u.pathname = u.pathname.replace(/\/$/, '') + '.json';
   u.search = '?limit=15&depth=1&sort=top&raw_json=1';
-  for (const host of ['www.reddit.com', 'old.reddit.com']) {
-    u.hostname = host;
+  for (const agent of REDDIT_AGENTS) {
+    for (const host of ['www.reddit.com', 'old.reddit.com']) {
+      u.hostname = host;
+      try {
+        const res = await fetch(u.toString(), {
+          headers: { ...FETCH_HEADERS, 'User-Agent': agent, Accept: 'application/json' },
+          redirect: 'follow',
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (!res.ok) {
+          redditTrail.push(`json ${host} ${res.status}`);
+          continue;
+        }
+        const json = (await res.json()) as unknown;
+        if (!Array.isArray(json) || json.length < 2) {
+          redditTrail.push(`json ${host} not a thread`);
+          continue;
+        }
+        return ((json[1] as RedditThing).data.children ?? [])
+          .filter((c) => c.kind === 't1' && !c.data.stickied && c.data.body && c.data.author !== 'AutoModerator')
+          .slice(0, TOP_COMMENTS)
+          .map((c) => ({
+            author: c.data.author ?? 'someone',
+            score: c.data.score ?? null,
+            html: c.data.body_html ?? `<p>${esc(c.data.body ?? '')}</p>`,
+            text: c.data.body ?? '',
+          }));
+      } catch (err) {
+        redditTrail.push(`json ${host} ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Top comments from the thread's own feed (…/comments/<id>/.rss). The same kind
+ * of address the subreddit's posts already come from, so it gets through when the JSON doesn't.
+ * The feed has no scores; its first entry is the post itself.
+ */
+async function redditFeedComments(url: string): Promise<RedditComment[] | null> {
+  const u = new URL(url);
+  u.hash = '';
+  u.hostname = 'www.reddit.com';
+  u.pathname = u.pathname.replace(/\/$/, '') + '/.rss';
+  u.search = '?sort=top&depth=1&limit=15';
+  for (const agent of REDDIT_AGENTS) {
     try {
-      const res = await fetch(u.toString(), { headers: { ...FETCH_HEADERS, Accept: 'application/json' }, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
-      if (!res.ok) continue;
-      const json = (await res.json()) as unknown;
-      if (!Array.isArray(json) || json.length < 2) continue;
-      return ((json[1] as RedditThing).data.children ?? [])
-        .filter((c) => c.kind === 't1' && !c.data.stickied && c.data.body && c.data.author !== 'AutoModerator')
-        .slice(0, TOP_COMMENTS)
-        .map((c) => ({
-          author: c.data.author ?? 'someone',
-          score: c.data.score ?? null,
-          html: c.data.body_html ?? `<p>${esc(c.data.body ?? '')}</p>`,
-          text: c.data.body ?? '',
-        }));
-    } catch {
-      // try the next host
+      const res = await fetch(u.toString(), { headers: { ...FETCH_HEADERS, 'User-Agent': agent }, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
+      if (!res.ok) {
+        redditTrail.push(`rss ${res.status}`);
+        continue;
+      }
+      const feed = parseFeed(await res.text(), u.toString(), 30);
+      if (!feed) {
+        redditTrail.push('rss not a feed');
+        continue;
+      }
+      return feed.entries
+        .filter((e) => /(^|_)t1_/.test(e.key) || /\/comments\/[^/]+\/[^/]*\/[a-z0-9]+\/?$/i.test(e.url ?? ''))
+        .map((e) => ({ author: (e.author ?? 'someone').replace(/^\/?u\//, ''), score: null, html: e.html ?? '', text: e.text ?? (e.html ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }))
+        .filter((c) => c.text && c.author !== 'AutoModerator')
+        .slice(0, TOP_COMMENTS);
+    } catch (err) {
+      redditTrail.push(`rss ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   return null;
@@ -334,19 +393,28 @@ function oldRedditComments(html: string): RedditComment[] {
  * page sorted by top, then the same in a browser.
  */
 async function redditComments(url: string, cfg: LocalConfig): Promise<Article | null> {
+  redditTrail = [];
   let comments = await redditJsonComments(url);
+  if (!comments?.length) comments = await redditFeedComments(url);
   if (!comments?.length) {
     const page = new URL(url);
     page.hostname = 'old.reddit.com';
     page.search = '?sort=top&depth=1';
     for (const render of [false, true]) {
       const got = await get(page.toString(), cfg, { render }).catch(() => null);
-      if (!got || got.status >= 400) continue;
+      if (!got || got.status >= 400) {
+        redditTrail.push(`old.reddit${render ? ' browser' : ''} ${got?.status ?? 'failed'}`);
+        continue;
+      }
       comments = oldRedditComments(got.body);
       if (comments.length) break;
+      redditTrail.push(`old.reddit${render ? ' browser' : ''} no comments found`);
     }
   }
-  if (!comments?.length) return null;
+  if (!comments?.length) {
+    log(`Reddit comments for ${url}: none (${redditTrail.join('; ')})`);
+    return null;
+  }
   const html = `<h2>Top comments</h2>\n${comments
     .map((c) => `<blockquote><p><strong>${esc(c.author)}</strong>${c.score !== null ? ` · ${c.score} points` : ''}</p>${c.html}</blockquote>`)
     .join('\n')}`;
@@ -358,7 +426,7 @@ async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResu
   if (isRedditPost(job.url)) {
     // Only the comments: the post itself is already in the app from the feed.
     const article = await redditComments(job.url, cfg).catch(() => null);
-    return article ? { jobId: job.id, ok: true, article } : { jobId: job.id, ok: false, error: 'Reddit gave no comments (or turned the PC away)' };
+    return article ? { jobId: job.id, ok: true, article } : { jobId: job.id, ok: false, error: `Reddit gave no comments (or turned the PC away): ${redditTrail.join('; ')}`.slice(0, 300) };
   }
   const page = await get(job.url, cfg, { render: job.render });
   const bad = failed(job, page);
