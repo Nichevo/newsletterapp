@@ -8,6 +8,7 @@ import type {
   TagPage,
   SourceActivity,
   Address,
+  AddressMonth,
   BulkReadInput,
   FullTextMode,
   AppSettings,
@@ -701,6 +702,51 @@ app.post('/api/addresses/:id/:action', async (c) => {
   }
   const row = await c.env.DB.prepare(`${ADDRESS_SELECT} WHERE addresses.id = ?`).bind(id).first<AddressRow & { approved_sender_count: number }>();
   return row ? c.json(toAddress(row, c.env.MAIL_DOMAIN || null)) : c.json({ error: 'not found' }, 404);
+});
+
+// The owner's own name and note for an address.
+app.put('/api/addresses/:id', async (c) => {
+  const id = c.req.param('id');
+  const input = (await c.req.json().catch(() => null)) as { label?: string | null; note?: string | null } | null;
+  if (!input) return c.json({ error: 'nothing to save' }, 400);
+  const sets: string[] = [];
+  const binds: (string | null)[] = [];
+  if (input.label !== undefined) {
+    sets.push('label = ?');
+    binds.push(input.label?.trim().slice(0, 120) || null);
+  }
+  if (input.note !== undefined) {
+    sets.push('note = ?');
+    binds.push(input.note?.trim().slice(0, 500) || null);
+  }
+  if (sets.length) await c.env.DB.prepare(`UPDATE addresses SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, id).run();
+  const row = await c.env.DB.prepare(`${ADDRESS_SELECT} WHERE addresses.id = ?`).bind(id).first<AddressRow & { approved_sender_count: number }>();
+  return row ? c.json(toAddress(row, c.env.MAIL_DOMAIN || null)) : c.json({ error: 'not found' }, 404);
+});
+
+// Emails per month for one address, from the stored counts (one row per month).
+app.get('/api/addresses/:id/months', async (c) => {
+  const rows = await c.env.DB.prepare('SELECT month, n FROM address_months WHERE address_id = ? ORDER BY month')
+    .bind(c.req.param('id'))
+    .all<{ month: string; n: number }>();
+  const body: AddressMonth[] = rows.results.map((r) => ({ month: r.month, count: r.n }));
+  return c.json(body);
+});
+
+// Only an address that never received anything can go; one that did is blocked instead,
+// so its newsletters keep their history.
+app.delete('/api/addresses/:id', async (c) => {
+  const id = c.req.param('id');
+  const row = await c.env.DB.prepare('SELECT item_count FROM addresses WHERE id = ?').bind(id).first<{ item_count: number }>();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  if (row.item_count > 0) return c.json({ error: 'This address has received emails, so it can only be blocked.' }, 409);
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM address_months WHERE address_id = ?').bind(id),
+    c.env.DB.prepare("DELETE FROM sources WHERE address_id = ? AND kind = 'newsletter'").bind(id),
+    c.env.DB.prepare('DELETE FROM senders WHERE address_id = ?').bind(id),
+    c.env.DB.prepare('DELETE FROM addresses WHERE id = ?').bind(id),
+  ]);
+  return c.json({ ok: true });
 });
 
 // ---------- Sources ----------

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { shortTime } from '../format';
+import { AddressRow } from '../components/AddressRow';
 import { IconBack, IconCopy } from '../icons';
 import { DailyCapPicker, ModePicker, PerDayLine, QuickForm, type FollowMode, type FollowPreset } from './AddBuilders';
 
@@ -44,15 +45,6 @@ export function AddPage({ me }: { me: Me }) {
       window.setTimeout(() => setCopied(null), 2000);
     } catch {
       // Clipboard can be unavailable (http, older browsers); the address is still shown.
-    }
-  }
-
-  async function toggleBlock(a: Address) {
-    try {
-      const updated = await api.addressAction(a.id, a.status === 'blocked' ? 'unblock' : 'block');
-      setAddresses((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
     }
   }
 
@@ -118,28 +110,21 @@ export function AddPage({ me }: { me: Me }) {
           <span className="label">Your addresses</span>
           <div className="card card--list">
             {addresses.map((a) => (
-              <div key={a.id} className="cardrow">
-                <div className="cardrow__main">
-                  <span className="cardrow__title">{a.label ?? a.localPart}</span>
-                  <span className="cardrow__sub">
-                    {a.email}
-                    {a.status === 'blocked'
-                      ? ` · blocked · ${a.blockedCount} email${a.blockedCount === 1 ? '' : 's'} stopped`
-                      : a.approvedSenderCount > 0
-                        ? ` · ${a.approvedSenderCount} allowed sender${a.approvedSenderCount === 1 ? '' : 's'}`
-                        : ' · waiting for its first email'}
-                  </span>
-                </div>
-                <button className="iconbtn" aria-label={`Copy ${a.email}`} onClick={() => void copy(a.email)}>
-                  <IconCopy size={18} />
-                </button>
-                <button className="btn btn--small" onClick={() => void toggleBlock(a)}>
-                  {a.status === 'blocked' ? 'Unblock' : 'Block'}
-                </button>
-              </div>
+              <AddressRow
+                key={a.id}
+                address={a}
+                onCopy={(email) => void copy(email)}
+                onChange={(u) => setAddresses((prev) => prev.map((x) => (x.id === u.id ? u : x)))}
+                onDeleted={(id) => setAddresses((prev) => prev.filter((x) => x.id !== id))}
+                onError={setError}
+              />
             ))}
           </div>
-          <p className="hint">Block an address if it starts getting spam or was passed on. Everything sent to it is then dropped.</p>
+          <p className="hint">
+            Tap an address for its emails by month, a name and note, and Block. Block one if it starts getting spam or was passed on;
+            everything sent to it is then dropped. One that never received anything can be deleted.
+          </p>
+          {error && <div className="error">{error}</div>}
         </div>
       )}
     </div>

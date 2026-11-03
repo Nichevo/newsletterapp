@@ -312,6 +312,17 @@ export interface Address {
   blockedAt: number | null;
   blockedCount: number;
   approvedSenderCount: number;
+  /** The owner's own short note, e.g. "now shared by several Substacks". */
+  note: string | null;
+  /** Emails stored for this address since it was made (blocked ones not included). */
+  itemCount: number;
+  lastItemAt: number | null;
+}
+
+/** Emails that arrived at an address in one calendar month (UTC), oldest first. */
+export interface AddressMonth {
+  month: string; // 'YYYY-MM'
+  count: number;
 }
 
 export type ReadingEventType =

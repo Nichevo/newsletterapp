@@ -5,6 +5,7 @@ import type {
   TopicsData,
   SourceActivity,
   Address,
+  AddressMonth,
   AskPreset,
   AskPresetInput,
   BulkReadInput,
@@ -136,6 +137,9 @@ export const api = {
   addresses: () => get<Address[]>('/api/addresses'),
   createAddress: (label: string) => post<Address>('/api/addresses', { label }),
   addressAction: (id: string, action: 'block' | 'unblock') => post<Address>(`/api/addresses/${id}/${action}`),
+  saveAddress: (id: string, p: { label?: string | null; note?: string | null }) => put<Address>(`/api/addresses/${id}`, p),
+  addressMonths: (id: string) => get<AddressMonth[]>(`/api/addresses/${id}/months`),
+  deleteAddress: (id: string) => request<{ ok: boolean }>(`/api/addresses/${id}`, { method: 'DELETE' }),
 
   /** With counts: each source's post count too (reads every item; only the source pages need it). */
   sources: (counts = false) => get<Source[]>(counts ? '/api/sources?counts=1' : '/api/sources'),
