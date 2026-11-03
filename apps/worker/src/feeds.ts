@@ -142,10 +142,10 @@ async function seenKeys(env: Env, sourceId: string, keys: string[]): Promise<Set
  * Keeps the PC's download of a post's picture in R2 and returns the address the
  * app serves it from; without a download, the picture's own address.
  */
-function keepPicture(env: Env, itemId: string, p: Picture, puts: Promise<unknown>[]): { src: string; title: string | null } {
-  if (!p.data) return { src: p.src, title: p.title };
+function keepPicture(env: Env, itemId: string, p: Picture, puts: Promise<unknown>[]): { src: string; title: string | null; alt: string | null } {
+  if (!p.data) return { src: p.src, title: p.title, alt: p.alt ?? null };
   puts.push(env.RAW.put(`items/${itemId}/picture`, Buffer.from(p.data, 'base64'), { httpMetadata: { contentType: p.type || 'image/jpeg' } }));
-  return { src: `/api/items/${itemId}/picture`, title: p.title };
+  return { src: `/api/items/${itemId}/picture`, title: p.title, alt: p.alt ?? null };
 }
 
 /** The saved page shows the kept copy too, so the reader's picture doesn't break when the site's link expires. */
@@ -266,8 +266,8 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
       env.DB.prepare(
         `INSERT INTO items (
            id, source_id, kind, status, subject, from_name, snippet, received_at, message_id, html_key, has_html,
-           web_url, created_at, preheader, word_count, category, sponsored, ai_status, lead_image, lead_image_title
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           web_url, created_at, preheader, word_count, category, sponsored, ai_status, lead_image, lead_image_title, lead_image_alt
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         id,
         source.id,
@@ -290,6 +290,7 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
         needArticle ? null : 'pending',
         picture?.src ?? null,
         picture?.title ?? null,
+        picture?.alt ?? null,
       ),
     );
     if (needArticle) {
@@ -906,14 +907,16 @@ export function registerFeeds(app: App) {
         job.force || comments ? Boolean(a?.html && a.wordCount > 0) : Boolean(a?.html && a.wordCount > Math.max(item?.word_count ?? 0, 50));
       // The post's picture: a copy the PC downloaded always wins (some sites' picture links expire);
       // otherwise the feed's own picture stays, and a post with none (or only a logo) takes the page's.
-      let picture: { src: string; title: string | null } | null = null;
+      let picture: { src: string; title: string | null; alt?: string | null } | null = null;
       if (item && a) {
         const puts: Promise<unknown>[] = [];
         if (a.picture?.data) picture = keepPicture(c.env, item.id, a.picture, puts);
         else if (!item.lead_image || junkImage(item.lead_image)) picture = a.picture ?? (a.html ? leadImage(a.html, null, a.image) : null);
         await Promise.all(puts);
         if (picture) {
-          await c.env.DB.prepare('UPDATE items SET lead_image = ?, lead_image_title = ? WHERE id = ?').bind(picture.src, picture.title, item.id).run();
+          await c.env.DB.prepare('UPDATE items SET lead_image = ?, lead_image_title = ?, lead_image_alt = ? WHERE id = ?')
+            .bind(picture.src, picture.title, picture.alt ?? null, item.id)
+            .run();
         }
       }
       if (item && a && a.html && wanted) {

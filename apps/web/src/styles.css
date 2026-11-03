@@ -1953,3 +1953,67 @@ a.pill {
   color: var(--quiet);
   margin-top: 4px;
 }
+.row__picture-alt {
+  font-style: normal !important;
+}
+.row__picture-tag {
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  margin-right: 4px;
+}
+.row__picture-frame {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+.row__picture-open {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  cursor: pointer;
+}
+.picture-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.92);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 56px 0 24px;
+  text-align: center;
+}
+.picture-viewer img {
+  display: block;
+  width: 100%;
+  max-width: 1400px;
+  height: auto;
+  margin: 0 auto;
+}
+.picture-viewer__close {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  right: 12px;
+  font: inherit;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #000;
+  cursor: pointer;
+}
+.picture-viewer__link {
+  display: inline-block;
+  margin-top: 14px;
+  color: #ddd;
+  font-size: 14px;
+}

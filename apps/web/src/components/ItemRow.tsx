@@ -1,5 +1,6 @@
 import type { ItemSummary } from '@newsletterapp/shared';
-import { useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useDensity, useViewOptions } from './DensityToggle';
 import { readingMinutes, shortTime } from '../format';
@@ -23,6 +24,7 @@ export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeA
   const density = useDensity();
   const opts = useViewOptions();
   const [dx, setDx] = useState(0);
+  const [viewing, setViewing] = useState(false);
   const [snapping, setSnapping] = useState(false);
   const start = useRef<{ x: number; y: number; id: number } | null>(null);
   const axis = useRef<'x' | 'y' | null>(null);
@@ -83,6 +85,7 @@ export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeA
 
   return (
     <div className={`row row--${density}${item.readAt ? ' row--read' : ''}`} style={{ background: bg }}>
+      {viewing && item.leadImage && <PictureViewer src={item.leadImage.src} alt={item.leadImage.alt ?? item.leadImage.title ?? ''} onClose={() => setViewing(false)} />}
       <div className="row__under" aria-hidden="true">
         <span style={{ opacity: dx > 20 ? 1 : 0 }}>
           {right.kind === 'save' ? <IconBookmark /> : <IconCheck />}
@@ -134,8 +137,26 @@ export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeA
         <span className="row__title">{item.subject}</span>
         {expanded && item.leadImage && (
           <figure className="row__picture">
-            <img src={item.leadImage.src} alt={item.leadImage.title ?? ''} loading="lazy" referrerPolicy="no-referrer" />
+            <div className="row__picture-frame">
+              <img src={item.leadImage.src} alt={item.leadImage.alt ?? item.leadImage.title ?? ''} loading="lazy" referrerPolicy="no-referrer" />
+              <button
+                type="button"
+                className="row__picture-open"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setViewing(true);
+                }}
+              >
+                Whole picture
+              </button>
+            </div>
             {item.leadImage.title && <figcaption>{item.leadImage.title}</figcaption>}
+            {item.leadImage.alt && item.leadImage.alt !== item.leadImage.title && (
+              <figcaption className="row__picture-alt">
+                <span className="row__picture-tag">Alt</span> {item.leadImage.alt}
+              </figcaption>
+            )}
           </figure>
         )}
         {showPreview ? (
@@ -167,5 +188,44 @@ export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeA
         )}
       </div>
     </div>
+  );
+}
+
+/** WordPress serves cut-down copies named like "chart-1200x630.jpg"; the original drops the size. */
+function originalSize(src: string): string | null {
+  const full = src.replace(/-\d{2,5}x\d{2,5}(\.(?:jpe?g|png|webp|gif|avif))(\?.*)?$/i, '$1$2');
+  return full !== src ? full : null;
+}
+
+/** The whole picture on its own screen, full width and scrollable, for tall infographics. */
+function PictureViewer({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  const [shown, setShown] = useState(() => originalSize(src) ?? src);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', key);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', key);
+      document.body.style.overflow = overflow;
+    };
+  }, [onClose]);
+  return createPortal(
+    <div className="picture-viewer" role="dialog" aria-label="Whole picture" onClick={onClose}>
+      <button type="button" className="picture-viewer__close" onClick={onClose}>
+        Close
+      </button>
+      <img
+        src={shown}
+        alt={alt}
+        referrerPolicy="no-referrer"
+        onClick={(e) => e.stopPropagation()}
+        onError={() => shown !== src && setShown(src)}
+      />
+      <a className="picture-viewer__link" href={shown} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+        Open in a new tab
+      </a>
+    </div>,
+    document.body,
   );
 }

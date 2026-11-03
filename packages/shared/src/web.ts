@@ -49,7 +49,10 @@ export interface Article {
 /** A post's picture for the inbox, e.g. a comic strip and its hover text. */
 export interface Picture {
   src: string;
+  /** Hover text (the title attribute), e.g. xkcd's punchline. */
   title: string | null;
+  /** The picture's description (alt attribute), when it says something the hover text doesn't. */
+  alt?: string | null;
   /**
    * The picture itself, base64, when the PC downloaded it. Some sites (Ctrl+Alt+Del)
    * hand out picture links that stop working after a day or two, so the app keeps its own copy.
@@ -610,10 +613,10 @@ export function junkImage(src: string, alt?: string | null): boolean {
  * `fallback` (a feed enclosure or the page's og:image) is used when the body
  * has no picture of its own.
  */
-export function leadImage(html: string, base: string | null, fallback?: string | null): { src: string; title: string | null } | null {
+export function leadImage(html: string, base: string | null, fallback?: string | null): { src: string; title: string | null; alt: string | null } | null {
   const re = /<img\b[^>]*>/gi;
   let m: RegExpExecArray | null;
-  let best: { src: string; title: string | null; score: number } | null = null;
+  let best: { src: string; title: string | null; alt: string | null; score: number } | null = null;
   for (let n = 0; n < 40 && (m = re.exec(html)) !== null; n++) {
     const tag = m[0];
     const plain = attr(tag, 'src');
@@ -638,13 +641,13 @@ export function leadImage(html: string, base: string | null, fallback?: string |
     const where = `${path} ${attr(tag, 'id') ?? ''} ${attr(tag, 'class') ?? ''}`;
     const score = (hover ? 3 : 0) + (/comic|strip|cartoon/i.test(where) ? 3 : 0) + (w >= 300 || h >= 300 ? 1 : 0);
     if (!best || score > best.score) {
-      const title = hover || alt || null;
-      best = { src: src.slice(0, 1000), title: title ? title.slice(0, 500) : null, score };
+      const cleanAlt = alt?.trim() && alt.trim() !== hover?.trim() ? alt.trim().slice(0, 500) : null;
+      best = { src: src.slice(0, 1000), title: hover?.trim() ? hover.trim().slice(0, 500) : null, alt: cleanAlt, score };
       if (score >= 6) break;
     }
   }
-  if (best) return { src: best.src, title: best.title };
-  if (fallback && /^https?:\/\//i.test(fallback) && !junkImage(fallback)) return { src: fallback.slice(0, 1000), title: null };
+  if (best) return { src: best.src, title: best.title, alt: best.alt };
+  if (fallback && /^https?:\/\//i.test(fallback) && !junkImage(fallback)) return { src: fallback.slice(0, 1000), title: null, alt: null };
   return null;
 }
 
