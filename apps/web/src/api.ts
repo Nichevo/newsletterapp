@@ -1,6 +1,8 @@
 import type {
   FetchPageStatus,
   SearchResponse,
+  TagPage,
+  TopicsData,
   SourceActivity,
   Address,
   AskPreset,
@@ -158,6 +160,9 @@ export const api = {
 
   settings: () => get<AppSettings>('/api/settings'),
   pcHolds: () => get<PcHoldsView>('/api/pc-holds'),
+  tag: (name: string, view: 'all' | 'unread', offset = 0) =>
+    get<TagPage>(`/api/tag?name=${encodeURIComponent(name)}&view=${view}&offset=${offset}`),
+  topics: (days: number, fresh = false) => get<TopicsData>(`/api/topics?days=${days}${fresh ? '&fresh=1' : ''}`),
   saveSettings: (settings: Partial<AppSettings>) => put<AppSettings>('/api/settings', settings),
 
   // AI summaries (written by the PC helper)

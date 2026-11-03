@@ -7,8 +7,11 @@ import {
   parseFilterSet,
   type AppSettings,
   type DigestOptions,
+  TOPICS_DAYS,
   type SavedFilter,
+  type SourceType,
   type SummaryKind,
+  type TopicFilter,
 } from '@newsletterapp/shared';
 import type { Env } from './env';
 import { now } from './ids';
@@ -109,6 +112,24 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
   const pcSkipAllowCategories = Array.isArray(input.pcSkipAllowCategories)
     ? [...new Set(input.pcSkipAllowCategories.map((c) => str(c, 40)).filter(Boolean))].slice(0, 40)
     : (base.pcSkipAllowCategories ?? []);
+  const strs = (v: unknown, max: number, len: number) =>
+    Array.isArray(v) ? [...new Set(v.map((x) => str(x, len)).filter(Boolean))].slice(0, max) : [];
+  const topicFilters: TopicFilter[] = Array.isArray(input.topicFilters)
+    ? input.topicFilters
+        .map((f) => ({
+          name: str(f?.name, 40),
+          days: TOPICS_DAYS.find((d) => d === Number(f?.days)) ?? 30,
+          categories: strs(f?.categories, 40, 40),
+          sources: strs(f?.sources, 100, 64),
+          types: strs(f?.types, 10, 20).filter((t): t is SourceType => (SOURCE_TYPES as string[]).includes(t)),
+          read: (['all', 'unread', 'read', 'starred'] as const).find((v) => v === f?.read) ?? 'all',
+          top: Math.min(Math.max(Math.round(Number(f?.top) || 0), 0), 200),
+          min: Math.min(Math.max(Math.round(Number(f?.min) || 1), 1), 100),
+          showSources: f?.showSources !== false,
+        }))
+        .filter((f) => f.name)
+        .slice(0, 20)
+    : (base.topicFilters ?? []);
   return {
     categories,
     keywordRules,
@@ -121,5 +142,6 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     savedFilters,
     pcSkipSites,
     pcSkipAllowCategories,
+    topicFilters,
   };
 }

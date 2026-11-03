@@ -1,4 +1,5 @@
 import type { AskPreset, FetchPageStatus, ItemBody, ItemHighlights, ItemSummary, RelatedItem, UnsubscribeResult } from '@newsletterapp/shared';
+import { TagChip } from '../components/TagChip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
@@ -168,9 +169,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             {item.category && <span className="chip chip--category">{item.category}</span>}
             {item.sponsored && <span className="chip chip--outline">Has a sponsored section</span>}
             {item.tags.map((t) => (
-              <span key={t} className="chip chip--outline">
-                {t}
-              </span>
+              <TagChip key={t} tag={t} count={item.tagCounts?.[t]} />
             ))}
           </div>
           {marks.place === 'bottom' && marks.noteCount > 0 && (

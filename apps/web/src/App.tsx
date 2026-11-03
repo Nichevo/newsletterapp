@@ -1,5 +1,5 @@
 import type { Me } from '@newsletterapp/shared';
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError, api } from './api';
 import { TabBar } from './components/TabBar';
@@ -23,6 +23,10 @@ import { SearchPage } from './pages/Search';
 import { SourcesPage } from './pages/Sources';
 import { ReadingStatsPage } from './pages/ReadingStats';
 import { StatsPage } from './pages/Stats';
+import { TagPagePage } from './pages/Tag';
+
+// The Topics map pulls in the chart layout code, so it loads only when opened.
+const TopicsPage = lazy(() => import('./pages/Topics').then((m) => ({ default: m.TopicsPage })));
 
 export interface Counts {
   inbox: number;
@@ -93,6 +97,15 @@ export default function App() {
         <Route path="/stats/reading" element={<ReadingStatsPage />} />
         <Route path="/stats/ai" element={<StatsPage />} />
         <Route path="/stats/pc" element={<PcFetchStatsPage />} />
+        <Route
+          path="/stats/topics"
+          element={
+            <Suspense fallback={<div className="spinner">Loading…</div>}>
+              <TopicsPage />
+            </Suspense>
+          }
+        />
+        <Route path="/tag/*" element={<TagPagePage />} />
         <Route path="*" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
       </Routes>
       {!isReader && <TabBar pendingSenders={counts.pendingSenders} />}
