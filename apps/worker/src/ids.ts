@@ -6,7 +6,7 @@ export function now(): number {
   return Date.now();
 }
 
-/** Lowercases and strips display names: "Jeff <a@b.com>" -> "a@b.com". */
+/** Lowercases and strips display names: "Display Name <a@b.com>" -> "a@b.com". */
 export function normalizeEmail(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const angle = /<([^>]+)>/.exec(raw);

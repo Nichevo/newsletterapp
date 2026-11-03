@@ -82,7 +82,7 @@ Variables:
 2. Back in Cloudflare: **Email → Email Routing → Routing rules → Catch-all address → Edit**: action **Send to a Worker**, destination `newsletterapp`. Save and make sure the catch-all is enabled.
 3. Open `https://app.yourdomain.com`, sign in with the PIN Cloudflare emails you, and create your first address under **Add**.
 
-If you also want ordinary mailboxes on the domain (say `jeff@`), add explicit routing rules forwarding them to Gmail; explicit rules win over the catch-all.
+If you also want ordinary mailboxes on the domain (say `me@`), add explicit routing rules forwarding them to Gmail; explicit rules win over the catch-all.
 
 ## AI summaries (PC helper)
 

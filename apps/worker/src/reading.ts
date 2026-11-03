@@ -7,7 +7,7 @@ import { loadSettings } from './settings';
 
 // Reading statistics: what arrives, what gets read, by newsletter and category.
 // Days are counted in the reader's time zone (Settings > Daily digest), so
-// "today" means today where Jeff is, not UTC.
+// "today" means today where the owner is, not UTC.
 
 type App = Hono<{ Bindings: Env; Variables: AppVariables }>;
 

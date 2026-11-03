@@ -2,7 +2,7 @@ export interface Env {
   DB: D1Database;
   RAW: R2Bucket;
   ASSETS: Fetcher;
-  /** Cloudflare Access team domain, e.g. "jeff" for jeff.cloudflareaccess.com. */
+  /** Cloudflare Access team domain, e.g. "myteam" for myteam.cloudflareaccess.com. */
   ACCESS_TEAM_DOMAIN: string;
   /** Audience tag of the Access application protecting this Worker. */
   ACCESS_AUD: string;
