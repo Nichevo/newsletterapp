@@ -27,6 +27,9 @@ export interface AddressRow {
   created_at: number;
   blocked_at: number | null;
   blocked_count: number;
+  note?: string | null;
+  item_count?: number | null;
+  last_item_at?: number | null;
 }
 
 export interface SenderRow {
@@ -285,6 +288,9 @@ export function toAddress(
     blockedAt: row.blocked_at,
     blockedCount: row.blocked_count,
     approvedSenderCount: row.approved_sender_count ?? 0,
+    note: row.note ?? null,
+    itemCount: row.item_count ?? 0,
+    lastItemAt: row.last_item_at ?? null,
   };
 }
 
