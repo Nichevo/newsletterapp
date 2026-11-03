@@ -71,12 +71,15 @@ function blockText(node: Node, root: Root): string {
 /**
  * The user's current selection inside the article, if there is one. Browsers
  * report selections inside a shadow root differently: newer ones support
- * getComposedRanges, Chrome has ShadowRoot.getSelection, and Firefox puts the
- * shadow nodes straight into the document selection.
+ * getComposedRanges, Chrome has ShadowRoot.getSelection, and Firefox on a PC
+ * puts the shadow nodes straight into the document selection. WebKit (Safari,
+ * and every browser on an iPad or iPhone, Firefox included) may instead hand
+ * back a range pinned to the shadow host, often collapsed, while the selected
+ * text is still there in toString(); for that we find the text ourselves.
  */
-export function selectedRange(root: Root): Range | null {
+export function selectedRange(root: Root, near?: { x: number; y: number } | null): Range | null {
   const sel = document.getSelection();
-  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  if (!sel) return null;
   const inRoot = (r: AbstractRange) => root.contains(r.startContainer) && root.contains(r.endContainer);
   const toRange = (r: AbstractRange) => {
     const range = document.createRange();
@@ -96,14 +99,90 @@ export function selectedRange(root: Root): Range | null {
         }
       }
     }
-    const own = (root as ShadowRoot & { getSelection?: () => Selection | null }).getSelection?.();
-    if (own && own.rangeCount > 0 && !own.isCollapsed) {
-      const r = own.getRangeAt(0);
-      if (inRoot(r)) return r;
+    try {
+      const own = (root as ShadowRoot & { getSelection?: () => Selection | null }).getSelection?.();
+      if (own && own.rangeCount > 0 && !own.isCollapsed) {
+        const r = own.getRangeAt(0);
+        if (inRoot(r)) return r;
+      }
+    } catch {
+      // Not supported here.
     }
   }
+  if (sel.rangeCount > 0 && !sel.isCollapsed) {
+    const r = sel.getRangeAt(0);
+    if (inRoot(r)) return r;
+  }
+  // WebKit: the range only points at the shadow host. Use the selected text instead.
+  if (!(root instanceof ShadowRoot) || sel.rangeCount === 0) return null;
+  const host = root.host;
   const r = sel.getRangeAt(0);
-  return inRoot(r) ? r : null;
+  // Pinned at (or around) the host, not a selection somewhere else on the page.
+  if (!r.commonAncestorContainer.contains(host)) return null;
+  const text = sel.toString();
+  if (squash(text).length < 1) return null;
+  return findText(root, text, near ?? null);
+}
+
+/** A range over `text` in the article, picking the copy nearest `near` (a point on screen) when it repeats. */
+function findText(root: Root, text: string, near: { x: number; y: number } | null): Range | null {
+  const index = indexText(root);
+  const words = text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (words.length === 0) return null;
+  const re = new RegExp(words.join('\\s*'), 'g');
+  let best: Range | null = null;
+  let bestDist = Infinity;
+  let m: RegExpExecArray | null;
+  let count = 0;
+  while ((m = re.exec(index.text)) && count++ < 200) {
+    const range = rangeAt(index, m.index, m.index + m[0].length);
+    if (!range) continue;
+    if (!near) return range;
+    const rect = range.getBoundingClientRect();
+    const dx = Math.max(rect.left - near.x, 0, near.x - rect.right);
+    const dy = Math.max(rect.top - near.y, 0, near.y - rect.bottom);
+    const dist = dx * dx + dy * dy;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = range;
+    }
+  }
+  return best;
+}
+
+function rangeAt(index: TextIndex, from: number, to: number): Range | null {
+  let start: [Text, number] | null = null;
+  let end: [Text, number] | null = null;
+  for (let i = 0; i < index.nodes.length; i++) {
+    const s = index.starts[i]!;
+    const n = index.nodes[i]!;
+    const e = s + n.data.length;
+    if (!start && from >= s && from < e) start = [n, from - s];
+    if (to > s && to <= e) {
+      end = [n, to - s];
+      break;
+    }
+  }
+  if (!start || !end) return null;
+  const range = document.createRange();
+  range.setStart(start[0], start[1]);
+  range.setEnd(end[0], end[1]);
+  return range;
+}
+
+/**
+ * How well a stored highlight fits an article root: 3 with both sides of
+ * context, 2 with one side, 1 for the bare quote, 0 not there. Used to tell
+ * highlights in the AI summary from ones in the article.
+ */
+export function matchScore(root: Root, h: HighlightAnchor): number {
+  const text = indexText(root).text;
+  if (text.includes(h.prefix + h.quote + h.suffix)) return 3;
+  if ((h.prefix && text.includes(h.prefix + h.quote)) || (h.suffix && text.includes(h.quote + h.suffix))) return 2;
+  return locate(text, h) ? 1 : 0;
 }
 
 const MAX_QUOTE = 1500;

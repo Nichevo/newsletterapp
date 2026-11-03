@@ -1139,6 +1139,12 @@ select {
   gap: 8px;
 }
 
+.ai__text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .ai__why {
   margin: 0;
   font-size: 14px;
@@ -1540,19 +1546,22 @@ select {
 }
 
 /* Highlights and AI notes */
-.reader__text mark.hl {
+.reader__text mark.hl,
+.ai__text mark.hl {
   background: rgba(250, 204, 21, 0.45);
   color: inherit;
   border-radius: 2px;
   cursor: pointer;
 }
 
-.reader__text mark.hl--active {
+.reader__text mark.hl--active,
+.ai__text mark.hl--active {
   background: rgba(250, 204, 21, 0.75);
 }
 
 @media (prefers-color-scheme: dark) {
-  .reader__text mark.hl {
+  .reader__text mark.hl,
+  .ai__text mark.hl {
     background: rgba(234, 179, 8, 0.35);
   }
 }

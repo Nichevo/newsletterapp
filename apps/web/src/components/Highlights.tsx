@@ -28,13 +28,15 @@ export function useArticleSelection(getRoots: () => Root[]) {
   const [capture, setCapture] = useState<Capture | null>(null);
   const holding = useRef(false);
   const timer = useRef<number | undefined>(undefined);
+  /** Where the reader last touched or clicked, to pick the right copy of repeated text on an iPad. */
+  const lastPoint = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const onChange = () => {
       window.clearTimeout(timer.current);
       timer.current = window.setTimeout(() => {
         for (const root of getRoots()) {
-          const range = selectedRange(root);
+          const range = selectedRange(root, lastPoint.current);
           if (!range) continue;
           const anchor = anchorFor(root, range);
           if (!anchor || anchor.quote.length < 2) continue;
@@ -45,9 +47,28 @@ export function useArticleSelection(getRoots: () => Root[]) {
         if (!holding.current) setCapture(null);
       }, 200);
     };
+    // Where the finger or mouse was; WebKit may only tell us the selected text.
+    const onPoint = (e: PointerEvent | TouchEvent) => {
+      const p = 'changedTouches' in e ? e.changedTouches[0] : e;
+      if (p) lastPoint.current = { x: p.clientX, y: p.clientY };
+    };
+    // iPad and iPhone browsers don't always send selectionchange for text in
+    // the article's shadow root, so look again when a touch or drag ends.
+    const onEnd = (e: PointerEvent | TouchEvent) => {
+      onPoint(e);
+      onChange();
+    };
     document.addEventListener('selectionchange', onChange);
+    document.addEventListener('pointerdown', onPoint, { passive: true });
+    document.addEventListener('pointerup', onEnd, { passive: true });
+    document.addEventListener('touchend', onEnd, { passive: true });
+    document.addEventListener('keyup', onChange);
     return () => {
       document.removeEventListener('selectionchange', onChange);
+      document.removeEventListener('pointerdown', onPoint);
+      document.removeEventListener('pointerup', onEnd);
+      document.removeEventListener('touchend', onEnd);
+      document.removeEventListener('keyup', onChange);
       window.clearTimeout(timer.current);
     };
   }, [getRoots]);
