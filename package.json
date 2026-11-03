@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "pnpm --filter @newsletterapp/web dev",
     "dev:worker": "pnpm --filter @newsletterapp/worker dev",
-    "build": "pnpm -r build",
+    "build": "pnpm --filter ./apps/helper build && pnpm -r --filter '!./apps/helper' build",
     "typecheck": "pnpm -r typecheck",
     "deploy": "pnpm --filter @newsletterapp/worker deploy",
     "migrate:local": "pnpm --filter @newsletterapp/worker migrate:local",

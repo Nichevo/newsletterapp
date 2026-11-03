@@ -738,8 +738,11 @@ export function storyLinkRows(html: string, postUrl: string, skip: string[] = []
     if (around.length < 12) around = '';
     for (const [n, a] of anchors.entries()) {
       const key = a.url.replace(/#.*$/, '');
-      if (skipped.has(key) || seen.has(key)) continue;
+      // Techmeme can list a discussion twice (shown and folded); the same name on the same site is one entry.
+      const named = `${a.host.replace(/^(mobile\.)?twitter\.com$/, 'x.com')}|${a.label.toLowerCase()}`;
+      if (skipped.has(key) || seen.has(key) || (a.label && seen.has(named))) continue;
       seen.add(key);
+      if (a.label) seen.add(named);
       rows.push({
         url: a.url,
         label: clip(a.label || a.host, 60),
@@ -760,14 +763,15 @@ export function storyLinkRows(html: string, postUrl: string, skip: string[] = []
 export function renderStoryLinks(rows: StoryLinkRow[]): StoryLinks | null {
   if (rows.length === 0) return null;
   const h = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const link = (r: StoryLinkRow) => `<a href="${h(r.url)}"${r.peek ? ` data-peek="${h(r.peek)}"` : ''}>${h(r.label)}</a>`;
-  const line = (group: StoryLinkRow['group'], name: string) => {
-    const list = rows.filter((r) => r.group === group);
-    return list.length ? `<p class="story-links__row"><strong>${name}:</strong> ${list.map(link).join(', ')}</p>` : '';
+  // Each name with its headline or comment written out, so there's nothing to tap to read it.
+  const item = (r: StoryLinkRow) =>
+    `<li><a href="${h(r.url)}">${h(r.label)}</a>${r.peek ? `<span class="story-links__peek">${h(r.peek)}</span>` : ''}</li>`;
+  const group = (g: StoryLinkRow['group'], name: string) => {
+    const list = rows.filter((r) => r.group === g);
+    return list.length ? `<p class="story-links__head"><strong>${name}</strong></p>\n<ul class="story-links__list">\n${list.map(item).join('\n')}\n</ul>` : '';
   };
-  const all = rows.map((r) => `<li><a href="${h(r.url)}">${h(r.label)}</a>${r.peek ? ` · ${h(r.peek)}` : ''}</li>`).join('\n');
   return {
-    html: `<section class="story-links" data-story-links>\n<h2>More on this story</h2>\n${line('more', 'More')}\n${line('discussion', 'Discussion')}\n<details class="story-links__all"><summary>Show all</summary>\n<ul>\n${all}\n</ul>\n</details>\n</section>`,
+    html: `<section class="story-links" data-story-links>\n<h2>More on this story</h2>\n${group('more', 'More coverage')}\n${group('discussion', 'Discussion')}\n</section>`,
     text: `More on this story:\n${rows.map((r) => `- ${r.label}${r.peek ? `: ${r.peek}` : ''}`).join('\n')}`,
     count: rows.length,
   };
