@@ -59,6 +59,22 @@ const BLOCKED_TO_PC = 3; // turned away this many times in a row and the PC take
 const HELPER_ONLINE_MS = 10 * MINUTE;
 const JOB_LEASE_MS = 15 * MINUTE;
 const JOB_MAX_ATTEMPTS = 3;
+
+async function idsOf(stmt: D1PreparedStatement): Promise<string[]> {
+  return (await stmt.all<{ item_id: string }>()).results.map((r) => r.item_id);
+}
+
+/** Sends these items to the AI as they are, looked up by id (a few at a time, never a scan). */
+function pendingAgain(env: Env, ids: string[], extra: string): D1PreparedStatement[] {
+  const out: D1PreparedStatement[] = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    const part = ids.slice(i, i + 50);
+    out.push(
+      env.DB.prepare(`UPDATE items SET ai_status = 'pending' WHERE id IN (${part.map(() => '?').join(', ')}) AND ai_status IS NULL ${extra}`).bind(...part),
+    );
+  }
+  return out;
+}
 const ARTICLE_WAIT_MS = 12 * 3_600_000; // after this the AI summarises the teaser rather than wait for the PC
 const SOURCE_COLUMNS = 'sources.*';
 
@@ -444,11 +460,14 @@ export async function runFeedChecks(env: Env, budget = CLOUD_BUDGET): Promise<{ 
   }
 
   // Teasers whose full article never came (PC off for hours) go to the AI as they are.
+  // Ids first (a small read of fetch_jobs): an UPDATE with a subquery can walk the whole inbox.
+  const gaveUp = await idsOf(
+    env.DB.prepare("SELECT item_id FROM fetch_jobs WHERE kind = 'article' AND status = 'pending' AND created_at < ? AND item_id IS NOT NULL").bind(
+      t - ARTICLE_WAIT_MS,
+    ),
+  );
   await env.DB.batch([
-    env.DB.prepare(
-      `UPDATE items SET ai_status = 'pending' WHERE ai_status IS NULL AND status = 'inbox' AND id IN (
-         SELECT item_id FROM fetch_jobs WHERE kind = 'article' AND status = 'pending' AND created_at < ?)`,
-    ).bind(t - ARTICLE_WAIT_MS),
+    ...pendingAgain(env, gaveUp, "AND status = 'inbox'"),
     env.DB.prepare("DELETE FROM fetch_jobs WHERE kind = 'article' AND status = 'pending' AND created_at < ?").bind(t - ARTICLE_WAIT_MS),
     env.DB.prepare("DELETE FROM fetch_jobs WHERE status = 'failed' AND created_at < ?").bind(t - 7 * 86_400_000),
   ]);
@@ -827,11 +846,14 @@ export function registerFeeds(app: App) {
     const t = now();
     const stale = t - JOB_LEASE_MS;
     // Jobs whose lease ran out too often are set aside; their items go to the AI as they are.
+    const timedOut = await idsOf(
+      c.env.DB.prepare("SELECT item_id FROM fetch_jobs WHERE status = 'working' AND claimed_at < ? AND attempts >= ? AND item_id IS NOT NULL").bind(
+        stale,
+        JOB_MAX_ATTEMPTS,
+      ),
+    );
     await c.env.DB.batch([
-      c.env.DB.prepare(
-        `UPDATE items SET ai_status = 'pending' WHERE ai_status IS NULL AND id IN (
-           SELECT item_id FROM fetch_jobs WHERE status = 'working' AND claimed_at < ? AND attempts >= ?)`,
-      ).bind(stale, JOB_MAX_ATTEMPTS),
+      ...pendingAgain(c.env, timedOut, ''),
       c.env.DB.prepare(
         "UPDATE fetch_jobs SET status = 'failed', error = COALESCE(error, 'Timed out on the PC') WHERE status = 'working' AND claimed_at < ? AND attempts >= ?",
       ).bind(stale, JOB_MAX_ATTEMPTS),

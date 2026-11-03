@@ -30,7 +30,7 @@ export function SourcesPage() {
 
   useEffect(() => {
     api
-      .sources()
+      .sources(true)
       .then(setSources)
       .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load sources'));
     api
@@ -80,7 +80,7 @@ export function SourcesPage() {
           (r.queued ? `, ${r.queued} sent to your PC` : '') +
           (left ? `; the other ${left} follow over the next hour.` : '.'),
       );
-      setSources(await api.sources());
+      setSources(await api.sources(true));
     } catch (err) {
       setChecking(err instanceof Error ? err.message : 'Could not check');
     }

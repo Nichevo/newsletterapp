@@ -134,7 +134,8 @@ export const api = {
   createAddress: (label: string) => post<Address>('/api/addresses', { label }),
   addressAction: (id: string, action: 'block' | 'unblock') => post<Address>(`/api/addresses/${id}/${action}`),
 
-  sources: () => get<Source[]>('/api/sources'),
+  /** With counts: each source's post count too (reads every item; only the source pages need it). */
+  sources: (counts = false) => get<Source[]>(counts ? '/api/sources?counts=1' : '/api/sources'),
   updateSource: (id: string, update: SourceUpdate) => post<Source>(`/api/sources/${id}`, update),
   sourceBulk: (id: string, action: 'read-all' | 'archive-all') => post<{ changed: number }>(`/api/sources/${id}/${action}`),
   discoverSource: (url: string) => post<DiscoverResult>('/api/sources/discover', { url }),

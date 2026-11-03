@@ -59,7 +59,7 @@ export function SourcePage() {
   }, [id]);
 
   useEffect(() => {
-    Promise.all([api.sources(), api.settings()])
+    Promise.all([api.sources(true), api.settings()])
       .then(([sources, s]) => {
         setSettings(s);
         const found = sources.find((x) => x.id === id);

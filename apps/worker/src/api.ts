@@ -509,12 +509,13 @@ app.post('/api/items/:id/:action', async (c) => {
 // ---------- Counts for badges ----------
 
 app.get('/api/counts', async (c) => {
+  // Inbox and unread in one pass over the inbox_read index (index only, no table reads).
   const row = await c.env.DB.prepare(
     `SELECT
-       (SELECT COUNT(*) FROM items WHERE status = 'inbox') AS inbox,
-       (SELECT COUNT(*) FROM items WHERE status = 'inbox' AND read_at IS NULL) AS unread,
-       (SELECT COUNT(*) FROM items WHERE saved_at IS NOT NULL AND status != 'dropped') AS saved,
-       (SELECT COUNT(*) FROM items WHERE interesting_at IS NOT NULL AND status != 'dropped') AS interesting,
+       (SELECT COUNT(*) FROM items INDEXED BY items_inbox_read WHERE status = 'inbox') AS inbox,
+       (SELECT COUNT(*) FROM items INDEXED BY items_inbox_read WHERE status = 'inbox' AND read_at IS NULL) AS unread,
+       (SELECT COUNT(*) FROM items INDEXED BY items_saved WHERE saved_at IS NOT NULL AND status != 'dropped') AS saved,
+       (SELECT COUNT(*) FROM items INDEXED BY items_interesting WHERE interesting_at IS NOT NULL AND status != 'dropped') AS interesting,
        (SELECT COUNT(*) FROM senders WHERE status = 'pending') AS pendingSenders`,
   ).first<{ inbox: number; unread: number; saved: number; interesting: number; pendingSenders: number }>();
   return c.json(row ?? { inbox: 0, unread: 0, saved: 0, interesting: 0, pendingSenders: 0 });
@@ -616,15 +617,21 @@ app.post('/api/addresses/:id/:action', async (c) => {
 // ---------- Sources ----------
 
 app.get('/api/sources', async (c) => {
+  // Post counts read every item a source has, so only the source pages ask for them (?counts=1);
+  // the inbox, search and settings lists need just the names, in latest-post order.
+  const counts = c.req.query('counts') === '1';
+  const latest = `(SELECT received_at FROM items INDEXED BY items_source
+       WHERE items.source_id = sources.id AND items.status IN ('inbox', 'archived') ORDER BY received_at DESC LIMIT 1)`;
+  const itemCount = counts
+    ? "(SELECT COUNT(*) FROM items WHERE items.source_id = sources.id AND items.status IN ('inbox', 'archived'))"
+    : `(${latest} IS NOT NULL)`;
   const rows = await c.env.DB.prepare(
     `SELECT * FROM (
-       SELECT sources.*,
-         (SELECT COUNT(*) FROM items WHERE items.source_id = sources.id AND items.status IN ('inbox', 'archived')) AS item_count,
-         (SELECT MAX(received_at) FROM items WHERE items.source_id = sources.id AND items.status IN ('inbox', 'archived')) AS last_received_at
+       SELECT sources.*, ${itemCount} AS item_count, ${latest} AS last_received_at
        FROM sources
      ) WHERE item_count > 0 OR kind != 'newsletter' ORDER BY kind = 'newsletter' DESC, COALESCE(last_received_at, created_at) DESC`,
   ).all<SourceRow & { item_count: number; last_received_at: number | null }>();
-  return c.json(rows.results.map(toSource));
+  return c.json(rows.results.map((r) => toSource(counts ? r : { ...r, item_count: 0 })));
 });
 
 /**
