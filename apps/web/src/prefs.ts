@@ -61,6 +61,48 @@ export function setSwipeReadSide(side: SwipeReadSide) {
   write('inbox:swipeReadSide', side);
 }
 
+/** Where Live page opens Reddit and YouTube posts on Android: their app (the default) or the browser. */
+export type OpenIn = 'app' | 'browser';
+export type AppSite = 'reddit' | 'youtube';
+
+export function getOpenIn(site: AppSite): OpenIn {
+  return read(`reader:openIn:${site}`) === 'browser' ? 'browser' : 'app';
+}
+
+export function setOpenIn(site: AppSite, where: OpenIn) {
+  write(`reader:openIn:${site}`, where);
+}
+
+const APPS: Record<AppSite, { re: RegExp; host: (m: RegExpExecArray) => string; pkg: string }> = {
+  reddit: {
+    re: /^https?:\/\/(?:www\.|old\.|new\.|m\.)?reddit\.com(\/.*)$/i,
+    host: (m) => `www.reddit.com${m[1]}`,
+    pkg: 'com.reddit.frontpage',
+  },
+  youtube: {
+    re: /^https?:\/\/((?:www\.|m\.)?youtube\.com\/.*|youtu\.be\/.*)$/i,
+    host: (m) => m[1]!,
+    pkg: 'com.google.android.youtube',
+  },
+};
+
+/**
+ * The address Live page uses. On Android, Reddit and YouTube posts become an
+ * intent link naming their app (the installed web app would otherwise open them
+ * in the browser); without the app installed the browser opens the normal page.
+ */
+export function liveLink(url: string): string {
+  if (typeof navigator === 'undefined' || !/Android/i.test(navigator.userAgent)) return url;
+  for (const site of Object.keys(APPS) as AppSite[]) {
+    const app = APPS[site];
+    const m = app.re.exec(url);
+    if (!m) continue;
+    if (getOpenIn(site) === 'browser') return url;
+    return `intent://${app.host(m)}#Intent;scheme=https;package=${app.pkg};S.browser_fallback_url=${encodeURIComponent(url)};end`;
+  }
+  return url;
+}
+
 /** Where the AI notes card sits in the reader: under the summary at the top, or after the article. */
 export type NotesPlace = 'top' | 'bottom';
 

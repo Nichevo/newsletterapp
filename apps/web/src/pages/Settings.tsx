@@ -18,6 +18,10 @@ import {
   setViewOptions,
   type SwipeReadSide,
   type TextSize,
+  getOpenIn,
+  setOpenIn,
+  type AppSite,
+  type OpenIn,
 } from '../prefs';
 import { useDensity, useViewOptions } from '../components/DensityToggle';
 
@@ -281,6 +285,32 @@ export function AiSummariesSection({ settings, onSave }: { settings: AppSettings
   );
 }
 
+/** Live page for Reddit or YouTube posts: their app or the browser (Android). */
+function OpenInPicker({ site }: { site: AppSite }) {
+  const [where, setWhere] = useState<OpenIn>(getOpenIn(site));
+  const name = site === 'reddit' ? 'Reddit' : 'YouTube';
+  return (
+    <div className="field">
+      <span className="label">Live page for {name} posts</span>
+      <div className="segmented" role="group" aria-label={`Live page for ${name} posts`}>
+        {(['app', 'browser'] as OpenIn[]).map((w) => (
+          <button
+            key={w}
+            aria-pressed={where === w}
+            onClick={() => {
+              setOpenIn(site, w);
+              setWhere(w);
+            }}
+          >
+            {w === 'app' ? `${name} app` : 'Browser'}
+          </button>
+        ))}
+      </div>
+      <span className="hint">On Android phones. If the app isn't installed, the browser opens it instead.</span>
+    </div>
+  );
+}
+
 /** Text size and sponsored-section hiding, remembered on this device only. */
 function ReadingSection() {
   const [size, setSize] = useState<TextSize>(getTextSize());
@@ -374,6 +404,9 @@ function ReadingSection() {
           </div>
           <span className="hint">The other way saves the item for later.</span>
         </div>
+        {(['reddit', 'youtube'] as AppSite[]).map((site) => (
+          <OpenInPicker key={site} site={site} />
+        ))}
         <div className="field">
           <span className="label">AI notes card</span>
           <div className="segmented" role="group" aria-label="AI notes card">
