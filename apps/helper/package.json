@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Runs on Jeff's PC: pulls items from the app, summarises them with a local model (Ollama), posts results back.",
+  "description": "Runs on the owner's PC: pulls items from the app, summarises them with a local model (Ollama), posts results back.",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "build": "node build.mjs",
