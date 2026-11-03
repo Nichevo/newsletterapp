@@ -178,6 +178,34 @@ async function pageJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult>
   return { jobId: job.id, ok: true, title: pageTitle(page.body), entries, seenKeys: job.firstRun ? links.map((l) => l.url) : [] };
 }
 
+const isXPost = (url: string) => /^https?:\/\/(www\.|mobile\.)?(x|twitter)\.com\/[^/]+\/status\/\d+/i.test(url);
+
+/** An X post's text, from X's public embed service (no sign-in needed). */
+async function xPostText(url: string): Promise<string> {
+  try {
+    const res = await fetch(`https://publish.twitter.com/oembed?omit_script=true&dnt=true&url=${encodeURIComponent(url)}`, {
+      headers: { ...FETCH_HEADERS, Accept: 'application/json' },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return '';
+    const html = ((await res.json()) as { html?: string }).html ?? '';
+    const p = /<p\b[^>]*>([\s\S]*?)<\/p>/i.exec(html)?.[1] ?? '';
+    const text = p
+      .replace(/<br\s*\/?>/gi, ' ')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+    return text.length > 300 ? `${text.slice(0, 299).trimEnd()}…` : text;
+  } catch {
+    return '';
+  }
+}
+
 /** A page's headline (og:title, else <title>), for "More" links that come without one. */
 async function headlineOf(url: string): Promise<string> {
   try {
@@ -212,11 +240,12 @@ async function addStoryLinks(article: Article, postUrl: string, skip: string[], 
       rows = storyLinkRows(post.body, postUrl, skip);
       if (rows.length) break;
     }
-    const missing = rows.filter((r) => r.group === 'more' && !r.peek).slice(0, 12);
+    // Headlines for coverage links, and the post's words for X posts, when the page gave none.
+    const missing = rows.filter((r) => !r.peek && (r.group === 'more' || isXPost(r.url))).slice(0, 16);
     for (let i = 0; i < missing.length; i += 4) {
       await Promise.all(
         missing.slice(i, i + 4).map(async (r) => {
-          r.peek = await headlineOf(r.url);
+          r.peek = r.group === 'more' ? await headlineOf(r.url) : await xPostText(r.url);
         }),
       );
     }

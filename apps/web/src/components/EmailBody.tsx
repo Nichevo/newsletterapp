@@ -20,6 +20,10 @@ const BASE_CSS = `
   .story-links { margin-top: 1.5em; padding-top: 0.6em; border-top: 1px solid rgba(127,127,127,0.3); }
   .story-links h2 { font-size: 1em; margin: 0 0 0.4em; }
   .story-links__row { margin: 0.35em 0; font-size: 0.95em; line-height: 1.6; }
+  .story-links__head { margin: 0.8em 0 0.2em; font-size: 0.9em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #5b6470); }
+  .story-links__list { margin: 0; padding-left: 1.1em; }
+  .story-links__list li { margin: 0.45em 0; }
+  .story-links__peek { display: block; font-size: 0.9em; color: var(--muted, #5b6470); line-height: 1.4; }
   .story-links__all summary { cursor: pointer; color: var(--teal); font-size: 0.9em; margin-top: 0.4em; }
   .story-links__all li { margin: 0.3em 0; font-size: 0.92em; }
   a[data-peek] { position: relative; text-decoration-style: dotted; text-underline-offset: 3px; }
