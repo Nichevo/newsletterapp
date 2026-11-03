@@ -295,7 +295,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             Original article
           </Link>
         ) : item?.webUrl ? (
-          <a href={item.webUrl} target="_blank" rel="noopener noreferrer" onClick={() => api.event(id, { type: 'open_original', device: isPhone() })}>
+          <a href={appLink(item.webUrl)} target="_blank" rel="noopener noreferrer" onClick={() => api.event(id, { type: 'open_original', device: isPhone() })}>
             <IconExternal />
             {item.kind === 'newsletter' ? 'Web version' : 'Live page'}
           </a>
@@ -942,4 +942,16 @@ function FetchPage({ item, onFetched }: { item: ItemSummary; onFetched: () => Pr
       )}
     </div>
   );
+}
+
+/**
+ * On Android, Reddit posts open in the Reddit app (an intent link names the app;
+ * without it the installed web app opens them in the browser). If the app isn't
+ * installed, the browser falls back to the normal page.
+ */
+function appLink(url: string): string {
+  if (!/Android/i.test(navigator.userAgent)) return url;
+  const m = /^https?:\/\/(?:www\.|old\.|new\.|m\.)?reddit\.com(\/.*)$/i.exec(url);
+  if (!m) return url;
+  return `intent://www.reddit.com${m[1]}#Intent;scheme=https;package=com.reddit.frontpage;S.browser_fallback_url=${encodeURIComponent(url)};end`;
 }
