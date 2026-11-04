@@ -1,6 +1,7 @@
 import type {
   FetchPageStatus,
   SearchResponse,
+  TagList,
   TagPage,
   TopicsData,
   SourceActivity,
@@ -166,6 +167,7 @@ export const api = {
   pcHolds: () => get<PcHoldsView>('/api/pc-holds'),
   tag: (name: string, view: 'all' | 'unread', offset = 0) =>
     get<TagPage>(`/api/tag?name=${encodeURIComponent(name)}&view=${view}&offset=${offset}`),
+  tags: (days: number) => get<TagList>(`/api/tags?days=${days}`),
   topics: (days: number, fresh = false) => get<TopicsData>(`/api/topics?days=${days}${fresh ? '&fresh=1' : ''}`),
   saveSettings: (settings: Partial<AppSettings>) => put<AppSettings>('/api/settings', settings),
 

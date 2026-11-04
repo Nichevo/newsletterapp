@@ -194,6 +194,9 @@ export function TopicsPage() {
           </button>
           <h1>Statistics</h1>
         </div>
+        <Link className="btn btn--small" to="/tags">
+          All tags
+        </Link>
       </header>
       <StatsTabs current="topics" />
 

@@ -1,4 +1,4 @@
-import { platformOf, TOPICS_DAYS, type ItemKind, type SourceType, type TopicsData, type TopicsItem } from '@newsletterapp/shared';
+import { platformOf, TOPICS_DAYS, type ItemKind, type TagCount, type TagList, type SourceType, type TopicsData, type TopicsItem } from '@newsletterapp/shared';
 import type { Hono } from 'hono';
 import { parseList } from './db';
 import type { AppVariables, Env } from './env';
@@ -28,6 +28,40 @@ export function registerTopics(app: App) {
     c.executionCtx.waitUntil(
       cache
         .put(key, new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${CACHE_SECONDS}` } }))
+        .catch(() => undefined),
+    );
+    return new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  });
+}
+
+/** The All tags page can count over all time or one of these recent periods. */
+const TAG_LIST_DAYS = [0, 7, 30, 90] as const;
+const TAG_LIST_CACHE_SECONDS = 10 * 60;
+
+/**
+ * Every AI tag with how many items carry it. All time reads the small running
+ * tag_counts table; a recent period reads only that period's item_tags index rows.
+ * Kept in the edge cache for 10 minutes; the page filters and sorts in the app.
+ */
+export function registerTagList(app: App) {
+  app.get('/api/tags', async (c) => {
+    const days = TAG_LIST_DAYS.find((d) => d === Number(c.req.query('days') ?? 0)) ?? 0;
+    const key = new Request(`https://tags.cache/v1/${days}`);
+    const cache = (caches as unknown as { default: Cache }).default;
+    const hit = await cache.match(key).catch(() => undefined);
+    if (hit) return new Response(hit.body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+    const rows =
+      days === 0
+        ? await c.env.DB.prepare('SELECT tag, label, n FROM tag_counts WHERE n > 0').all<TagCount>()
+        : // Covered by item_tags_time.
+          await c.env.DB.prepare('SELECT tag, MAX(label) AS label, COUNT(*) AS n FROM item_tags WHERE received_at >= ? GROUP BY tag')
+            .bind(now() - days * DAY)
+            .all<TagCount>();
+    const data: TagList = { days, tags: rows.results };
+    const body = JSON.stringify(data);
+    c.executionCtx.waitUntil(
+      cache
+        .put(key, new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${TAG_LIST_CACHE_SECONDS}` } }))
         .catch(() => undefined),
     );
     return new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });

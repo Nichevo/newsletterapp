@@ -30,7 +30,7 @@ import type {
 } from '@newsletterapp/shared';
 import { registerAi } from './ai';
 import { registerPcHolds } from './pcholds';
-import { registerTopics } from './topics';
+import { registerTagList, registerTopics } from './topics';
 import { registerBacklog, unparkHeld } from './backlog';
 import { AuthError, authenticate } from './auth';
 import {
@@ -82,8 +82,9 @@ app.use('/api/*', async (c, next) => {
   await next();
 });
 
-app.get('/api/me', (c) => {
-  const me: Me = { email: c.get('userEmail'), domain: c.env.MAIL_DOMAIN || null };
+app.get('/api/me', async (c) => {
+  const settings = await loadSettings(c.env);
+  const me: Me = { email: c.get('userEmail'), domain: c.env.MAIL_DOMAIN || null, digestOn: settings.digest.enabled };
   return c.json(me);
 });
 
@@ -103,6 +104,7 @@ registerBacklog(app);
 registerReading(app);
 registerPcHolds(app);
 registerTopics(app);
+registerTagList(app);
 
 // ---------- Items ----------
 
