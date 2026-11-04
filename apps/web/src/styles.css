@@ -660,7 +660,9 @@ select {
   border-top: 1px solid var(--border);
   background: var(--surface);
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* Four or five tabs (Digest can be switched off), sharing the width evenly. */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   z-index: 10;
 }
 

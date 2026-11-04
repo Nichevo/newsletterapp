@@ -78,6 +78,7 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
   const d = (input.digest && typeof input.digest === 'object' ? input.digest : {}) as Partial<DigestOptions>;
   const bd = base.digest;
   const digest: DigestOptions = {
+    enabled: typeof d.enabled === 'boolean' ? d.enabled : bd.enabled,
     stories: d.stories === 6 || d.stories === 12 || d.stories === 20 ? d.stories : bd.stories,
     windowHours: d.windowHours === 0 || d.windowHours === 24 || d.windowHours === 48 ? d.windowHours : bd.windowHours,
     includeRead: typeof d.includeRead === 'boolean' ? d.includeRead : bd.includeRead,

@@ -24,6 +24,7 @@ import { SourcesPage } from './pages/Sources';
 import { ReadingStatsPage } from './pages/ReadingStats';
 import { StatsPage } from './pages/Stats';
 import { TagPagePage } from './pages/Tag';
+import { TagsPage } from './pages/Tags';
 
 // The Topics map pulls in the chart layout code, so it loads only when opened.
 const TopicsPage = lazy(() => import('./pages/Topics').then((m) => ({ default: m.TopicsPage })));
@@ -72,7 +73,7 @@ export default function App() {
     <div className="app">
       <Routes>
         <Route path="/" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
-        <Route path="/digest" element={<DigestPage />} />
+        <Route path="/digest" element={<DigestPage on={me.digestOn} />} />
         <Route path="/saved" element={<InboxPage key="saved" mode="saved" me={me} counts={counts} onChanged={refreshCounts} />} />
         <Route
           path="/saved/interesting"
@@ -84,7 +85,10 @@ export default function App() {
         <Route path="/add" element={<AddPage me={me} />} />
         <Route path="/ask" element={<AskPage />} />
         <Route path="/search" element={<SearchPage />} />
-        <Route path="/settings" element={<SettingsPage me={me} />} />
+        <Route
+          path="/settings"
+          element={<SettingsPage me={me} onDigestChange={(on) => setMe((m) => (m ? { ...m, digestOn: on } : m))} />}
+        />
         <Route path="/source/:id" element={<SourcePage />} />
         <Route path="/settings/ai" element={<AiSettingsPage />} />
         <Route path="/settings/ai/usage" element={<AiUsagePage />} />
@@ -105,10 +109,11 @@ export default function App() {
             </Suspense>
           }
         />
+        <Route path="/tags" element={<TagsPage />} />
         <Route path="/tag/*" element={<TagPagePage />} />
         <Route path="*" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
       </Routes>
-      {!isReader && <TabBar pendingSenders={counts.pendingSenders} />}
+      {!isReader && <TabBar pendingSenders={counts.pendingSenders} showDigest={me.digestOn} />}
     </div>
   );
 }

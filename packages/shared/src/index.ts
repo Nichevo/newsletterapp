@@ -348,6 +348,22 @@ export interface ReadingEventInput {
 export interface Me {
   email: string;
   domain: string | null;
+  /** Whether the daily digest is switched on (Settings > Daily digest). */
+  digestOn: boolean;
+}
+
+/** One AI tag on the All tags page. */
+export interface TagCount {
+  tag: string;
+  label: string;
+  /** Items carrying it: all time, or within the chosen days. */
+  n: number;
+}
+
+export interface TagList {
+  /** 0 = all time. */
+  days: number;
+  tags: TagCount[];
 }
 
 export interface KeywordRule {
@@ -400,6 +416,8 @@ export interface SavedFilter {
 }
 
 export interface DigestOptions {
+  /** Off: no digest is built and the Digest tab is hidden. */
+  enabled: boolean;
   /** Roughly how many lead stories. */
   stories: 6 | 12 | 20;
   /** Hours of mail to cover; 0 = everything since the last digest. */
@@ -414,6 +432,7 @@ export interface DigestOptions {
 }
 
 export const DEFAULT_DIGEST_OPTIONS: DigestOptions = {
+  enabled: true,
   stories: 12,
   windowHours: 0,
   includeRead: false,
