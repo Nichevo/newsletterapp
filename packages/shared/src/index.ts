@@ -191,6 +191,12 @@ export interface StoryBanner {
   tags: { tag: string; label: string; n: number }[];
 }
 
+/** Saved > Stories: stories you follow, then the most recently active ones. */
+export interface StoryList {
+  followed: (StoryInfo & { unread: number })[];
+  recent: (StoryInfo & { unread: number })[];
+}
+
 /** Statistics > Stories. */
 export interface StoryStats {
   days: number;

@@ -25,7 +25,7 @@ import { ReadingStatsPage } from './pages/ReadingStats';
 import { StatsPage } from './pages/Stats';
 import { TagPagePage } from './pages/Tag';
 import { TagsPage } from './pages/Tags';
-import { StoryPagePage } from './pages/Story';
+import { StoriesPage, StoryPagePage } from './pages/Story';
 import { StoryStatsPage } from './pages/StoryStats';
 
 // The Topics map pulls in the chart layout code, so it loads only when opened.
@@ -82,6 +82,7 @@ export default function App() {
           element={<InboxPage key="interesting" mode="interesting" me={me} counts={counts} onChanged={refreshCounts} />}
         />
         <Route path="/saved/highlights" element={<HighlightsPage />} />
+        <Route path="/saved/stories" element={<StoriesPage />} />
         <Route path="/item/:id" element={<ReaderPage onChanged={refreshCounts} />} />
         <Route path="/senders" element={<SendersPage onChanged={refreshCounts} />} />
         <Route path="/add" element={<AddPage me={me} />} />
