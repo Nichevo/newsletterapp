@@ -127,9 +127,110 @@ function pairLines(
   shift: number,
   sameSource: boolean,
   strict: boolean,
+  sourceLine: number | null = null,
 ): { story: number; alone: number | null } {
   const extra = shift + (sameSource ? SAME_SOURCE_EXTRA : 0) + (strict ? STRICT_EXTRA : 0);
-  return { story: th.story + extra, alone: strict ? null : th.alone + extra };
+  // A source whose posts always look alike needs a match above its usual, whatever the setting.
+  const floor = sameSource && sourceLine !== null ? sourceLine : 0;
+  return { story: Math.max(th.story + extra, floor), alone: strict ? null : Math.max(th.alone + extra, floor) };
+}
+
+// ---------- How alike a source's own posts are ----------
+//
+// Some sources' posts always look alike to the embeddings, e.g. a comic whose titles are all
+// "<name> comic #772", or a daily newsletter with the same headings. While matching, each
+// source keeps a running average of how close a new post is to its nearest earlier post from
+// the same source, and which tags it puts on most posts. Two posts from one source then need a
+// match well above that source's usual (LOOK_MARGIN), and its everyday tags don't count as shared.
+
+const LOOK_MARGIN = 0.05;
+/** Posts seen before a source's usual closeness is used. */
+const LOOK_MIN = 5;
+/** A tag on at least this share of a source's posts is one of its everyday tags. */
+const LOOK_TAG_SHARE = 0.5;
+const LOOK_KEEP = 400;
+const LOOK_TAGS = 25;
+
+interface SourceLook {
+  label: string;
+  /** Posts that had an earlier post from the same source among their neighbours. */
+  n: number;
+  /** Running average of the closeness to that nearest same-source post. */
+  base: number;
+  /** Posts whose tags were counted, and the counts. */
+  items: number;
+  tags: Record<string, number>;
+  at: number;
+}
+type Looks = Record<string, SourceLook>;
+
+async function loadLooks(env: Env): Promise<Looks> {
+  return (await readJson<Looks>(env, 'story_looks')) ?? {};
+}
+
+/** The line two posts from this source must reach, or null while too few posts have been seen. */
+function lookLine(look: SourceLook | undefined): number | null {
+  return look && look.n >= LOOK_MIN ? Math.round((look.base + LOOK_MARGIN) * 1000) / 1000 : null;
+}
+
+/** The source's everyday tags (on half its posts or more), which don't link two of its posts. */
+function everydayTags(look: SourceLook | undefined): Set<string> {
+  if (!look || look.items < LOOK_MIN) return new Set();
+  return new Set(Object.entries(look.tags).filter(([, c]) => c / look.items >= LOOK_TAG_SHARE).map(([k]) => k));
+}
+
+function noteLook(looks: Looks, sourceId: string, label: string, tagKeys: string[], sameSim: number | null) {
+  const e = looks[sourceId] ?? { label, n: 0, base: 0, items: 0, tags: {}, at: 0 };
+  e.label = label || e.label;
+  e.at = now();
+  if (sameSim !== null) {
+    e.n += 1;
+    // Running average that settles after about 20 posts, so it follows a source that changes style.
+    e.base += (sameSim - e.base) / Math.min(e.n, 20);
+  }
+  e.items += 1;
+  for (const k of new Set(tagKeys)) e.tags[k] = (e.tags[k] ?? 0) + 1;
+  if (Object.keys(e.tags).length > LOOK_TAGS) {
+    e.tags = Object.fromEntries(Object.entries(e.tags).sort((a, b) => b[1] - a[1]).slice(0, LOOK_TAGS));
+  }
+  looks[sourceId] = e;
+}
+
+function trimLooks(looks: Looks): Looks {
+  const list = Object.entries(looks);
+  return list.length > LOOK_KEEP ? Object.fromEntries(list.sort((a, b) => b[1].at - a[1].at).slice(0, LOOK_KEEP)) : looks;
+}
+
+/**
+ * Once: learns each source's usual closeness from the last 90 days of articles, so sources
+ * don't need weeks of new posts first. One read of up to 20,000 article rows, then never again.
+ */
+async function seedLooks(env: Env): Promise<void> {
+  if (await readJson<number>(env, 'story_looks_seeded')) return;
+  await writeJson(env, 'story_looks_seeded', now());
+  const rows = await env.DB.prepare(
+    `SELECT items.id, items.source_id, items.tags, items.neighbours, COALESCE(sources.name, items.from_name, items.from_email) AS source_name
+     FROM items INDEXED BY items_status_received LEFT JOIN sources ON sources.id = items.source_id
+     WHERE items.status IN ('inbox', 'archived') AND items.received_at >= ? ORDER BY items.received_at LIMIT 20000`,
+  )
+    .bind(now() - 90 * DAY)
+    .all<{ id: string; source_id: string | null; tags: string | null; neighbours: string | null; source_name: string | null }>();
+  const sourceOf = new Map(rows.results.map((r) => [r.id, r.source_id]));
+  const looks: Looks = {};
+  for (const r of rows.results) {
+    if (!r.source_id || !r.neighbours) continue;
+    let list: [string, number][] = [];
+    try {
+      list = JSON.parse(r.neighbours) as [string, number][];
+    } catch {
+      continue;
+    }
+    const same = (Array.isArray(list) ? list : []).filter((n) => Array.isArray(n) && sourceOf.get(n[0]) === r.source_id).map((n) => Number(n[1]) || 0);
+    noteLook(looks, r.source_id, r.source_name ?? '', parseList(r.tags).map(tagKey).filter(Boolean), same.length ? Math.max(...same) : null);
+  }
+  // Learning since the deploy is kept for sources it has already seen.
+  const current = await loadLooks(env);
+  await writeJson(env, 'story_looks', trimLooks({ ...looks, ...current }));
 }
 
 const learntSpecific = (tunes: Tunes, k: string) => {
@@ -180,6 +281,7 @@ interface QueueRow {
   status: string;
   story_note: string | null;
   category: string | null;
+  source_name: string | null;
 }
 
 interface NeighbourRow {
@@ -198,7 +300,7 @@ interface NeighbourRow {
 export async function assignStories(env: Env, max: number): Promise<number> {
   const rows = await env.DB.prepare(
     `SELECT items.id, items.source_id, items.received_at, items.tags, items.neighbours, items.story_split, items.status, items.story_note,
-       ${CATEGORY_SQL} AS category
+       ${CATEGORY_SQL} AS category, COALESCE(sources.name, items.from_name, items.from_email) AS source_name
      FROM items INDEXED BY items_story_queue LEFT JOIN sources ON sources.id = items.source_id
      WHERE items.story_at IS NULL AND items.embedded_at IS NOT NULL ORDER BY items.received_at LIMIT ?`,
   )
@@ -207,7 +309,8 @@ export async function assignStories(env: Env, max: number): Promise<number> {
   if (rows.results.length === 0) return 0;
   const settings = (await loadSettings(env)).stories;
   const th = MATCH[settings.match];
-  const tunes = await loadTunes(env);
+  const [tunes, looks] = await Promise.all([loadTunes(env), loadLooks(env)]);
+  let looksChanged = false;
   // The most any tag or source has lowered the line, so neighbours under the usual line are only read when they could pass.
   const maxLoosen = -Math.min(0, ...[...Object.values(tunes.tags), ...Object.values(tunes.sources)].map(entryShift));
   const total = (await env.DB.prepare('SELECT MAX(rowid) AS n FROM items').first<{ n: number | null }>())?.n ?? 0;
@@ -234,19 +337,33 @@ export async function assignStories(env: Env, max: number): Promise<number> {
       await mark();
       continue;
     }
-    // Neighbours that could pass with the most a tag or source can loosen the line; each pair is checked with its own line below.
-    const near = all.filter((n) => n[1] >= th.story - maxLoosen).slice(0, 15);
-    if (near.length === 0) {
+    // The nearest 15 are read (also to learn how alike this source's posts are); those that could
+    // pass with the most a tag or source can loosen the line are matched, each pair with its own line.
+    const top15 = [...all].sort((a, b) => b[1] - a[1]).slice(0, 15);
+    const fetched = top15.length
+      ? (
+          await env.DB.prepare(
+            `SELECT items.id, items.source_id, items.received_at, items.story_id, items.news_id, items.tags, items.status, items.story_split, ${CATEGORY_SQL} AS category
+             FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE items.id IN (${top15.map(() => '?').join(', ')})`,
+          )
+            .bind(...top15.map((n) => n[0]))
+            .all<NeighbourRow>()
+        ).results
+      : [];
+    const sims = new Map(top15);
+    const look = row.source_id ? looks[row.source_id] : undefined;
+    const sourceLine = lookLine(look);
+    const everyday = everydayTags(look);
+    if (row.source_id) {
+      const same = fetched.filter((n) => n.source_id === row.source_id).map((n) => sims.get(n.id) ?? 0);
+      noteLook(looks, row.source_id, row.source_name ?? '', parseList(row.tags).map(tagKey).filter(Boolean), same.length ? Math.max(...same) : null);
+      looksChanged = true;
+    }
+    const others = { results: fetched.filter((n) => (sims.get(n.id) ?? 0) >= th.story - maxLoosen) };
+    if (others.results.length === 0) {
       await mark(nearMiss);
       continue;
     }
-    const sims = new Map(near);
-    const others = await env.DB.prepare(
-      `SELECT items.id, items.source_id, items.received_at, items.story_id, items.news_id, items.tags, items.status, items.story_split, ${CATEGORY_SQL} AS category
-       FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE items.id IN (${near.map(() => '?').join(', ')})`,
-    )
-      .bind(...near.map((n) => n[0]))
-      .all<NeighbourRow>();
 
     // Which of this item's tags are specific enough to link on.
     const mine = new Map(parseList(row.tags).map((l) => [tagKey(l), l.trim()] as const).filter(([k]) => k));
@@ -270,11 +387,12 @@ export async function assignStories(env: Env, max: number): Promise<number> {
       const sim = sims.get(n.id) ?? 0;
       const days = (row.received_at - n.received_at) / DAY;
       const theirs = [...new Set(parseList(n.tags).map(tagKey))];
-      const sharedKeys = theirs.filter((k) => specific.has(k));
+      const sameSource = Boolean(row.source_id && n.source_id === row.source_id);
+      // Two posts from one source don't link on the tags it puts on most of its posts.
+      const sharedKeys = theirs.filter((k) => specific.has(k) && !(sameSource && everyday.has(k)));
       const shared = sharedKeys.map((k) => mine.get(k)!);
       const shift = lineShift(tunes, theirs.filter((k) => mine.has(k)), [row.source_id, n.source_id]);
-      const sameSource = Boolean(row.source_id && n.source_id === row.source_id);
-      const lines = pairLines(th, shift, sameSource, rowMode === 'strict' || theirMode === 'strict');
+      const lines = pairLines(th, shift, sameSource, rowMode === 'strict' || theirMode === 'strict', sameSource ? sourceLine : null);
       const news = sim >= th.news && days <= NEWS_DAYS && !sameSource && n.source_id !== row.source_id;
       const story =
         news || (days <= STORY_DAYS && sim >= lines.story && shared.length > 0) || (lines.alone !== null && days <= ALONE_DAYS && sim >= lines.alone);
@@ -320,6 +438,7 @@ export async function assignStories(env: Env, max: number): Promise<number> {
     await env.DB.batch(stmts);
     await refreshStory(env, storyId);
   }
+  if (looksChanged) await writeJson(env, 'story_looks', trimLooks(looks));
   return rows.results.length;
 }
 
@@ -478,6 +597,7 @@ async function notesWaiting(env: Env): Promise<boolean> {
  * items is worked through a minute at a time) and says whether notes are waiting.
  */
 export async function storyHeartbeat(env: Env, paused: boolean): Promise<{ storyWaiting: boolean }> {
+  await seedLooks(env).catch((err: unknown) => console.error('learning source looks failed', err));
   await assignStories(env, 25).catch((err: unknown) => console.error('story matching failed', err));
   return { storyWaiting: !paused && (await notesWaiting(env)) };
 }
@@ -549,8 +669,11 @@ export function registerStories(app: App) {
     }
     const near = all.filter((n) => n[1] >= NEAR_SHOW).sort((a, b) => b[1] - a[1]).slice(0, 3);
     if (!near.length) return c.json([]);
-    const [settings, tunes] = await Promise.all([loadSettings(c.env), loadTunes(c.env)]);
+    const [settings, tunes, looks] = await Promise.all([loadSettings(c.env), loadTunes(c.env), loadLooks(c.env)]);
     const th = MATCH[settings.stories.match];
+    const look = item.source_id ? looks[item.source_id] : undefined;
+    const sourceLine = lookLine(look);
+    const everyday = everydayTags(look);
     const rows = await c.env.DB.prepare(
       `SELECT items.id, items.subject, COALESCE(sources.name, items.from_name, items.from_email) AS source_name, items.source_id, items.received_at,
          items.read_at, items.tags, items.status, items.story_split, items.story_id, stories.title AS story_title, stories.tags AS story_tags,
@@ -581,14 +704,15 @@ export function registerStories(app: App) {
       const n = byId.get(id);
       if (!n || (n.status !== 'inbox' && n.status !== 'archived')) continue;
       const days = Math.abs(item.received_at - n.received_at) / DAY;
-      const shared = [...new Set(parseList(n.tags).map(tagKey))].filter((k) => specific.has(k));
-      const sharedAny = [...new Set(parseList(n.tags).map(tagKey))].filter((k) => mine.has(k));
       const sameSource = Boolean(item.source_id && n.source_id === item.source_id);
+      const shared = [...new Set(parseList(n.tags).map(tagKey))].filter((k) => specific.has(k) && !(sameSource && everyday.has(k)));
+      const sharedAny = [...new Set(parseList(n.tags).map(tagKey))].filter((k) => mine.has(k));
       const shift = lineShift(tunes, sharedAny, [item.source_id, n.source_id]);
       const modes = [item.category, n.category].map((cat) => (cat ? { cat, mode: settings.stories.categories[cat] } : null));
       const off = modes.find((m) => m?.mode === 'off');
       const strict = modes.find((m) => m?.mode === 'strict');
-      const lines = pairLines(th, shift, sameSource, Boolean(strict));
+      const lines = pairLines(th, shift, sameSource, Boolean(strict), sameSource ? sourceLine : null);
+      const lookAlike = sameSource && sourceLine !== null && sourceLine > th.story + shift + SAME_SOURCE_EXTRA;
       const news = sim >= th.news && days <= NEWS_DAYS && !sameSource;
       const storyLine = lines.story;
       let reason: string;
@@ -614,7 +738,12 @@ export function registerStories(app: App) {
         reason: [
           reason,
           ...(off ? [] : [
-            sameSource ? 'same source, so it needs 0.03 more' : '',
+            lookAlike
+              ? `${n.source_name ?? 'this source'}’s posts are usually ${f(look!.base)} alike, so two of them need ${f(sourceLine!)}`
+              : sameSource
+                ? 'same source, so it needs 0.03 more'
+                : '',
+            sameSource && everyday.size && sharedAny.some((k) => everyday.has(k)) ? 'tags it puts on most of its posts don’t count' : '',
             strict ? `${strict.cat} is set to Stricter` : '',
             shift < 0 ? `line lowered ${f(-shift)} by your links` : shift > 0 ? `line raised ${f(shift)} by your take-outs` : '',
           ]),
@@ -817,19 +946,27 @@ export function registerStories(app: App) {
     const key = new Request(`https://stories.cache/v1/${days}`);
     const cache = (caches as unknown as { default: Cache }).default;
     // What's learnt changes with each tap, so it's read fresh (one row) and added to the cached numbers.
-    const learnt = tuneList(await loadTunes(c.env));
+    const [tunes, looks] = await Promise.all([loadTunes(c.env), loadLooks(c.env)]);
+    const learnt = tuneList(tunes);
+    const th = MATCH[(await loadSettings(c.env)).stories.match];
+    const lookAlike = Object.entries(looks)
+      .map(([key, e]) => ({ key, e, line: lookLine(e) }))
+      .filter((x) => x.line !== null && x.line > th.story + SAME_SOURCE_EXTRA)
+      .sort((a, b) => b.e.base - a.e.base)
+      .slice(0, 10)
+      .map(({ key, e, line }) => ({ key, label: e.label, base: Math.round(e.base * 100) / 100, line: line!, posts: e.n, everyday: [...everydayTags(e)] }));
     if (c.req.query('fresh') !== '1') {
       const hit = (await cache.match(key).catch(() => undefined)) as Response | undefined;
       if (hit) {
         const cached = (await hit.json()) as StoryStats;
-        return c.json({ ...cached, learnt }, 200, { 'Cache-Control': 'no-store' });
+        return c.json({ ...cached, learnt, lookAlike }, 200, { 'Cache-Control': 'no-store' });
       }
     }
     const stats = await storyStats(c.env, days);
     c.executionCtx.waitUntil(
       cache.put(key, new Response(JSON.stringify(stats), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=600' } })).catch(() => undefined),
     );
-    return c.json({ ...stats, learnt }, 200, { 'Cache-Control': 'no-store' });
+    return c.json({ ...stats, learnt, lookAlike }, 200, { 'Cache-Control': 'no-store' });
   });
 
   // ----- Helper side -----
@@ -925,7 +1062,7 @@ export function registerStories(app: App) {
 
 // ---------- Statistics ----------
 
-async function storyStats(env: Env, days: number): Promise<Omit<StoryStats, 'learnt'>> {
+async function storyStats(env: Env, days: number): Promise<Omit<StoryStats, 'learnt' | 'lookAlike'>> {
   const since = now() - days * DAY;
   const [active, arrived, followed, followedUnread, events, notes, notesWaitingRow, matchWaiting, top, sizes] = await env.DB.batch([
     env.DB.prepare('SELECT COUNT(*) AS n, SUM(first_at >= ?1) AS started FROM stories WHERE last_at >= ?1').bind(since),
