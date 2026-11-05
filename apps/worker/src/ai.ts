@@ -24,6 +24,7 @@ import type { Hono } from 'hono';
 import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
 import { embedHeartbeat } from './embed';
+import { storyHeartbeat } from './stories';
 import { fetchJobsWaiting } from './feeds';
 import { ASK_POLL_SECONDS, asksWaiting } from './highlights';
 import { countSearches, searchAllowance, summarySearches } from './websearch';
@@ -72,7 +73,7 @@ export async function writeJson(env: Env, key: string, value: unknown): Promise<
     .run();
 }
 
-const loadState = async (env: Env) => ({ ...NO_STATE, ...(await readJson<AiState>(env, 'ai_state')) });
+export const loadState = async (env: Env) => ({ ...NO_STATE, ...(await readJson<AiState>(env, 'ai_state')) });
 
 // ---------- Which model does the work ----------
 
@@ -352,6 +353,7 @@ export function registerAi(app: App) {
       askPollSeconds: ASK_POLL_SECONDS,
       skipSites: settings.pcSkipSites,
       ...(await embedHeartbeat(c.env, hb)),
+      ...(await storyHeartbeat(c.env, state.paused)),
     };
     return c.json(config);
   });

@@ -49,7 +49,7 @@ import {
   type SourceRow,
 } from './db';
 import { buildDigestIfDue } from './digest';
-import { relatedItems } from './related';
+import { registerStories, toStoryInfo } from './stories';
 import { registerEmbed } from './embed';
 import { normalizeUrl, registerFeeds, startCount } from './feeds';
 import { registerExport } from './export';
@@ -84,7 +84,7 @@ app.use('/api/*', async (c, next) => {
 
 app.get('/api/me', async (c) => {
   const settings = await loadSettings(c.env);
-  const me: Me = { email: c.get('userEmail'), domain: c.env.MAIL_DOMAIN || null, digestOn: settings.digest.enabled };
+  const me: Me = { email: c.get('userEmail'), domain: c.env.MAIL_DOMAIN || null, digestOn: settings.digest.enabled, groupSameNews: settings.stories.groupSameNews };
   return c.json(me);
 });
 
@@ -105,13 +105,16 @@ registerReading(app);
 registerPcHolds(app);
 registerTopics(app);
 registerTagList(app);
+registerStories(app);
 
 // ---------- Items ----------
 
 const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category, sources.ai_mode AS source_ai_mode, sources.ai_since AS source_ai_since, sources.show_picture AS source_show_picture, sources.feed_url AS source_feed_url,
     ai_runs.provider AS run_provider, ai_runs.model AS run_model, ai_runs.prompt_version AS run_prompt_version,
-    ai_runs.seconds AS run_seconds, ai_runs.rating AS run_rating
-  FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN ai_runs ON ai_runs.id = items.ai_run_id`;
+    ai_runs.seconds AS run_seconds, ai_runs.rating AS run_rating,
+    stories.title AS story_title, stories.tags AS story_tags, stories.items AS story_items, stories.followed_at AS story_followed_at
+  FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN ai_runs ON ai_runs.id = items.ai_run_id
+    LEFT JOIN stories ON stories.id = items.story_id`;
 type ItemSelectRow = ItemRow & ItemJoined;
 
 const VIEW_WHERE: Record<ItemView, string> = {
@@ -383,12 +386,12 @@ app.get('/api/tag', async (c) => {
     first
       ? c.env.DB.prepare(
           `SELECT items.source_id, COALESCE(sources.name, items.from_name, items.from_email) AS name, items.read_at IS NULL AS unread,
-             it.received_at, it.label
+             it.received_at, it.label, items.story_id
            FROM item_tags it JOIN items ON items.id = it.item_id LEFT JOIN sources ON sources.id = items.source_id
            WHERE it.tag = ? AND items.status IN ('inbox', 'archived') ORDER BY it.received_at DESC LIMIT 3000`,
         )
           .bind(tag)
-          .all<{ source_id: string | null; name: string | null; unread: number; received_at: number; label: string }>()
+          .all<{ source_id: string | null; name: string | null; unread: number; received_at: number; label: string; story_id: string | null }>()
       : null,
     first
       ? c.env.DB.prepare(
@@ -414,6 +417,15 @@ app.get('/api/tag', async (c) => {
     labels.set(r.label, (labels.get(r.label) ?? 0) + 1);
   }
   const label = [...labels].sort((a, b) => b[1] - a[1])[0]?.[0] ?? labelFrom(rows.results[0]?.tags ?? null, tag);
+  // Stories among the tag's items, most recent first (the rows are newest first), from rows already read.
+  const storyUnread = new Map<string, number>();
+  for (const r of s) if (r.story_id) storyUnread.set(r.story_id, (storyUnread.get(r.story_id) ?? 0) + (r.unread ? 1 : 0));
+  const storyIds = [...storyUnread.keys()].slice(0, 8);
+  const storyRows = storyIds.length
+    ? await c.env.DB.prepare(`SELECT * FROM stories WHERE id IN (${storyIds.map(() => '?').join(', ')})`)
+        .bind(...storyIds)
+        .all<Parameters<typeof toStoryInfo>[0]>()
+    : null;
   const body: TagPage = {
     tag,
     label,
@@ -425,6 +437,13 @@ app.get('/api/tag', async (c) => {
     sources: [...bySource.values()].sort((a, b) => b.n - a.n).slice(0, 12),
     items: rows.results.slice(0, TAG_PAGE).map((r) => toItemSummary(r, settings.aiByKind, settings.aiOffCategories)),
     nextOffset: rows.results.length > TAG_PAGE ? offset + TAG_PAGE : null,
+    ...(first
+      ? {
+          stories: (storyRows?.results ?? [])
+            .map((r) => ({ ...toStoryInfo(r), unread: storyUnread.get(r.id) ?? 0 }))
+            .sort((a, b) => b.lastAt - a.lastAt),
+        }
+      : {}),
   };
   return c.json(body);
 });
@@ -494,15 +513,6 @@ async function logEvent(env: Env, itemId: string, type: ReadingEventType, value?
     .bind(itemId, type, value ?? null, device ?? null, now())
     .run();
 }
-
-// ---------- "You've read about this before" ----------
-
-/** Older items you read that share a specific topic with this one. */
-app.get('/api/items/:id/related', async (c) => {
-  const related = await relatedItems(c.env, c.req.param('id'));
-  if (!related) return c.json({ error: 'not found' }, 404);
-  return c.json(related);
-});
 
 // ---------- One-tap unsubscribe ----------
 

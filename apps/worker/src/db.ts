@@ -143,6 +143,8 @@ export interface ItemRow {
   origin_item_id?: string | null;
   background?: string | null;
   coverage?: string | null;
+  story_id?: string | null;
+  news_id?: string | null;
 }
 
 /** Extra columns joined in by the item queries (source and the AI run that wrote the summary). */
@@ -158,6 +160,10 @@ export interface ItemJoined {
   run_prompt_version?: number | null;
   run_seconds?: number | null;
   run_rating?: number | null;
+  story_title?: string | null;
+  story_tags?: string | null;
+  story_items?: number | null;
+  story_followed_at?: number | null;
 }
 
 function parseCoverage(raw: string | null): { title: string; url: string }[] {
@@ -178,6 +184,14 @@ export function parseList(raw: string | null): string[] {
   } catch {
     return [];
   }
+}
+
+/** The name a story goes by: the PC's, else its main tags, else its first headline. */
+export function storyTitle(row: { title: string | null; tags: string | null }, firstSubject?: string | null): string {
+  if (row.title) return row.title;
+  const tags = parseList(row.tags);
+  if (tags.length) return tags.slice(0, 3).join(' · ');
+  return firstSubject ?? 'Untitled story';
 }
 
 /** Picks the https link out of a List-Unsubscribe header, if there is one. */
@@ -270,6 +284,16 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<Summa
     originItemId: row.origin_item_id ?? null,
     background: row.background ?? null,
     coverage: parseCoverage(row.coverage ?? null),
+    story:
+      row.story_id && row.story_items
+        ? {
+            id: row.story_id,
+            title: storyTitle({ title: row.story_title ?? null, tags: row.story_tags ?? null }, 'Story'),
+            items: row.story_items,
+            followed: row.story_followed_at != null,
+          }
+        : null,
+    newsId: row.news_id ?? null,
   };
 }
 

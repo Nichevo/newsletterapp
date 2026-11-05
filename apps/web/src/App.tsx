@@ -25,6 +25,8 @@ import { ReadingStatsPage } from './pages/ReadingStats';
 import { StatsPage } from './pages/Stats';
 import { TagPagePage } from './pages/Tag';
 import { TagsPage } from './pages/Tags';
+import { StoryPagePage } from './pages/Story';
+import { StoryStatsPage } from './pages/StoryStats';
 
 // The Topics map pulls in the chart layout code, so it loads only when opened.
 const TopicsPage = lazy(() => import('./pages/Topics').then((m) => ({ default: m.TopicsPage })));
@@ -87,7 +89,13 @@ export default function App() {
         <Route path="/search" element={<SearchPage />} />
         <Route
           path="/settings"
-          element={<SettingsPage me={me} onDigestChange={(on) => setMe((m) => (m ? { ...m, digestOn: on } : m))} />}
+          element={
+            <SettingsPage
+              me={me}
+              onDigestChange={(on) => setMe((m) => (m ? { ...m, digestOn: on } : m))}
+              onGroupChange={(on) => setMe((m) => (m ? { ...m, groupSameNews: on } : m))}
+            />
+          }
         />
         <Route path="/source/:id" element={<SourcePage />} />
         <Route path="/settings/ai" element={<AiSettingsPage />} />
@@ -110,6 +118,8 @@ export default function App() {
           }
         />
         <Route path="/tags" element={<TagsPage />} />
+        <Route path="/story/:id" element={<StoryPagePage />} />
+        <Route path="/stats/stories" element={<StoryStatsPage />} />
         <Route path="/tag/*" element={<TagPagePage />} />
         <Route path="*" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
       </Routes>

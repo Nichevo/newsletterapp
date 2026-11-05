@@ -12,6 +12,7 @@ import {
   type SourceType,
   type SummaryKind,
   type TopicFilter,
+  type StorySettings,
 } from '@newsletterapp/shared';
 import type { Env } from './env';
 import { now } from './ids';
@@ -131,6 +132,13 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
         .filter((f) => f.name)
         .slice(0, 20)
     : (base.topicFilters ?? []);
+  const st = (input.stories && typeof input.stories === 'object' ? input.stories : {}) as Partial<StorySettings>;
+  const bs = base.stories ?? DEFAULT_SETTINGS.stories;
+  const stories: StorySettings = {
+    notes: typeof st.notes === 'boolean' ? st.notes : bs.notes,
+    groupSameNews: typeof st.groupSameNews === 'boolean' ? st.groupSameNews : bs.groupSameNews,
+    match: st.match === 'loose' || st.match === 'normal' || st.match === 'strict' ? st.match : bs.match,
+  };
   return {
     categories,
     keywordRules,
@@ -144,5 +152,6 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     pcSkipSites,
     pcSkipAllowCategories,
     topicFilters,
+    stories,
   };
 }

@@ -104,24 +104,148 @@ export interface ItemSummary {
   /** With web search on for the item's source or category: context the issue assumes, and other coverage of the story. */
   background: string | null;
   coverage: { title: string; url: string }[];
+  /** The story this item is part of (items about the same chain of events), if any. */
+  story: ItemStory | null;
+  /** Same news from several sources within a couple of days: the group's first item. */
+  newsId: string | null;
+}
+
+/** The story an item belongs to, as shown on its inbox row. */
+export interface ItemStory {
+  id: string;
+  title: string;
+  items: number;
+  followed: boolean;
 }
 
 export type ReadVia = 'reader' | 'swipe' | 'bulk' | 'digest';
 export type ReadDevice = 'phone' | 'desktop';
 
-/** An older item that shares topics with the one being read. */
-export interface RelatedItem {
+/** Why an item was linked into its story, for "Why these are linked" on the story page. */
+export interface StoryWhy {
+  /** The earlier item it matched best. */
+  with: string | null;
+  /** How close the two are in meaning (0-1), from the PC's embeddings. */
+  sim: number;
+  /** Specific tags the two share. */
+  tags: string[];
+  /** news = the same news from another source within a couple of days; story = a later step. */
+  kind: 'news' | 'story';
+}
+
+/** One item in a story's timeline. */
+export interface StoryStep {
   id: string;
   subject: string;
   sourceName: string | null;
   receivedAt: number;
   readAt: number | null;
   savedAt: number | null;
-  /** The topics or words the two items share, for the "because" line. */
-  shared: string[];
-  /** How close the two are in meaning (0-1), when the PC helper's embeddings found it. */
-  similarity?: number;
+  /** The PC's line on what this item added to the story; null for the first item or older ones. */
+  note: string | null;
+  /** The item's own summary (or quick summary), for steps without a note. */
+  summary: string | null;
+  newsId: string | null;
+  why: StoryWhy | null;
 }
+
+export interface StoryInfo {
+  id: string;
+  /** The PC's name for the story, else its main tags, else its first headline. */
+  title: string;
+  /** The PC's "so far" summary, once a note has been written. */
+  summary: string | null;
+  tags: { tag: string; label: string }[];
+  firstAt: number;
+  lastAt: number;
+  items: number;
+  sources: number;
+  followedAt: number | null;
+}
+
+/** A story's page: its details and every item in it, newest first. */
+export interface StoryPage extends StoryInfo {
+  unread: number;
+  read: number;
+  steps: StoryStep[];
+}
+
+/** The story banner at the top of an article. */
+export interface StoryBanner {
+  story: StoryInfo;
+  /** Items in the story you've read, other than this one. */
+  read: number;
+  /** Unread items in the story other than this one, oldest first. */
+  unreadIds: string[];
+  /** The latest earlier item you read, for "Last time you read...". */
+  lastRead: StoryStep | null;
+  /** This item's own line on what it adds (null until the PC writes it). */
+  note: string | null;
+  /** The PC is still writing the note. */
+  notePending: boolean;
+  /** Earlier items in the story, newest first (up to 4). */
+  earlier: StoryStep[];
+  /** The same news from other sources. */
+  sameNews: StoryStep[];
+  /** This item's tags with counts, for "More on ..." links. */
+  tags: { tag: string; label: string; n: number }[];
+}
+
+/** Statistics > Stories. */
+export interface StoryStats {
+  days: number;
+  /** Stories with an item in the period, and how many of those started in it. */
+  active: number;
+  started: number;
+  /** Items that arrived in the period, how many joined a story, and how many repeated news from another source. */
+  arrived: number;
+  inStories: number;
+  sameNews: number;
+  followed: number;
+  followedUnread: number;
+  /** Taps on story links (banner, story page, inbox group) and "Not part of this story". */
+  linkTaps: number;
+  splits: number;
+  notes: { done: number; failed: number; seconds: number; model: string | null; waiting: number };
+  /** Items waiting to be matched (counted up to 1000). */
+  matchWaiting: number;
+  /** Most active stories in the period. */
+  top: (StoryInfo & { periodItems: number; unread: number })[];
+  /** Stories by size: 2, 3-4, 5-9, 10+ items. */
+  sizes: { label: string; n: number }[];
+}
+
+/** One story note for the PC: the story so far and the new item. */
+export interface StoryJob {
+  itemId: string;
+  storyId: string;
+  prompt: string;
+  text: string;
+}
+
+export interface StoryResult {
+  itemId: string;
+  ok: boolean;
+  provider: string;
+  model: string;
+  seconds: number;
+  watts?: number;
+  output?: { new?: string; title?: string; so_far?: string };
+  error?: string;
+}
+
+export type StoryMatch = 'loose' | 'normal' | 'strict';
+
+export interface StorySettings {
+  /** The PC writes a line on what each new item adds, and names the story. */
+  notes: boolean;
+  /** Show the same news from several sources as one inbox row. */
+  groupSameNews: boolean;
+  /** How close items must be to count as the same story. */
+  match: StoryMatch;
+}
+
+export const DEFAULT_STORY_SETTINGS: StorySettings = { notes: true, groupSameNews: true, match: 'normal' };
 
 export interface UnsubscribeResult {
   /** The Worker sent the one-click request and the sender accepted it. */
@@ -337,7 +461,9 @@ export type ReadingEventType =
   | 'archive'
   | 'unarchive'
   | 'link_click'
-  | 'open_original';
+  | 'open_original'
+  | 'story_link' // tapped a link in a story banner, story page or inbox group
+  | 'story_split'; // "Not part of this story"
 
 export interface ReadingEventInput {
   type: ReadingEventType;
@@ -350,6 +476,8 @@ export interface Me {
   domain: string | null;
   /** Whether the daily digest is switched on (Settings > Daily digest). */
   digestOn: boolean;
+  /** Show the same news from several sources as one inbox row (Settings > Reading). */
+  groupSameNews: boolean;
 }
 
 /** One AI tag on the All tags page. */
@@ -402,6 +530,8 @@ export interface AppSettings {
   pcSkipAllowCategories: string[];
   /** Named filter sets for the Topics map. */
   topicFilters: TopicFilter[];
+  /** Stories: related reading grouped by chain of events. */
+  stories: StorySettings;
 }
 
 export interface SavedFilter {
@@ -455,6 +585,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   pcSkipSites: [...DEFAULT_SKIP_SITES],
   pcSkipAllowCategories: [],
   topicFilters: [],
+  stories: DEFAULT_STORY_SETTINGS,
 };
 
 // ---------- Daily digest ----------
@@ -742,7 +873,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.3.10';
+export const HELPER_VERSION = '0.4.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -769,6 +900,8 @@ export interface HelperConfig {
   interestingKey?: string;
   /** Sites the PC must not fetch for lookups outside a fetch job (highlight questions). */
   skipSites?: string[];
+  /** Story notes waiting for the PC. */
+  storyWaiting?: boolean;
 }
 
 /** One item for the helper to embed: its text and when it arrived. */
@@ -1111,6 +1244,8 @@ export interface TagPage {
   sources: { id: string | null; name: string; n: number }[];
   items: ItemSummary[];
   nextOffset: number | null;
+  /** Stories with items carrying the tag, most recent first (first page only). */
+  stories?: (StoryInfo & { unread: number })[];
 }
 
 export type TopicsDays = 7 | 30 | 90;

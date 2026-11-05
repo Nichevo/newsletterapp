@@ -1,5 +1,6 @@
-import type { AskPreset, FetchPageStatus, ItemBody, ItemHighlights, ItemSummary, RelatedItem, UnsubscribeResult } from '@newsletterapp/shared';
+import type { AskPreset, FetchPageStatus, ItemBody, ItemHighlights, ItemSummary, UnsubscribeResult } from '@newsletterapp/shared';
 import { TagChip } from '../components/TagChip';
+import { StoryBanner } from '../components/StoryBanner';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
@@ -22,7 +23,6 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const [body, setBody] = useState<ItemBody | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadImages, setLoadImages] = useState(false);
-  const [related, setRelated] = useState<RelatedItem[]>([]);
   const [sponsoredCount, setSponsoredCount] = useState(0);
   const [showSponsored, setShowSponsored] = useState(false);
   const fontSize = textSizePx(getTextSize());
@@ -58,7 +58,6 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
     setBody(null);
     setError(null);
     setLoadImages(false);
-    setRelated([]);
     setSponsoredCount(0);
     setShowSponsored(false);
     Promise.all([api.item(id), api.itemBody(id)])
@@ -80,18 +79,6 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   }, [id]);
 
   useReadingTracker(id, item !== null);
-
-  useEffect(() => {
-    if (!item) return;
-    let cancelled = false;
-    api
-      .related(item.id)
-      .then((r) => !cancelled && setRelated(r))
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [item]);
 
   const onLinkClick = useCallback(
     (href: string) => {
@@ -177,6 +164,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
               {marks.noteCount} AI note{marks.noteCount === 1 ? '' : 's'} ↓
             </button>
           )}
+          {item.story && <StoryBanner itemId={item.id} />}
           {item.summary && <AiSummary item={item} onItem={setItem} marks={marks} />}
           {item.kind !== 'ai' && (
             <QuickSummary
@@ -262,7 +250,6 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
           !error && <div className="spinner">Loading…</div>
         )}
         {marks.place === 'bottom' && marks.notes}
-        {item && related.length > 0 && <RelatedList related={related} />}
         {item && item.listUnsubscribe && <Unsubscribe item={item} onChanged={onChanged} />}
       </div>
 
@@ -777,30 +764,6 @@ function writeFlag(key: string, value: boolean) {
   } catch {
     // Storage unavailable; the choice just isn't remembered.
   }
-}
-
-/** "You've read about this before": older items you read that share a specific topic. */
-function RelatedList({ related }: { related: RelatedItem[] }) {
-  return (
-    <section className="card related" aria-label="Related reading">
-      <span className="label" style={{ color: 'var(--teal-ink)' }}>
-        You've read about this before
-      </span>
-      <ul className="related__list">
-        {related.map((r) => (
-          <li key={r.id}>
-            <Link to={`/item/${r.id}`}>{r.subject}</Link>
-            <span className="related__meta">
-              {r.sourceName ?? ''}
-              {r.sourceName ? ' · ' : ''}
-              {r.readAt ? `read ${shortTime(r.readAt)}` : `arrived ${shortTime(r.receivedAt)}, unread`}
-              {r.shared.length > 0 ? ` · both about ${r.shared.slice(0, 3).join(', ')}` : r.similarity ? ' · similar story' : ''}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
 }
 
 /**
