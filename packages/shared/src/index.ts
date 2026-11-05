@@ -289,9 +289,16 @@ export interface StorySettings {
   groupSameNews: boolean;
   /** How close items must be to count as the same story. */
   match: StoryMatch;
+  /**
+   * Per category: 'strict' needs a closer match and a shared specific tag (e.g. comics, whose
+   * titles look alike); 'off' keeps its articles out of stories. Others match as usual.
+   */
+  categories: Record<string, StoryCategoryMode>;
 }
 
-export const DEFAULT_STORY_SETTINGS: StorySettings = { notes: true, groupSameNews: true, match: 'normal' };
+export type StoryCategoryMode = 'strict' | 'off';
+
+export const DEFAULT_STORY_SETTINGS: StorySettings = { notes: true, groupSameNews: true, match: 'normal', categories: {} };
 
 export interface UnsubscribeResult {
   /** The Worker sent the one-click request and the sender accepted it. */

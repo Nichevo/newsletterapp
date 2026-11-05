@@ -633,6 +633,39 @@ function StoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (
           value={st.notes}
           onChange={(v) => void onSave({ stories: { ...st, notes: v } })}
         />
+        {settings.categories.length > 0 && (
+          <div className="field">
+            <label>Stories by category</label>
+            {settings.categories.map((c) => {
+              const mode = st.categories[c] ?? 'normal';
+              return (
+                <div key={c} className="switchrow">
+                  <span style={{ fontSize: 14 }}>{c}</span>
+                  <div className="segmented" role="group" aria-label={`Stories for ${c}`}>
+                    {(['normal', 'strict', 'off'] as const).map((m) => (
+                      <button
+                        key={m}
+                        aria-pressed={mode === m}
+                        onClick={() => {
+                          const categories = { ...st.categories };
+                          if (m === 'normal') delete categories[c];
+                          else categories[c] = m;
+                          void onSave({ stories: { ...st, categories } }).then(() => (m !== 'normal' ? api.recheckStories(c).then(() => undefined) : undefined));
+                        }}
+                      >
+                        {m === 'normal' ? 'Normal' : m === 'strict' ? 'Stricter' : 'Off'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            <span className="hint">
+              Stricter needs a much closer match and a shared specific tag, for things like comics whose titles look alike. Off keeps a category out of
+              stories. Its articles already in stories are taken out and matched again. Articles from the same source always need a slightly closer match.
+            </span>
+          </div>
+        )}
       </section>
     </div>
   );

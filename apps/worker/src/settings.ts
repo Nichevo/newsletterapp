@@ -138,6 +138,15 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     notes: typeof st.notes === 'boolean' ? st.notes : bs.notes,
     groupSameNews: typeof st.groupSameNews === 'boolean' ? st.groupSameNews : bs.groupSameNews,
     match: st.match === 'loose' || st.match === 'normal' || st.match === 'strict' ? st.match : bs.match,
+    categories:
+      st.categories && typeof st.categories === 'object'
+        ? Object.fromEntries(
+            Object.entries(st.categories)
+              .map(([k, v]) => [str(k, 40), v] as const)
+              .filter(([k, v]) => k && (v === 'strict' || v === 'off'))
+              .slice(0, 40),
+          )
+        : (bs.categories ?? {}),
   };
   return {
     categories,
