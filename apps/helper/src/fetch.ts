@@ -565,7 +565,7 @@ async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResu
     await addStoryLinks(article, job.postUrl, [job.url], cfg, skipFor(job));
     return article.wordCount > 0 ? { jobId: job.id, ok: true, article } : bad;
   }
-  const article = extractArticle(page.body, page.url);
+  let article = extractArticle(page.body, page.url);
   if (looksBotCheck(article.text)) {
     // A bot check that got past the page checks: never kept as the article.
     noteAnswer(page.url, true);
@@ -573,6 +573,14 @@ async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResu
     const links: Article = { title: null, author: null, publishedAt: null, html: '', text: '', wordCount: 0 };
     await addStoryLinks(links, job.postUrl, [job.url, page.url], cfg, skipFor(job));
     return links.wordCount > 0 ? { jobId: job.id, ok: true, article: links } : { jobId: job.id, ok: false, blocked: true, error: 'The site showed a bot check instead of the article' };
+  }
+  if (job.browserIfScripted && !job.render && article.wordCount < 80 && looksScripted(page.body)) {
+    // Asked for by hand and built by JavaScript: worth opening in the browser.
+    const rendered = await get(job.url, cfg, { render: true }).catch(() => null);
+    if (rendered && !failed(job, rendered)) {
+      const again = extractArticle(rendered.body, rendered.url);
+      if (again.wordCount > article.wordCount) article = again;
+    }
   }
   if (job.wantPicture) article.picture = await pagePicture(page.body, page.url, article.image);
   if (job.postUrl) await addStoryLinks(article, job.postUrl, [job.url, page.url], cfg, skipFor(job));

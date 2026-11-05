@@ -35,6 +35,7 @@ import { registerBacklog, unparkHeld } from './backlog';
 import { AuthError, authenticate } from './auth';
 import {
   isOneClick,
+  isSavedPages,
   toAddress,
   parseList,
   toItemSummary,
@@ -932,7 +933,8 @@ app.post('/api/sources/:id', async (c) => {
     const cur = await c.env.DB.prepare('SELECT kind, url, feed_url FROM sources WHERE id = ?')
       .bind(id)
       .first<{ kind: ItemKind; url: string | null; feed_url: string | null }>();
-    if (!cur || (cur.kind !== 'feed' && cur.kind !== 'site')) return c.json({ error: 'Only feeds and websites can change how they are followed' }, 400);
+    if (!cur || (cur.kind !== 'feed' && cur.kind !== 'site') || isSavedPages(cur))
+      return c.json({ error: 'Only feeds and websites can change how they are followed' }, 400);
     const kind = input.followAs ?? cur.kind;
     if (kind !== 'feed' && kind !== 'site') return c.json({ error: 'bad followAs' }, 400);
     const url = input.url !== undefined ? normalizeUrl(input.url) : cur.url;
@@ -965,7 +967,7 @@ app.post('/api/sources/:id', async (c) => {
   if (typeof input.paused === 'boolean') {
     // Resuming makes it due straight away.
     if (input.paused) set('paused_at = COALESCE(paused_at, ?)', now());
-    else set("paused_at = NULL, next_check_at = CASE WHEN kind = 'newsletter' THEN NULL ELSE ? END", now());
+    else set("paused_at = NULL, next_check_at = CASE WHEN kind = 'newsletter' OR (kind = 'site' AND url IS NULL) THEN NULL ELSE ? END", now());
   }
   if (sets.length > 0) {
     await c.env.DB.prepare(`UPDATE sources SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, id).run();

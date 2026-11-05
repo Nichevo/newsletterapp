@@ -315,6 +315,21 @@ export interface FetchPageStatus {
   helperOnline: boolean;
 }
 
+/** One web page added to the inbox on its own ("Add just this page"), without following the site. */
+export interface SavePageInput {
+  url: string;
+}
+
+export interface SavePageResult {
+  itemId: string;
+  /** The page was saved before; this is the earlier copy. */
+  already: boolean;
+  /** Cloudflare couldn't get a clean copy, so the PC is fetching it. */
+  waitingForPc: boolean;
+  helperOnline: boolean;
+  title: string;
+}
+
 export interface SearchResponse {
   items: ItemSummary[];
   /** Matches in all, on the first page only. */
@@ -384,6 +399,8 @@ export interface Source {
   floodCount: number;
   /** Feeds only: when it usually posts, learnt from its posts. Null until first learnt. */
   rhythm: FeedRhythm | null;
+  /** The "Saved pages" source: single pages added on their own, never checked for new posts. */
+  savedPages: boolean;
 }
 
 /**
@@ -744,6 +761,8 @@ export interface FetchJob {
   postUrl?: string | null;
   /** Sites the PC must not fetch for this job (settings, less any category exception). */
   skipSites?: string[];
+  /** Asked for by hand (Fetch full page, or a page added on its own): open it in a browser if it comes back built by JavaScript. */
+  browserIfScripted?: boolean;
 }
 
 export interface FetchJobResult {
@@ -873,7 +892,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.4.0';
+export const HELPER_VERSION = '0.4.1';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {

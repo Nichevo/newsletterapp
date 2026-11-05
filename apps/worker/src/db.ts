@@ -382,7 +382,13 @@ export function toSource(
     dailyCap: row.daily_cap ?? DEFAULT_DAILY_CAP,
     floodAt: row.flood_at ?? null,
     floodCount: row.flood_count ?? 0,
+    savedPages: isSavedPages(row),
   };
+}
+
+/** The "Saved pages" source: a website source with no page to watch (single pages added on their own). */
+export function isSavedPages(row: { kind: string; url?: string | null }): boolean {
+  return row.kind === 'site' && !row.url;
 }
 
 /** A source's stored post filter. */

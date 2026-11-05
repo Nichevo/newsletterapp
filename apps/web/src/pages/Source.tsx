@@ -107,7 +107,7 @@ export function SourcePage() {
       ? source.kind !== 'ai' && settings.aiByKind[source.kind] && !(source.category && settings.aiOffCategories.includes(source.category))
       : null;
   const aiOn = (m: AiMode) => m === 'on' || (m === 'default' && kindDefault === true);
-  const isWeb = source?.kind === 'feed' || source?.kind === 'site';
+  const isWeb = (source?.kind === 'feed' || source?.kind === 'site') && !source.savedPages;
   const noun = source?.kind === 'newsletter' ? 'issue' : 'post';
   const categories = settings?.categories ?? [];
 
@@ -145,10 +145,15 @@ export function SourcePage() {
               <button className="btn btn--small" onClick={() => void bulk('archive-all')}>
                 Archive all
               </button>
-              <button className="btn btn--small" onClick={() => void update({ paused: !source.pausedAt })}>
-                {source.pausedAt ? 'Resume' : 'Pause'}
-              </button>
+              {!source.savedPages && (
+                <button className="btn btn--small" onClick={() => void update({ paused: !source.pausedAt })}>
+                  {source.pausedAt ? 'Resume' : 'Pause'}
+                </button>
+              )}
             </div>
+            {source.savedPages ? (
+              <span className="hint">Single pages you added from Add &gt; Just one page, or shared from another app. Nothing here is checked for new posts.</span>
+            ) : (
             <span className="hint">
               {source.pausedAt
                 ? source.kind === 'newsletter'
@@ -156,6 +161,7 @@ export function SourcePage() {
                   : 'Paused: not checked for new posts. Nothing is deleted.'
                 : `Pause keeps everything you already have and stops new ${noun}s reaching your inbox until you resume.`}
             </span>
+            )}
             {done && <span className="hint">{done}</span>}
           </div>
 

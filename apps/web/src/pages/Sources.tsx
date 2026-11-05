@@ -212,7 +212,7 @@ function SourceList({ title, rows, noun }: { title: string; rows: Row[]; noun: s
             <div className="cardrow__main">
               <span className="cardrow__title">{s.name}</span>
               <span className="cardrow__sub">
-                {s.kind === 'site' ? 'Website · ' : s.platform ? `${{ reddit: 'Reddit', youtube: 'YouTube', github: 'GitHub' }[s.platform]} · ` : ''}
+                {s.savedPages ? 'Single pages · ' : s.kind === 'site' ? 'Website · ' : s.platform ? `${{ reddit: 'Reddit', youtube: 'YouTube', github: 'GitHub' }[s.platform]} · ` : ''}
                 {s.itemCount} {noun}
                 {s.itemCount === 1 ? '' : 's'}
                 {s.category ? ` · ${s.category}` : ''}

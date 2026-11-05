@@ -2,7 +2,9 @@ import {
   COMMON_FEED_PATHS,
   FETCH_HEADERS,
   attr,
+  canonicalUrl,
   countWords,
+  extractArticle,
   extractLinks,
   findFeedLinks,
   looksBlocked,
@@ -21,6 +23,8 @@ import {
   type OpmlImportResult,
   type ParsedFeed,
   type Picture,
+  type SavePageInput,
+  type SavePageResult,
   DEFAULT_DAILY_CAP,
   normalizePostFilter,
   passesPostFilter,
@@ -30,7 +34,7 @@ import {
 } from '@newsletterapp/shared';
 import { Buffer } from 'node:buffer';
 import type { Hono } from 'hono';
-import { sourcePostFilter, toSource, type SourceRow } from './db';
+import { isSavedPages, sourcePostFilter, toSource, type SourceRow } from './db';
 import type { AppVariables, Env } from './env';
 import { htmlToText, junkImage, leadImage, snippetOf } from './html';
 import { newId, now } from './ids';
@@ -702,6 +706,104 @@ async function checkNow(env: Env, source: SourceRow): Promise<{ added: number; w
   return { added: 0, waitingForPc: true };
 }
 
+// ---------- Single pages ----------
+
+const SAVED_PAGES_NAME = 'Saved pages';
+const GOOD_COPY_WORDS = 50; // fewer words than this from Cloudflare and the PC fetches the page instead
+
+const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** The source single pages are kept under; made the first time a page is added. */
+async function savedPagesSource(env: Env): Promise<SourceRow> {
+  const sql = `SELECT ${SOURCE_COLUMNS} FROM sources WHERE kind = 'site' AND url IS NULL ORDER BY created_at LIMIT 1`;
+  const row = await env.DB.prepare(sql).first<SourceRow>();
+  if (row) return row;
+  // Never checked (no next check, no page to watch); no daily limit, since every page is one you chose.
+  await env.DB.prepare("INSERT INTO sources (id, kind, name, fetch_via, created_at, daily_cap) VALUES (?, 'site', ?, 'pc', ?, 0)")
+    .bind(newId(), SAVED_PAGES_NAME, now())
+    .run();
+  return (await env.DB.prepare(sql).first<SourceRow>())!;
+}
+
+/**
+ * Adds one web page to the inbox without following its site. Cloudflare tries
+ * first; when it is turned away, or the page is built by JavaScript or has too
+ * little text, the item goes in straight away and the PC fetches a clean copy
+ * (the same job as the reader's Fetch full page).
+ */
+export async function savePage(env: Env, url: string): Promise<SavePageResult> {
+  const source = await savedPagesSource(env);
+  const key = canonicalUrl(url).slice(0, 500);
+  const earlier = await env.DB.prepare(
+    "SELECT id, subject FROM items INDEXED BY items_source WHERE source_id = ? AND message_id = ? AND status != 'dropped' LIMIT 1",
+  )
+    .bind(source.id, key)
+    .first<{ id: string; subject: string }>();
+  if (earlier) return { itemId: earlier.id, already: true, waitingForPc: false, helperOnline: await helperOnline(env), title: earlier.subject };
+
+  const f = await fetchText(url);
+  const pageUrl = f.ok ? f.url || url : url;
+  const article = f.ok ? extractArticle(f.body, pageUrl) : null;
+  const good = article !== null && article.wordCount >= GOOD_COPY_WORDS && !looksScripted(f.body);
+  const host = new URL(pageUrl).hostname.replace(/^www\./, '');
+  const title = (article?.title ?? (f.ok ? pageTitle(f.body) : null) ?? `${host}${new URL(pageUrl).pathname.replace(/\/$/, '')}`).slice(0, 500);
+
+  const id = newId();
+  const t = now();
+  // Until the PC's copy arrives the reader shows a short note with a link to the page.
+  const html = good
+    ? article!.html
+    : `<p><em>Your PC is fetching a clean copy of this page.</em></p><p><a href="${escapeAttr(pageUrl)}">Open ${escapeAttr(host)}</a></p>`;
+  const text = good ? article!.text : null;
+  const quick = good ? quickSummary(html, text) : { preheader: null, wordCount: 0, sponsored: false };
+  const picture = article ? leadImage(article.html, pageUrl, article.image) : null;
+  const settings = await loadSettings(env);
+  const htmlKey = `items/${id}/body.html`;
+  await env.RAW.put(htmlKey, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
+  const stmts = [
+    env.DB.prepare(
+      `INSERT INTO items (
+         id, source_id, kind, status, subject, from_name, snippet, received_at, message_id, html_key, has_html,
+         web_url, created_at, preheader, word_count, category, sponsored, ai_status, lead_image, lead_image_title, lead_image_alt
+       ) VALUES (?, ?, 'site', 'inbox', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      id,
+      source.id,
+      title,
+      article?.author ?? host,
+      text ? snippetOf(text) : null,
+      // When you added it, so it sits at the top of the inbox.
+      t,
+      key,
+      htmlKey,
+      pageUrl,
+      t,
+      quick.preheader,
+      quick.wordCount,
+      categoryFromRules(settings.keywordRules, title, quick.preheader),
+      quick.sponsored ? 1 : 0,
+      // Waits for the PC's copy before going to the AI.
+      good ? 'pending' : null,
+      picture?.src ?? null,
+      picture?.title ?? null,
+      picture?.alt ?? null,
+    ),
+  ];
+  if (!good) {
+    stmts.push(
+      env.DB.prepare("INSERT INTO fetch_jobs (id, kind, source_id, item_id, url, created_at, force) VALUES (?, 'article', ?, ?, ?, ?, 1)").bind(
+        newId(),
+        source.id,
+        id,
+        pageUrl,
+        t,
+      ),
+    );
+  }
+  await env.DB.batch(stmts);
+  return { itemId: id, already: false, waitingForPc: !good, helperOnline: good ? true : await helperOnline(env), title };
+}
+
 export function registerFeeds(app: App) {
   app.post('/api/sources/discover', async (c) => {
     const input = (await c.req.json().catch(() => null)) as { url?: string } | null;
@@ -771,7 +873,7 @@ export function registerFeeds(app: App) {
   // Every feed and website is due now: this run checks the first batch and the rest follow over the next few runs.
   app.post('/api/sources/check-all', async (c) => {
     const t = now();
-    const r = await c.env.DB.prepare("UPDATE sources SET next_check_at = ? WHERE kind IN ('feed', 'site') AND paused_at IS NULL").bind(t).run();
+    const r = await c.env.DB.prepare("UPDATE sources SET next_check_at = ? WHERE kind IN ('feed', 'site') AND paused_at IS NULL AND NOT (kind = 'site' AND url IS NULL)").bind(t).run();
     const result = await runFeedChecks(c.env);
     return c.json({ due: r.meta.changes ?? 0, ...result });
   });
@@ -832,9 +934,20 @@ export function registerFeeds(app: App) {
     return c.json(status);
   });
 
+  // ----- One page on its own ("Add just this page", or shared from another app) -----
+
+  app.post('/api/pages', async (c) => {
+    const input = (await c.req.json().catch(() => null)) as SavePageInput | null;
+    // A shared link may be a whole sentence; take the first web address in it.
+    const raw = input?.url?.trim() ?? '';
+    const url = normalizeUrl(raw.match(/https?:\/\/\S+/)?.[0] ?? raw);
+    if (!url) return c.json({ error: "That doesn't look like a web address" }, 400);
+    return c.json(await savePage(c.env, url), 201);
+  });
+
   app.post('/api/sources/:id/check', async (c) => {
     const row = await loadSourceRow(c.env, c.req.param('id'));
-    if (!row || (row.kind !== 'feed' && row.kind !== 'site')) return c.json({ error: 'not found' }, 404);
+    if (!row || (row.kind !== 'feed' && row.kind !== 'site') || isSavedPages(row)) return c.json({ error: 'not found' }, 404);
     const result = await checkNow(c.env, row);
     return c.json({ ...result, source: await sourceView(c.env, row.id) });
   });
@@ -865,10 +978,10 @@ export function registerFeeds(app: App) {
          SELECT id FROM fetch_jobs WHERE status = 'pending' OR (status = 'working' AND claimed_at < ?2)
          ORDER BY kind = 'article', created_at LIMIT ?3
        )
-       RETURNING id, kind, source_id, item_id, url`,
+       RETURNING id, kind, source_id, item_id, url, force`,
     )
       .bind(t, stale, max)
-      .all<{ id: string; kind: FetchJob['kind']; source_id: string | null; item_id: string | null; url: string }>();
+      .all<{ id: string; kind: FetchJob['kind']; source_id: string | null; item_id: string | null; url: string; force: number | null }>();
 
     const jobs: FetchJob[] = [];
     const settings = claimed.results.length ? await loadSettings(c.env) : null;
@@ -903,6 +1016,7 @@ export function registerFeeds(app: App) {
         wantPicture: s?.show_picture === 1,
         postUrl: s?.follow_link === 1 ? (post?.web_url ?? null) : null,
         skipSites,
+        browserIfScripted: j.kind === 'article' && j.force === 1,
       });
     }
     return c.json({ jobs });
@@ -975,10 +1089,26 @@ export function registerFeeds(app: App) {
             item.id,
           )
           .run();
+        // A page added on its own: the PC's copy gives it its real title and author.
+        if (source && isSavedPages(source) && (a.title || a.author)) {
+          await c.env.DB.prepare('UPDATE items SET subject = COALESCE(?, subject), from_name = COALESCE(?, from_name) WHERE id = ?')
+            .bind(a.title?.slice(0, 500) ?? null, a.author ?? null, item.id)
+            .run();
+        }
       } else if (!r.ok && job.attempts < JOB_MAX_ATTEMPTS && !r.blocked) {
         await c.env.DB.prepare("UPDATE fetch_jobs SET status = 'pending', claimed_at = NULL, error = ? WHERE id = ?").bind(error, job.id).run();
         return c.json({ ok: true, retry: true });
       } else if (job.force) {
+        // A page added on its own that only has the waiting note: say what went wrong instead.
+        if (source && isSavedPages(source) && item?.html_key && !item.word_count) {
+          const why = r.ok ? 'The page came back with no readable article.' : error;
+          await c.env.RAW.put(
+            item.html_key,
+            `<p><em>Couldn't get a copy of this page: ${escapeAttr(why)}</em></p><p><a href="${escapeAttr(job.url)}">Open the page</a></p>`,
+            { httpMetadata: { contentType: 'text/html; charset=utf-8' } },
+          );
+          await c.env.DB.prepare('UPDATE items SET body_v = body_v + 1 WHERE id = ?').bind(item.id).run();
+        }
         // Kept (as failed) so the reader can say what went wrong; cleared after a week like other failures.
         await c.env.DB.prepare("UPDATE fetch_jobs SET status = 'failed', error = ? WHERE id = ?")
           .bind(r.ok ? 'The page came back with no readable article' : error, job.id)
