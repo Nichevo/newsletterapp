@@ -11,6 +11,8 @@ import type {
   HelperHeartbeat,
   HelperJob,
   HelperResult,
+  StoryJob,
+  StoryResult,
   TrialJob,
   TrialResultInput,
 } from '@newsletterapp/shared';
@@ -53,6 +55,8 @@ export class AppClient {
   fetchClaim = (max: number) => this.call<{ jobs: FetchJob[] }>('POST', '/api/helper/fetch/claim', { max });
   embedClaim = (max: number) => this.call<{ jobs: EmbedJob[] }>('POST', '/api/helper/embed/claim', { max });
   embedResult = (results: EmbedResult[]) => this.call<{ ok: boolean }>('POST', '/api/helper/embed/result', { results });
+  storyClaim = (max: number) => this.call<{ jobs: StoryJob[] }>('POST', '/api/helper/story/claim', { max });
+  storyResult = (r: StoryResult) => this.call<{ ok: boolean }>('POST', '/api/helper/story/result', r);
   likelyState = () => this.call<LikelyState>('GET', '/api/helper/likely');
   likelySave = (set: string[], unset: string[]) => this.call<{ ok: boolean }>('POST', '/api/helper/likely', { set, unset });
   fetchResult = (r: FetchJobResult) => this.call<{ ok: boolean; added?: number }>('POST', '/api/helper/fetch/result', r);

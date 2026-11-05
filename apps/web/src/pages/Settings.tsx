@@ -63,7 +63,15 @@ function MenuRow({ to, title, sub }: { to: string; title: string; sub: string })
   );
 }
 
-export function SettingsPage({ me, onDigestChange }: { me: Me; onDigestChange: (on: boolean) => void }) {
+export function SettingsPage({
+  me,
+  onDigestChange,
+  onGroupChange,
+}: {
+  me: Me;
+  onDigestChange: (on: boolean) => void;
+  onGroupChange: (on: boolean) => void;
+}) {
   const [sources, setSources] = useState<Source[]>([]);
   const { settings, save, error } = useAppSettings();
 
@@ -77,6 +85,11 @@ export function SettingsPage({ me, onDigestChange }: { me: Me; onDigestChange: (
     if (digestOn !== undefined) onDigestChange(digestOn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [digestOn]);
+  const groupOn = settings?.stories.groupSameNews;
+  useEffect(() => {
+    if (groupOn !== undefined) onGroupChange(groupOn);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupOn]);
 
   return (
     <div className="page">
@@ -113,6 +126,7 @@ export function SettingsPage({ me, onDigestChange }: { me: Me; onDigestChange: (
       {error && <div className="error">{error}</div>}
 
       <ReadingSection />
+      {settings && <StoriesSection settings={settings} onSave={save} />}
       {settings && <DigestSection settings={settings} onSave={save} />}
 
       <div className="section">
@@ -593,6 +607,32 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
             {note && <span className="hint">{note}</span>}
           </>
         )}
+      </section>
+    </div>
+  );
+}
+
+/** Stories: related reading grouped by chain of events. */
+function StoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
+  const st = settings.stories;
+  return (
+    <div className="section">
+      <span className="label">Stories</span>
+      <section className="card">
+        <p className="hint" style={{ margin: 0 }}>
+          Articles about the same chain of events are joined into a story, shown at the top of an article with what's new since you last read about
+          it. How strict the matching is, and how it's doing, is under <Link to="/stats/stories">Statistics &gt; Stories</Link>.
+        </p>
+        <OptionSwitch
+          label="Show the same news from several sources as one inbox row"
+          value={st.groupSameNews}
+          onChange={(v) => void onSave({ stories: { ...st, groupSameNews: v } })}
+        />
+        <OptionSwitch
+          label="Your PC writes what each new article adds to its story"
+          value={st.notes}
+          onChange={(v) => void onSave({ stories: { ...st, notes: v } })}
+        />
       </section>
     </div>
   );

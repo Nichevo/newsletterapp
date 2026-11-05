@@ -4,9 +4,10 @@ import { readJson, writeJson } from './ai';
 import { parseList } from './db';
 import type { AppVariables, Env } from './env';
 import { now } from './ids';
+import { assignStories } from './stories';
 
 /**
- * Embeddings for related reading and Likely interesting. The PC helper turns each item's
+ * Embeddings for stories (related reading) and Likely interesting. The PC helper turns each item's
  * subject, summary and topics into a vector with a local embedding model, keeps the vectors
  * on the PC, works out the nearest older items itself and sends back only those links. It
  * also scores recent items against the ones marked Interesting and sends back which ones
@@ -99,6 +100,8 @@ export function registerEmbed(app: App) {
         return c.env.DB.prepare('UPDATE items SET embedded_at = ?, neighbours = ? WHERE id = ?').bind(t, JSON.stringify(neighbours), r.itemId);
       });
     if (stmts.length) await c.env.DB.batch(stmts);
+    // Match the new items into stories straight away (oldest waiting first).
+    if (stmts.length) await assignStories(c.env, stmts.length + 8).catch((err: unknown) => console.error('story matching failed', err));
     return c.json({ ok: true, saved: stmts.length });
   });
 

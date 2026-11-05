@@ -6,6 +6,7 @@ import { BarChart, shortDate } from '../components/BarChart';
 import { ItemRow, type SwipeAction } from '../components/ItemRow';
 import { TagChip } from '../components/TagChip';
 import { IconBack } from '../icons';
+import { agoText } from '../format';
 import { getSwipeReadSide } from '../prefs';
 import { rememberList } from '../readingList';
 
@@ -136,6 +137,25 @@ export function TagPagePage() {
               />
             )}
           </div>
+          {(page.stories?.length ?? 0) > 0 && (
+            <div className="section">
+              <span className="label">Stories in this tag</span>
+              <div className="card card--list">
+                {page.stories!.map((st) => (
+                  <Link key={st.id} className="cardrow" to={`/story/${st.id}`}>
+                    <div className="cardrow__main">
+                      <span className="cardrow__title">{st.title}</span>
+                      <span className="cardrow__sub">
+                        {st.items} items · updated {agoText(st.lastAt)}
+                        {st.unread > 0 ? ` · ${st.unread} unread` : ' · all read'}
+                        {st.followedAt ? ' · following' : ''}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
           {page.seenWith.length > 0 && (
             <div className="section">
               <span className="label">Often seen with</span>
