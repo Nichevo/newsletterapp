@@ -166,6 +166,16 @@ export function StoryStatsPage() {
                   <span className="cardrow__sub">“Not part of this story” (a high number means matching is too loose)</span>
                 </div>
                 <div className="stat">
+                  <span className="label">Near misses</span>
+                  <strong>{data.nearMisses}</strong>
+                  <span className="cardrow__sub">articles left out though their nearest one came within 0.06 of the line (a high number may mean too strict)</span>
+                </div>
+                <div className="stat">
+                  <span className="label">Linked by hand</span>
+                  <strong>{data.joins}</strong>
+                  <span className="cardrow__sub">“Same story” under “Close, but not linked” (a high number means matching is too strict)</span>
+                </div>
+                <div className="stat">
                   <span className="label">PC notes</span>
                   <strong>{data.notes.done}</strong>
                   <span className="cardrow__sub">

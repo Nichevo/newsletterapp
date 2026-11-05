@@ -108,6 +108,8 @@ export interface ItemSummary {
   story: ItemStory | null;
   /** Same news from several sources within a couple of days: the group's first item. */
   newsId: string | null;
+  /** Not in a story, but an older item came close in meaning ("Close, but not linked" in the reader). */
+  hasNear?: boolean;
 }
 
 /** The story an item belongs to, as shown on its inbox row. */
@@ -131,6 +133,23 @@ export interface StoryWhy {
   tags: string[];
   /** news = the same news from another source within a couple of days; story = a later step. */
   kind: 'news' | 'story';
+  /** Joined by hand with "Same story" under "Close, but not linked". */
+  manual?: boolean;
+}
+
+/** An older item that came close to this one but wasn't linked, and why ("Close, but not linked"). */
+export interface StoryNear {
+  id: string;
+  subject: string;
+  sourceName: string | null;
+  receivedAt: number;
+  readAt: number | null;
+  /** How close in meaning (0-1). */
+  sim: number;
+  /** Why it wasn't linked, in plain words. */
+  reason: string;
+  /** The story the older item is in, if any; "Same story" joins it. */
+  story: { id: string; title: string } | null;
 }
 
 /** One item in a story's timeline. */
@@ -212,6 +231,10 @@ export interface StoryStats {
   /** Taps on story links (banner, story page, inbox group) and "Not part of this story". */
   linkTaps: number;
   splits: number;
+  /** Items in the period left out of stories although their nearest item came within 0.06 of the meaning line. */
+  nearMisses: number;
+  /** Items put in a story by hand with "Same story". */
+  joins: number;
   notes: { done: number; failed: number; seconds: number; model: string | null; waiting: number };
   /** Items waiting to be matched (counted up to 1000). */
   matchWaiting: number;
@@ -486,7 +509,8 @@ export type ReadingEventType =
   | 'link_click'
   | 'open_original'
   | 'story_link' // tapped a link in a story banner, story page or inbox group
-  | 'story_split'; // "Not part of this story"
+  | 'story_split' // "Not part of this story"
+  | 'story_join'; // "Same story" under "Close, but not linked"
 
 export interface ReadingEventInput {
   type: ReadingEventType;

@@ -5,6 +5,7 @@ import {
   type StoryList,
   type StoryJob,
   type StoryMatch,
+  type StoryNear,
   type StoryPage,
   type StoryResult,
   type StoryStats,
@@ -13,7 +14,7 @@ import {
 } from '@newsletterapp/shared';
 import type { Hono } from 'hono';
 import { loadState } from './ai';
-import { parseList, storyTitle } from './db';
+import { NEAR_SHOW, parseList, storyTitle } from './db';
 import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
 import { loadSettings } from './settings';
@@ -55,6 +56,8 @@ const NOTE_DAYS = 14;
 const BROAD_SHARE = 0.03;
 const BROAD_MIN = 25;
 const NOTE_LEASE_MS = 15 * 60_000;
+/** How far under the meaning line still counts as a near miss in Statistics > Stories. */
+const NEAR_GAP = 0.06;
 const STORY_ITEMS_MAX = 300;
 
 const LIVE = "items.status IN ('inbox', 'archived')";
@@ -102,21 +105,24 @@ export async function assignStories(env: Env, max: number): Promise<number> {
 
   for (const row of rows.results) {
     const t = now();
-    const mark = () => env.DB.prepare('UPDATE items SET story_at = ? WHERE id = ?').bind(t, row.id).run();
+    let all: [string, number][] = [];
+    try {
+      all = (JSON.parse(row.neighbours ?? '[]') as [string, number][]).filter((n) => Array.isArray(n) && typeof n[0] === 'string' && Number.isFinite(n[1]));
+    } catch {
+      all = [];
+    }
+    // Left out, but the nearest item came within reach of the line: counted as a near miss.
+    const top = all.reduce((m, n) => Math.max(m, n[1]), 0);
+    const nearMiss = top >= th.story - NEAR_GAP ? Math.round(top * 1000) / 1000 : null;
+    const mark = (miss: number | null = null) =>
+      env.DB.prepare('UPDATE items SET story_at = ?, story_near = ? WHERE id = ?').bind(t, miss, row.id).run();
     if ((row.status !== 'inbox' && row.status !== 'archived') || row.story_split) {
       await mark();
       continue;
     }
-    let near: [string, number][] = [];
-    try {
-      near = (JSON.parse(row.neighbours ?? '[]') as [string, number][])
-        .filter((n) => Array.isArray(n) && typeof n[0] === 'string' && n[1] >= th.story)
-        .slice(0, 15);
-    } catch {
-      near = [];
-    }
+    const near = all.filter((n) => n[1] >= th.story).slice(0, 15);
     if (near.length === 0) {
-      await mark();
+      await mark(nearMiss);
       continue;
     }
     const sims = new Map(near);
@@ -155,7 +161,7 @@ export async function assignStories(env: Env, max: number): Promise<number> {
       if (!best || score > best.score) best = { ...n, sim, shared, news, score };
     }
     if (!best) {
-      await mark();
+      await mark(nearMiss);
       continue;
     }
 
@@ -183,7 +189,7 @@ export async function assignStories(env: Env, max: number): Promise<number> {
     const wantNote = settings.notes && !row.story_note && row.received_at >= t - NOTE_DAYS * DAY;
     stmts.push(
       env.DB.prepare(
-        `UPDATE items SET story_id = ?, news_id = ?, story_at = ?, story_why = ?,
+        `UPDATE items SET story_id = ?, news_id = ?, story_at = ?, story_why = ?, story_near = NULL,
            story_note_status = CASE WHEN ? THEN 'pending' ELSE story_note_status END WHERE id = ?`,
       ).bind(storyId, newsId, t, JSON.stringify(why), wantNote ? 1 : 0, row.id),
     );
@@ -282,7 +288,9 @@ function parseWhy(raw: string | null): StoryWhy | null {
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as StoryWhy;
-    return v && typeof v.sim === 'number' ? { with: v.with ?? null, sim: v.sim, tags: Array.isArray(v.tags) ? v.tags : [], kind: v.kind === 'news' ? 'news' : 'story' } : null;
+    return v && typeof v.sim === 'number'
+      ? { with: v.with ?? null, sim: v.sim, tags: Array.isArray(v.tags) ? v.tags : [], kind: v.kind === 'news' ? 'news' : 'story', ...(v.manual ? { manual: true } : {}) }
+      : null;
   } catch {
     return null;
   }
@@ -394,6 +402,129 @@ export function registerStories(app: App) {
     return c.json(body);
   });
 
+  /**
+   * "Close, but not linked": for an article not in a story, the up to 3 older items
+   * nearest in meaning and why each wasn't linked. Reads the item, 3 items, their stories and a few tag counts.
+   */
+  app.get('/api/items/:id/near', async (c) => {
+    const item = await c.env.DB.prepare('SELECT id, source_id, received_at, tags, neighbours, story_id, story_split FROM items WHERE id = ?')
+      .bind(c.req.param('id'))
+      .first<{ id: string; source_id: string | null; received_at: number; tags: string | null; neighbours: string | null; story_id: string | null; story_split: number | null }>();
+    if (!item) return c.json({ error: 'not found' }, 404);
+    if (item.story_id) return c.json([]);
+    let all: [string, number][] = [];
+    try {
+      all = (JSON.parse(item.neighbours ?? '[]') as [string, number][]).filter((n) => Array.isArray(n) && typeof n[0] === 'string' && Number.isFinite(n[1]));
+    } catch {
+      all = [];
+    }
+    const near = all.filter((n) => n[1] >= NEAR_SHOW).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    if (!near.length) return c.json([]);
+    const th = MATCH[(await loadSettings(c.env)).stories.match];
+    const rows = await c.env.DB.prepare(
+      `SELECT items.id, items.subject, COALESCE(sources.name, items.from_name, items.from_email) AS source_name, items.source_id, items.received_at,
+         items.read_at, items.tags, items.status, items.story_split, items.story_id, stories.title AS story_title, stories.tags AS story_tags
+       FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN stories ON stories.id = items.story_id
+       WHERE items.id IN (${near.map(() => '?').join(', ')})`,
+    )
+      .bind(...near.map((n) => n[0]))
+      .all<{
+        id: string; subject: string; source_name: string | null; source_id: string | null; received_at: number; read_at: number | null; tags: string | null;
+        status: string; story_split: number | null; story_id: string | null; story_title: string | null; story_tags: string | null;
+      }>();
+    const mine = new Map(parseList(item.tags).map((l) => [tagKey(l), l.trim()] as const).filter(([k]) => k));
+    const keys = [...mine.keys()].slice(0, 8);
+    const [total, counts] = await Promise.all([
+      c.env.DB.prepare('SELECT MAX(rowid) AS n FROM items').first<{ n: number | null }>(),
+      keys.length
+        ? c.env.DB.prepare(`SELECT tag, n FROM tag_counts WHERE tag IN (${keys.map(() => '?').join(', ')})`).bind(...keys).all<{ tag: string; n: number }>()
+        : null,
+    ]);
+    const broadAt = Math.max(BROAD_MIN, Math.ceil((total?.n ?? 0) * BROAD_SHARE));
+    const tagN = new Map((counts?.results ?? []).map((r) => [r.tag, r.n]));
+    const specific = new Set(keys.filter((k) => (tagN.get(k) ?? 0) >= 2 && (tagN.get(k) ?? 0) <= broadAt));
+    const byId = new Map(rows.results.map((r) => [r.id, r]));
+    const f = (v: number) => v.toFixed(2);
+    const out: StoryNear[] = [];
+    for (const [id, sim] of near) {
+      const n = byId.get(id);
+      if (!n || (n.status !== 'inbox' && n.status !== 'archived')) continue;
+      const days = Math.abs(item.received_at - n.received_at) / DAY;
+      const shared = [...new Set(parseList(n.tags).map(tagKey))].filter((k) => specific.has(k));
+      const sharedAny = [...new Set(parseList(n.tags).map(tagKey))].filter((k) => mine.has(k));
+      const news = sim >= th.news && days <= NEWS_DAYS && n.source_id !== item.source_id;
+      let reason: string;
+      if (item.story_split || n.story_split) reason = 'One of them was taken out of a story by hand';
+      else if (days > STORY_DAYS) reason = `Meaning ${f(sim)}, but more than ${STORY_DAYS} days apart`;
+      else if (sim < th.story) reason = `Meaning ${f(sim)}; a story needs ${f(th.story)} plus a shared specific tag`;
+      else if (shared.length === 0)
+        reason =
+          days <= ALONE_DAYS
+            ? `Meaning ${f(sim)}, no shared specific tag${sharedAny.length ? ' (only broad ones)' : ''}; on its own it needs ${f(th.alone)}`
+            : `Meaning ${f(sim)}, no shared specific tag${sharedAny.length ? ' (only broad ones)' : ''}, and over a week apart`;
+      else reason = news ? 'Would count as the same news with today’s setting' : 'Would link with today’s setting (matched before a change)';
+      out.push({
+        id: n.id,
+        subject: n.subject,
+        sourceName: n.source_name,
+        receivedAt: n.received_at,
+        readAt: n.read_at,
+        sim: Math.round(sim * 1000) / 1000,
+        reason,
+        story: n.story_id ? { id: n.story_id, title: storyTitle({ title: n.story_title, tags: n.story_tags }, n.subject) } : null,
+      });
+    }
+    return c.json(out);
+  });
+
+  /** "Same story": puts an article in the story of an older item it came close to, or starts one with the two. */
+  app.post('/api/stories/join', async (c) => {
+    const input = (await c.req.json().catch(() => ({}))) as { itemId?: string; withId?: string };
+    if (!input.itemId || !input.withId || input.itemId === input.withId) return c.json({ error: 'itemId and withId needed' }, 400);
+    const rows = await c.env.DB.prepare('SELECT id, received_at, story_id, story_note, neighbours FROM items WHERE id IN (?, ?)')
+      .bind(input.itemId, input.withId)
+      .all<{ id: string; received_at: number; story_id: string | null; story_note: string | null; neighbours: string | null }>();
+    const item = rows.results.find((r) => r.id === input.itemId);
+    const other = rows.results.find((r) => r.id === input.withId);
+    if (!item || !other) return c.json({ error: 'not found' }, 404);
+    const t = now();
+    const stmts: D1PreparedStatement[] = [];
+    let storyId = other.story_id;
+    if (!storyId) {
+      storyId = newId();
+      stmts.push(
+        c.env.DB.prepare('INSERT INTO stories (id, first_at, last_at, items, sources, created_at, updated_at) VALUES (?, ?, ?, 2, 1, ?, ?)').bind(
+          storyId,
+          Math.min(item.received_at, other.received_at),
+          Math.max(item.received_at, other.received_at),
+          t,
+          t,
+        ),
+        c.env.DB.prepare('UPDATE items SET story_id = ?, story_split = NULL, story_at = COALESCE(story_at, ?) WHERE id = ?').bind(storyId, t, other.id),
+      );
+    }
+    let sim = 0;
+    try {
+      sim = (JSON.parse(item.neighbours ?? '[]') as [string, number][]).find((n) => n[0] === other.id)?.[1] ?? 0;
+    } catch {
+      sim = 0;
+    }
+    const why: StoryWhy = { with: other.id, sim: Math.round(sim * 1000) / 1000, tags: [], kind: 'story', manual: true };
+    const settings = (await loadSettings(c.env)).stories;
+    const wantNote = settings.notes && !item.story_note && item.received_at >= t - NOTE_DAYS * DAY;
+    stmts.push(
+      c.env.DB.prepare(
+        `UPDATE items SET story_id = ?, news_id = NULL, story_at = ?, story_why = ?, story_split = NULL, story_near = NULL,
+           story_note_status = CASE WHEN ? THEN 'pending' ELSE story_note_status END WHERE id = ?`,
+      ).bind(storyId, t, JSON.stringify(why), wantNote ? 1 : 0, item.id),
+      c.env.DB.prepare("INSERT INTO events (item_id, type, value, device, at) VALUES (?, 'story_join', NULL, NULL, ?)").bind(item.id, t),
+    );
+    await c.env.DB.batch(stmts);
+    await refreshStory(c.env, storyId);
+    if (item.story_id && item.story_id !== storyId) await refreshStory(c.env, item.story_id);
+    return c.json({ ok: true, storyId });
+  });
+
   /** Saved > Stories: followed stories, then the 40 most recently active (each with its unread count). */
   app.get('/api/stories', async (c) => {
     const [followed, recent] = await c.env.DB.batch([
@@ -458,7 +589,7 @@ export function registerStories(app: App) {
     await c.env.DB.batch([
       c.env.DB.prepare('DELETE FROM stories'),
       c.env.DB.prepare(
-        "UPDATE items SET story_id = NULL, news_id = NULL, story_why = NULL, story_at = NULL, story_note_status = CASE WHEN story_note_status IN ('pending', 'working') THEN NULL ELSE story_note_status END WHERE story_at IS NOT NULL OR story_id IS NOT NULL",
+        "UPDATE items SET story_id = NULL, news_id = NULL, story_why = NULL, story_at = NULL, story_near = NULL, story_note_status = CASE WHEN story_note_status IN ('pending', 'working') THEN NULL ELSE story_note_status END WHERE story_at IS NOT NULL OR story_id IS NOT NULL",
       ),
     ]);
     const matched = await assignStories(c.env, 50);
@@ -578,7 +709,8 @@ async function storyStats(env: Env, days: number): Promise<StoryStats> {
   const [active, arrived, followed, followedUnread, events, notes, notesWaitingRow, matchWaiting, top, sizes] = await env.DB.batch([
     env.DB.prepare('SELECT COUNT(*) AS n, SUM(first_at >= ?1) AS started FROM stories WHERE last_at >= ?1').bind(since),
     env.DB.prepare(
-      `SELECT COUNT(*) AS n, SUM(story_id IS NOT NULL) AS in_story, SUM(news_id IS NOT NULL AND news_id != id) AS same_news
+      `SELECT COUNT(*) AS n, SUM(story_id IS NOT NULL) AS in_story, SUM(news_id IS NOT NULL AND news_id != id) AS same_news,
+         SUM(story_id IS NULL AND story_near IS NOT NULL) AS near_miss
        FROM items INDEXED BY items_status_received WHERE status IN ('inbox', 'archived') AND received_at >= ?`,
     ).bind(since),
     env.DB.prepare('SELECT COUNT(*) AS n FROM stories INDEXED BY stories_followed WHERE followed_at IS NOT NULL'),
@@ -587,7 +719,7 @@ async function storyStats(env: Env, days: number): Promise<StoryStats> {
        WHERE story_id IS NOT NULL AND story_id IN (SELECT id FROM stories INDEXED BY stories_followed WHERE followed_at IS NOT NULL)
          AND read_at IS NULL AND status = 'inbox'`,
     ),
-    env.DB.prepare("SELECT type, COUNT(*) AS n FROM events INDEXED BY events_at WHERE at >= ? AND type IN ('story_link', 'story_split') GROUP BY type").bind(since),
+    env.DB.prepare("SELECT type, COUNT(*) AS n FROM events INDEXED BY events_at WHERE at >= ? AND type IN ('story_link', 'story_split', 'story_join') GROUP BY type").bind(since),
     env.DB.prepare(
       `SELECT SUM(ok) AS done, SUM(1 - ok) AS failed, COALESCE(SUM(seconds), 0) AS seconds,
          (SELECT model FROM story_runs WHERE at >= ?1 AND ok = 1 GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1) AS model
@@ -606,7 +738,7 @@ async function storyStats(env: Env, days: number): Promise<StoryStats> {
   ]);
   const one = <T>(r: D1Result | undefined) => (r?.results[0] ?? {}) as T;
   const a = one<{ n: number; started: number | null }>(active);
-  const ar = one<{ n: number; in_story: number | null; same_news: number | null }>(arrived);
+  const ar = one<{ n: number; in_story: number | null; same_news: number | null; near_miss: number | null }>(arrived);
   const ev = new Map(((events?.results ?? []) as { type: string; n: number }[]).map((e) => [e.type, e.n]));
   const no = one<{ done: number | null; failed: number | null; seconds: number; model: string | null }>(notes);
   const topRows = (top?.results ?? []) as { story_id: string; n: number; unread: number }[];
@@ -628,6 +760,8 @@ async function storyStats(env: Env, days: number): Promise<StoryStats> {
     followedUnread: one<{ n: number }>(followedUnread).n ?? 0,
     linkTaps: ev.get('story_link') ?? 0,
     splits: ev.get('story_split') ?? 0,
+    nearMisses: ar.near_miss ?? 0,
+    joins: ev.get('story_join') ?? 0,
     notes: { done: no.done ?? 0, failed: no.failed ?? 0, seconds: Math.round(no.seconds ?? 0), model: no.model ?? null, waiting: one<{ n: number }>(notesWaitingRow).n ?? 0 },
     matchWaiting: one<{ n: number }>(matchWaiting).n ?? 0,
     top: topRows
