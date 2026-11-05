@@ -2,6 +2,7 @@ import {
   tagKey,
   type StoryBanner,
   type StoryInfo,
+  type StoryList,
   type StoryJob,
   type StoryMatch,
   type StoryPage,
@@ -390,6 +391,30 @@ export function registerStories(app: App) {
       sameNews,
       tags: (tagRows?.results ?? []).filter((t) => t.n > 1).sort((a, b) => b.n - a.n),
     };
+    return c.json(body);
+  });
+
+  /** Saved > Stories: followed stories, then the 40 most recently active (each with its unread count). */
+  app.get('/api/stories', async (c) => {
+    const [followed, recent] = await c.env.DB.batch([
+      c.env.DB.prepare('SELECT * FROM stories INDEXED BY stories_followed WHERE followed_at IS NOT NULL ORDER BY last_at DESC LIMIT 100'),
+      c.env.DB.prepare('SELECT * FROM stories INDEXED BY stories_last ORDER BY last_at DESC LIMIT 40'),
+    ]);
+    const f = (followed?.results ?? []) as StoryRow[];
+    const r = ((recent?.results ?? []) as StoryRow[]).filter((x) => !x.followed_at);
+    const ids = [...new Set([...f, ...r].map((x) => x.id))];
+    const unread = new Map<string, number>();
+    if (ids.length) {
+      const rows = await c.env.DB.prepare(
+        `SELECT story_id, SUM(read_at IS NULL) AS n FROM items INDEXED BY items_story
+         WHERE story_id IS NOT NULL AND story_id IN (${ids.map(() => '?').join(', ')}) AND status = 'inbox' GROUP BY story_id`,
+      )
+        .bind(...ids)
+        .all<{ story_id: string; n: number }>();
+      for (const x of rows.results) unread.set(x.story_id, x.n ?? 0);
+    }
+    const shape = (x: StoryRow) => ({ ...toStoryInfo(x), unread: unread.get(x.id) ?? 0 });
+    const body: StoryList = { followed: f.map(shape), recent: r.map(shape) };
     return c.json(body);
   });
 
