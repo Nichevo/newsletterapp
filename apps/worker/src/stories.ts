@@ -10,10 +10,11 @@ import {
   type StoryResult,
   type StoryStats,
   type StoryStep,
+  type StoryTune,
   type StoryWhy,
 } from '@newsletterapp/shared';
 import type { Hono } from 'hono';
-import { loadState } from './ai';
+import { loadState, readJson, writeJson } from './ai';
 import { NEAR_SHOW, parseList, storyTitle } from './db';
 import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
@@ -60,6 +61,89 @@ const NOTE_LEASE_MS = 15 * 60_000;
 const NEAR_GAP = 0.06;
 const STORY_ITEMS_MAX = 300;
 
+// ---------- Learning from what you link by hand ----------
+//
+// Each "Same story" counts one link for the tags the two articles share and for both
+// their sources; each "Not part of this story" counts one split for the tags the article
+// shares with the story and for its source. Every net link moves the meaning line 0.01
+// lower for articles with that tag or source (at most 0.06), every net split 0.01 higher
+// (at most 0.04), so one busy topic loosens without the whole app going Loose. A broad
+// tag with 2 net links starts counting as a specific one. Kept as one settings row,
+// read once per matching run.
+
+const TUNE_STEP = 0.01;
+const TUNE_LOOSEN_MAX = 0.06;
+const TUNE_TIGHTEN_MAX = 0.04;
+const TUNE_SPECIFIC_AT = 2;
+const TUNE_KEEP = 300;
+
+interface TuneEntry {
+  label: string;
+  links: number;
+  splits: number;
+  at: number;
+}
+interface Tunes {
+  tags: Record<string, TuneEntry>;
+  sources: Record<string, TuneEntry>;
+}
+
+async function loadTunes(env: Env): Promise<Tunes> {
+  const t = await readJson<Partial<Tunes>>(env, 'story_tunes');
+  return { tags: t?.tags ?? {}, sources: t?.sources ?? {} };
+}
+
+const entryShift = (e: TuneEntry | undefined) => {
+  if (!e) return 0;
+  const net = e.links - e.splits;
+  return net > 0 ? -Math.min(net * TUNE_STEP, TUNE_LOOSEN_MAX) : Math.min(-net * TUNE_STEP, TUNE_TIGHTEN_MAX);
+};
+
+/**
+ * How far to move the meaning line for a pair of articles: the strongest loosening among the
+ * tags they share and their two sources, plus the strongest tightening, within the limits.
+ */
+function lineShift(tunes: Tunes, sharedTags: string[], sources: (string | null)[]): number {
+  const shifts = [...sharedTags.map((k) => entryShift(tunes.tags[k])), ...sources.map((s) => (s ? entryShift(tunes.sources[s]) : 0))];
+  const loosen = Math.min(0, ...shifts);
+  const tighten = Math.max(0, ...shifts);
+  return Math.round((loosen + tighten) * 1000) / 1000;
+}
+
+const learntSpecific = (tunes: Tunes, k: string) => {
+  const e = tunes.tags[k];
+  return Boolean(e && e.links - e.splits >= TUNE_SPECIFIC_AT);
+};
+
+/** Adds a hand link (+1) or split (-1) to these tags and sources, keeping the most recent entries. */
+async function recordTune(env: Env, tags: { key: string; label: string }[], sources: { id: string; name: string }[], link: boolean) {
+  if (!tags.length && !sources.length) return;
+  const tunes = await loadTunes(env);
+  const t = now();
+  const bump = (map: Record<string, TuneEntry>, key: string, label: string) => {
+    const e = map[key] ?? { label, links: 0, splits: 0, at: t };
+    if (link) e.links += 1;
+    else e.splits += 1;
+    e.label = label || e.label;
+    e.at = t;
+    map[key] = e;
+  };
+  for (const x of tags) bump(tunes.tags, x.key, x.label);
+  for (const x of sources) bump(tunes.sources, x.id, x.name);
+  const trim = (map: Record<string, TuneEntry>) =>
+    Object.fromEntries(Object.entries(map).sort((a, b) => b[1].at - a[1].at).slice(0, TUNE_KEEP));
+  await writeJson(env, 'story_tunes', { tags: trim(tunes.tags), sources: trim(tunes.sources) });
+}
+
+function tuneList(tunes: Tunes): StoryTune[] {
+  const out: StoryTune[] = [];
+  for (const [key, e] of Object.entries(tunes.tags))
+    out.push({ kind: 'tag', key, label: e.label, links: e.links, splits: e.splits, shift: entryShift(e), specific: learntSpecific(tunes, key) });
+  for (const [key, e] of Object.entries(tunes.sources))
+    out.push({ kind: 'source', key, label: e.label, links: e.links, splits: e.splits, shift: entryShift(e), specific: false });
+  return out.filter((x) => x.links + x.splits > 0).sort((a, b) => a.shift - b.shift || b.links + b.splits - (a.links + a.splits));
+}
+
 const LIVE = "items.status IN ('inbox', 'archived')";
 
 // ---------- Matching ----------
@@ -97,6 +181,9 @@ export async function assignStories(env: Env, max: number): Promise<number> {
   if (rows.results.length === 0) return 0;
   const settings = (await loadSettings(env)).stories;
   const th = MATCH[settings.match];
+  const tunes = await loadTunes(env);
+  // The most any tag or source has lowered the line, so neighbours under the usual line are only read when they could pass.
+  const maxLoosen = -Math.min(0, ...[...Object.values(tunes.tags), ...Object.values(tunes.sources)].map(entryShift));
   const total = (await env.DB.prepare('SELECT MAX(rowid) AS n FROM items').first<{ n: number | null }>())?.n ?? 0;
   const broadAt = Math.max(BROAD_MIN, Math.ceil(total * BROAD_SHARE));
   const tagN = new Map<string, number>();
@@ -120,7 +207,8 @@ export async function assignStories(env: Env, max: number): Promise<number> {
       await mark();
       continue;
     }
-    const near = all.filter((n) => n[1] >= th.story).slice(0, 15);
+    // Neighbours that could pass with the most a tag or source can loosen the line; each pair is checked with its own line below.
+    const near = all.filter((n) => n[1] >= th.story - maxLoosen).slice(0, 15);
     if (near.length === 0) {
       await mark(nearMiss);
       continue;
@@ -142,7 +230,7 @@ export async function assignStories(env: Env, max: number): Promise<number> {
       for (const k of unknown) tagN.set(k, 0);
       for (const c of counts.results) tagN.set(c.tag, c.n);
     }
-    const specific = new Set([...mine.keys()].filter((k) => (tagN.get(k) ?? 0) >= 2 && (tagN.get(k) ?? 0) <= broadAt));
+    const specific = new Set([...mine.keys()].filter((k) => ((tagN.get(k) ?? 0) >= 2 && (tagN.get(k) ?? 0) <= broadAt) || learntSpecific(tunes, k)));
 
     type Candidate = NeighbourRow & { sim: number; shared: string[]; news: boolean; score: number };
     let best: Candidate | null = null;
@@ -152,9 +240,12 @@ export async function assignStories(env: Env, max: number): Promise<number> {
       if ((n.status !== 'inbox' && n.status !== 'archived') || n.story_split) continue;
       const sim = sims.get(n.id) ?? 0;
       const days = (row.received_at - n.received_at) / DAY;
-      const shared = [...new Set(parseList(n.tags).map(tagKey))].filter((k) => specific.has(k)).map((k) => mine.get(k)!);
+      const theirs = [...new Set(parseList(n.tags).map(tagKey))];
+      const sharedKeys = theirs.filter((k) => specific.has(k));
+      const shared = sharedKeys.map((k) => mine.get(k)!);
+      const shift = lineShift(tunes, theirs.filter((k) => mine.has(k)), [row.source_id, n.source_id]);
       const news = sim >= th.news && days <= NEWS_DAYS && n.source_id !== row.source_id;
-      const story = news || (days <= STORY_DAYS && sim >= th.story && shared.length > 0) || (days <= ALONE_DAYS && sim >= th.alone);
+      const story = news || (days <= STORY_DAYS && sim >= th.story + shift && shared.length > 0) || (days <= ALONE_DAYS && sim >= th.alone + shift);
       if (!story) continue;
       // Same news beats a later step; then closeness, shared tags and joining an existing story.
       const score = (news ? 1 : 0) + sim + 0.04 * shared.length + (n.story_id ? 0.02 : 0);
@@ -420,7 +511,8 @@ export function registerStories(app: App) {
     }
     const near = all.filter((n) => n[1] >= NEAR_SHOW).sort((a, b) => b[1] - a[1]).slice(0, 3);
     if (!near.length) return c.json([]);
-    const th = MATCH[(await loadSettings(c.env)).stories.match];
+    const [settings, tunes] = await Promise.all([loadSettings(c.env), loadTunes(c.env)]);
+    const th = MATCH[settings.stories.match];
     const rows = await c.env.DB.prepare(
       `SELECT items.id, items.subject, COALESCE(sources.name, items.from_name, items.from_email) AS source_name, items.source_id, items.received_at,
          items.read_at, items.tags, items.status, items.story_split, items.story_id, stories.title AS story_title, stories.tags AS story_tags
@@ -442,7 +534,7 @@ export function registerStories(app: App) {
     ]);
     const broadAt = Math.max(BROAD_MIN, Math.ceil((total?.n ?? 0) * BROAD_SHARE));
     const tagN = new Map((counts?.results ?? []).map((r) => [r.tag, r.n]));
-    const specific = new Set(keys.filter((k) => (tagN.get(k) ?? 0) >= 2 && (tagN.get(k) ?? 0) <= broadAt));
+    const specific = new Set(keys.filter((k) => ((tagN.get(k) ?? 0) >= 2 && (tagN.get(k) ?? 0) <= broadAt) || learntSpecific(tunes, k)));
     const byId = new Map(rows.results.map((r) => [r.id, r]));
     const f = (v: number) => v.toFixed(2);
     const out: StoryNear[] = [];
@@ -453,14 +545,16 @@ export function registerStories(app: App) {
       const shared = [...new Set(parseList(n.tags).map(tagKey))].filter((k) => specific.has(k));
       const sharedAny = [...new Set(parseList(n.tags).map(tagKey))].filter((k) => mine.has(k));
       const news = sim >= th.news && days <= NEWS_DAYS && n.source_id !== item.source_id;
+      const shift = lineShift(tunes, sharedAny, [item.source_id, n.source_id]);
+      const storyLine = th.story + shift;
       let reason: string;
       if (item.story_split || n.story_split) reason = 'One of them was taken out of a story by hand';
       else if (days > STORY_DAYS) reason = `Meaning ${f(sim)}, but more than ${STORY_DAYS} days apart`;
-      else if (sim < th.story) reason = `Meaning ${f(sim)}; a story needs ${f(th.story)} plus a shared specific tag`;
+      else if (sim < storyLine) reason = `Meaning ${f(sim)}; a story needs ${f(storyLine)} plus a shared specific tag`;
       else if (shared.length === 0)
         reason =
           days <= ALONE_DAYS
-            ? `Meaning ${f(sim)}, no shared specific tag${sharedAny.length ? ' (only broad ones)' : ''}; on its own it needs ${f(th.alone)}`
+            ? `Meaning ${f(sim)}, no shared specific tag${sharedAny.length ? ' (only broad ones)' : ''}; on its own it needs ${f(th.alone + shift)}`
             : `Meaning ${f(sim)}, no shared specific tag${sharedAny.length ? ' (only broad ones)' : ''}, and over a week apart`;
       else reason = news ? 'Would count as the same news with today’s setting' : 'Would link with today’s setting (matched before a change)';
       out.push({
@@ -470,7 +564,7 @@ export function registerStories(app: App) {
         receivedAt: n.received_at,
         readAt: n.read_at,
         sim: Math.round(sim * 1000) / 1000,
-        reason,
+        reason: shift < 0 ? `${reason} (line lowered ${f(-shift)} by your links)` : shift > 0 ? `${reason} (line raised ${f(shift)} by your splits)` : reason,
         story: n.story_id ? { id: n.story_id, title: storyTitle({ title: n.story_title, tags: n.story_tags }, n.subject) } : null,
       });
     }
@@ -481,9 +575,16 @@ export function registerStories(app: App) {
   app.post('/api/stories/join', async (c) => {
     const input = (await c.req.json().catch(() => ({}))) as { itemId?: string; withId?: string };
     if (!input.itemId || !input.withId || input.itemId === input.withId) return c.json({ error: 'itemId and withId needed' }, 400);
-    const rows = await c.env.DB.prepare('SELECT id, received_at, story_id, story_note, neighbours FROM items WHERE id IN (?, ?)')
+    const rows = await c.env.DB.prepare(
+      `SELECT items.id, items.received_at, items.story_id, items.story_note, items.neighbours, items.tags, items.source_id,
+         COALESCE(sources.name, items.from_name, items.from_email) AS source_name
+       FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE items.id IN (?, ?)`,
+    )
       .bind(input.itemId, input.withId)
-      .all<{ id: string; received_at: number; story_id: string | null; story_note: string | null; neighbours: string | null }>();
+      .all<{
+        id: string; received_at: number; story_id: string | null; story_note: string | null; neighbours: string | null;
+        tags: string | null; source_id: string | null; source_name: string | null;
+      }>();
     const item = rows.results.find((r) => r.id === input.itemId);
     const other = rows.results.find((r) => r.id === input.withId);
     if (!item || !other) return c.json({ error: 'not found' }, 404);
@@ -522,6 +623,13 @@ export function registerStories(app: App) {
     await c.env.DB.batch(stmts);
     await refreshStory(c.env, storyId);
     if (item.story_id && item.story_id !== storyId) await refreshStory(c.env, item.story_id);
+    // Learn from it: the tags the two share and both sources link a little more easily from now on.
+    const theirs = new Set(parseList(other.tags).map(tagKey));
+    const tags = [...new Map(parseList(item.tags).map((l) => [tagKey(l), l.trim()] as const)).entries()]
+      .filter(([k]) => k && theirs.has(k))
+      .map(([key, label]) => ({ key, label }));
+    const sources = [...new Map([item, other].filter((r) => r.source_id).map((r) => [r.source_id!, r.source_name ?? 'Source'] as const)).entries()].map(([id, name]) => ({ id, name }));
+    await recordTune(c.env, tags, sources, true);
     return c.json({ ok: true, storyId });
   });
 
@@ -569,7 +677,12 @@ export function registerStories(app: App) {
   /** "Not part of this story": takes the item out, and it never joins a story again. */
   app.post('/api/stories/split/:itemId', async (c) => {
     const id = c.req.param('itemId');
-    const row = await c.env.DB.prepare('SELECT story_id FROM items WHERE id = ?').bind(id).first<{ story_id: string | null }>();
+    const row = await c.env.DB.prepare(
+      `SELECT items.story_id, items.tags, items.source_id, COALESCE(sources.name, items.from_name, items.from_email) AS source_name, stories.tags AS story_tags
+       FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN stories ON stories.id = items.story_id WHERE items.id = ?`,
+    )
+      .bind(id)
+      .first<{ story_id: string | null; tags: string | null; source_id: string | null; source_name: string | null; story_tags: string | null }>();
     if (!row) return c.json({ error: 'not found' }, 404);
     await c.env.DB.batch([
       c.env.DB.prepare(
@@ -577,7 +690,21 @@ export function registerStories(app: App) {
       ).bind(id),
       c.env.DB.prepare("INSERT INTO events (item_id, type, value, device, at) VALUES (?, 'story_split', NULL, NULL, ?)").bind(id, now()),
     ]);
-    if (row.story_id) await refreshStory(c.env, row.story_id);
+    if (row.story_id) {
+      await refreshStory(c.env, row.story_id);
+      // Learn from it: the tags it shared with the story and its source need a closer match from now on.
+      const storyTags = new Set(parseList(row.story_tags).map(tagKey));
+      const tags = [...new Map(parseList(row.tags).map((l) => [tagKey(l), l.trim()] as const)).entries()]
+        .filter(([k]) => k && storyTags.has(k))
+        .map(([key, label]) => ({ key, label }));
+      await recordTune(c.env, tags, row.source_id ? [{ id: row.source_id, name: row.source_name ?? 'Source' }] : [], false);
+    }
+    return c.json({ ok: true });
+  });
+
+  /** Forgets what matching learnt from your links and splits. */
+  app.post('/api/stories/learnt/reset', async (c) => {
+    await writeJson(c.env, 'story_tunes', { tags: {}, sources: {} });
     return c.json({ ok: true });
   });
 
@@ -600,15 +727,20 @@ export function registerStories(app: App) {
     const days = [7, 30, 90].find((d) => d === Number(c.req.query('days'))) ?? 30;
     const key = new Request(`https://stories.cache/v1/${days}`);
     const cache = (caches as unknown as { default: Cache }).default;
+    // What's learnt changes with each tap, so it's read fresh (one row) and added to the cached numbers.
+    const learnt = tuneList(await loadTunes(c.env));
     if (c.req.query('fresh') !== '1') {
-      const hit = await cache.match(key).catch(() => undefined);
-      if (hit) return new Response(hit.body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+      const hit = (await cache.match(key).catch(() => undefined)) as Response | undefined;
+      if (hit) {
+        const cached = (await hit.json()) as StoryStats;
+        return c.json({ ...cached, learnt }, 200, { 'Cache-Control': 'no-store' });
+      }
     }
-    const body = JSON.stringify(await storyStats(c.env, days));
+    const stats = await storyStats(c.env, days);
     c.executionCtx.waitUntil(
-      cache.put(key, new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=600' } })).catch(() => undefined),
+      cache.put(key, new Response(JSON.stringify(stats), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=600' } })).catch(() => undefined),
     );
-    return new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+    return c.json({ ...stats, learnt }, 200, { 'Cache-Control': 'no-store' });
   });
 
   // ----- Helper side -----
@@ -704,7 +836,7 @@ export function registerStories(app: App) {
 
 // ---------- Statistics ----------
 
-async function storyStats(env: Env, days: number): Promise<StoryStats> {
+async function storyStats(env: Env, days: number): Promise<Omit<StoryStats, 'learnt'>> {
   const since = now() - days * DAY;
   const [active, arrived, followed, followedUnread, events, notes, notesWaitingRow, matchWaiting, top, sizes] = await env.DB.batch([
     env.DB.prepare('SELECT COUNT(*) AS n, SUM(first_at >= ?1) AS started FROM stories WHERE last_at >= ?1').bind(since),

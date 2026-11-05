@@ -41,7 +41,7 @@ export function StoryBanner({ itemId, onSplit }: { itemId: string; onSplit?: () 
   const unread = data.unreadIds.length;
 
   async function split() {
-    if (!window.confirm('Take this article out of the story? It won’t be put in a story again.')) return;
+    if (!window.confirm('Take this article out of the story? It won’t be put in a story again, and matching gets a little stricter for its source and the tags it shared with the story.')) return;
     await api.splitFromStory(itemId).catch(() => undefined);
     setData(null);
     onSplit?.();
@@ -256,7 +256,7 @@ export function NearLinks({ itemId, onJoined }: { itemId: string; onJoined: () =
             </div>
           ))}
           {list && list.length > 0 && (
-            <span className="hint">Linking by hand is counted in Statistics &gt; Stories. Lots of these means matching is too strict.</span>
+            <span className="hint">Linking by hand also makes matching a little looser for the tags these share and their sources (see Statistics &gt; Stories).</span>
           )}
         </div>
       )}

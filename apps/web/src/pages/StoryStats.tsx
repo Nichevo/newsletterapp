@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { RangeSwitch } from '../components/BarChart';
+import { tagPath } from '../components/TagChip';
 import { StatsTabs } from '../components/StatsTabs';
 import { agoText } from '../format';
 import { IconBack } from '../icons';
@@ -191,6 +192,62 @@ export function StoryStatsPage() {
                   </span>
                 </div>
               </div>
+            </section>
+          </div>
+
+          <div className="section">
+            <span className="label">Learnt from you</span>
+            <section className="card">
+              {data.learnt.length === 0 ? (
+                <p className="hint" style={{ margin: 0 }}>
+                  Nothing yet. Each “Same story” lowers the meaning line a little for the tags the two articles share and their sources; each “Not part of
+                  this story” raises it for that article’s source and the tags it shared with the story. Only those tags and sources change, not everything.
+                </p>
+              ) : (
+                <>
+                  <div className="tablewrap">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Tag or source</th>
+                          <th>Linked</th>
+                          <th>Taken out</th>
+                          <th>Line</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.learnt.map((t) => (
+                          <tr key={`${t.kind}:${t.key}`}>
+                            <td>
+                              {t.kind === 'tag' ? <Link to={tagPath(t.label)}>{t.label}</Link> : <Link to={`/source/${t.key}`}>{t.label}</Link>}
+                              <span className="muted"> · {t.kind}</span>
+                              {t.specific && <span className="muted"> · now counts as specific</span>}
+                            </td>
+                            <td>{t.links}</td>
+                            <td>{t.splits}</td>
+                            <td>{t.shift === 0 ? 'unchanged' : t.shift < 0 ? `${t.shift.toFixed(2)} looser` : `+${t.shift.toFixed(2)} stricter`}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <span className="hint">
+                    Each net link moves the line 0.01 lower (at most 0.06), each net take-out 0.01 higher (at most 0.04). A broad tag you link on twice starts
+                    counting as specific. New articles use this; Rebuild applies it to older ones.
+                  </span>
+                  <div>
+                    <button
+                      className="btn btn--small btn--ghost"
+                      onClick={() => {
+                        if (!window.confirm('Forget what matching learnt from your links and take-outs?')) return;
+                        void api.resetStoryLearnt().then(() => setFresh((n) => n + 1));
+                      }}
+                    >
+                      Forget what it learnt
+                    </button>
+                  </div>
+                </>
+              )}
             </section>
           </div>
 
