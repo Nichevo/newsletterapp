@@ -235,6 +235,8 @@ export interface StoryStats {
   nearMisses: number;
   /** Items put in a story by hand with "Same story". */
   joins: number;
+  /** What matching has learnt from "Same story" and "Not part of this story", per tag and source. */
+  learnt: StoryTune[];
   notes: { done: number; failed: number; seconds: number; model: string | null; waiting: number };
   /** Items waiting to be matched (counted up to 1000). */
   matchWaiting: number;
@@ -242,6 +244,21 @@ export interface StoryStats {
   top: (StoryInfo & { periodItems: number; unread: number })[];
   /** Stories by size: 2, 3-4, 5-9, 10+ items. */
   sizes: { label: string; n: number }[];
+}
+
+/**
+ * A tag or source whose meaning line has moved because of what you linked or took out by hand.
+ * shift is how far the line moved: negative = links more easily, positive = needs a closer match.
+ */
+export interface StoryTune {
+  kind: 'tag' | 'source';
+  key: string;
+  label: string;
+  links: number;
+  splits: number;
+  shift: number;
+  /** A broad tag (like "AI") that now counts as specific because you linked on it. */
+  specific: boolean;
 }
 
 /** One story note for the PC: the story so far and the new item. */
