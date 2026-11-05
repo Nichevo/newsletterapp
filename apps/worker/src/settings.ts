@@ -1,12 +1,18 @@
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_SKIP_SITES,
+  siteName,
   SOURCE_TYPES,
   formatFilterSet,
   parseFilterSet,
   type AppSettings,
   type DigestOptions,
+  TOPICS_DAYS,
   type SavedFilter,
+  type SourceType,
   type SummaryKind,
+  type TopicFilter,
+  type StorySettings,
 } from '@newsletterapp/shared';
 import type { Env } from './env';
 import { now } from './ids';
@@ -73,6 +79,7 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
   const d = (input.digest && typeof input.digest === 'object' ? input.digest : {}) as Partial<DigestOptions>;
   const bd = base.digest;
   const digest: DigestOptions = {
+    enabled: typeof d.enabled === 'boolean' ? d.enabled : bd.enabled,
     stories: d.stories === 6 || d.stories === 12 || d.stories === 20 ? d.stories : bd.stories,
     windowHours: d.windowHours === 0 || d.windowHours === 24 || d.windowHours === 48 ? d.windowHours : bd.windowHours,
     includeRead: typeof d.includeRead === 'boolean' ? d.includeRead : bd.includeRead,
@@ -101,5 +108,50 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
         .filter((f) => f.name)
         .slice(0, 20)
     : base.savedFilters;
-  return { categories, keywordRules, aiByKind, aiOffCategories, interests, digestHour, timezone, digest, savedFilters };
+  const pcSkipSites = Array.isArray(input.pcSkipSites)
+    ? [...new Set(input.pcSkipSites.map((x) => siteName(str(x, 200))).filter(Boolean))].slice(0, 60)
+    : (base.pcSkipSites ?? [...DEFAULT_SKIP_SITES]);
+  const pcSkipAllowCategories = Array.isArray(input.pcSkipAllowCategories)
+    ? [...new Set(input.pcSkipAllowCategories.map((c) => str(c, 40)).filter(Boolean))].slice(0, 40)
+    : (base.pcSkipAllowCategories ?? []);
+  const strs = (v: unknown, max: number, len: number) =>
+    Array.isArray(v) ? [...new Set(v.map((x) => str(x, len)).filter(Boolean))].slice(0, max) : [];
+  const topicFilters: TopicFilter[] = Array.isArray(input.topicFilters)
+    ? input.topicFilters
+        .map((f) => ({
+          name: str(f?.name, 40),
+          days: TOPICS_DAYS.find((d) => d === Number(f?.days)) ?? 30,
+          categories: strs(f?.categories, 40, 40),
+          sources: strs(f?.sources, 100, 64),
+          types: strs(f?.types, 10, 20).filter((t): t is SourceType => (SOURCE_TYPES as string[]).includes(t)),
+          read: (['all', 'unread', 'read', 'starred'] as const).find((v) => v === f?.read) ?? 'all',
+          top: Math.min(Math.max(Math.round(Number(f?.top) || 0), 0), 200),
+          min: Math.min(Math.max(Math.round(Number(f?.min) || 1), 1), 100),
+          showSources: f?.showSources !== false,
+        }))
+        .filter((f) => f.name)
+        .slice(0, 20)
+    : (base.topicFilters ?? []);
+  const st = (input.stories && typeof input.stories === 'object' ? input.stories : {}) as Partial<StorySettings>;
+  const bs = base.stories ?? DEFAULT_SETTINGS.stories;
+  const stories: StorySettings = {
+    notes: typeof st.notes === 'boolean' ? st.notes : bs.notes,
+    groupSameNews: typeof st.groupSameNews === 'boolean' ? st.groupSameNews : bs.groupSameNews,
+    match: st.match === 'loose' || st.match === 'normal' || st.match === 'strict' ? st.match : bs.match,
+  };
+  return {
+    categories,
+    keywordRules,
+    aiByKind,
+    aiOffCategories,
+    interests,
+    digestHour,
+    timezone,
+    digest,
+    savedFilters,
+    pcSkipSites,
+    pcSkipAllowCategories,
+    topicFilters,
+    stories,
+  };
 }

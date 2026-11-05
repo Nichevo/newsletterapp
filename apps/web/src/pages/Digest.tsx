@@ -4,8 +4,28 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { shortTime } from '../format';
 
+/** The Digest tab, or a short note when the digest is switched off in Settings. */
+export function DigestPage({ on }: { on: boolean }) {
+  if (on) return <DigestView />;
+  return (
+    <div className="page">
+      <header className="topbar">
+        <div className="topbar__titles">
+          <h1>Digest</h1>
+        </div>
+      </header>
+      <div className="empty">
+        <p>The daily digest is switched off, so none is being built.</p>
+        <p>
+          <Link to="/settings">Turn it back on in Settings</Link>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /** Techmeme-style daily digest: top stories grouped by topic, built once a day on the Worker. */
-export function DigestPage() {
+function DigestView() {
   const [digests, setDigests] = useState<Digest[] | null>(null);
   const [day, setDay] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

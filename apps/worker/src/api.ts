@@ -1,12 +1,14 @@
 import { Hono } from 'hono';
-import { normalizePostFilter, parseFilterSet } from '@newsletterapp/shared';
+import { normalizePostFilter, parseFilterSet, tagKey } from '@newsletterapp/shared';
 import type {
   Platform,
   AiMode,
   SearchResponse,
   SearchState,
+  TagPage,
   SourceActivity,
   Address,
+  AddressMonth,
   BulkReadInput,
   FullTextMode,
   AppSettings,
@@ -27,12 +29,15 @@ import type {
   ReadVia,
 } from '@newsletterapp/shared';
 import { registerAi } from './ai';
+import { registerPcHolds } from './pcholds';
+import { registerTagList, registerTopics } from './topics';
 import { registerBacklog, unparkHeld } from './backlog';
 import { AuthError, authenticate } from './auth';
 import {
   isOneClick,
   isSavedPages,
   toAddress,
+  parseList,
   toItemSummary,
   toSender,
   toSource,
@@ -45,7 +50,7 @@ import {
   type SourceRow,
 } from './db';
 import { buildDigestIfDue } from './digest';
-import { relatedItems } from './related';
+import { registerStories, toStoryInfo } from './stories';
 import { registerEmbed } from './embed';
 import { normalizeUrl, registerFeeds, startCount } from './feeds';
 import { registerExport } from './export';
@@ -78,8 +83,9 @@ app.use('/api/*', async (c, next) => {
   await next();
 });
 
-app.get('/api/me', (c) => {
-  const me: Me = { email: c.get('userEmail'), domain: c.env.MAIL_DOMAIN || null };
+app.get('/api/me', async (c) => {
+  const settings = await loadSettings(c.env);
+  const me: Me = { email: c.get('userEmail'), domain: c.env.MAIL_DOMAIN || null, digestOn: settings.digest.enabled, groupSameNews: settings.stories.groupSameNews };
   return c.json(me);
 });
 
@@ -97,13 +103,19 @@ registerExport(app);
 registerUsage(app);
 registerBacklog(app);
 registerReading(app);
+registerPcHolds(app);
+registerTopics(app);
+registerTagList(app);
+registerStories(app);
 
 // ---------- Items ----------
 
 const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category, sources.ai_mode AS source_ai_mode, sources.ai_since AS source_ai_since, sources.show_picture AS source_show_picture, sources.feed_url AS source_feed_url,
     ai_runs.provider AS run_provider, ai_runs.model AS run_model, ai_runs.prompt_version AS run_prompt_version,
-    ai_runs.seconds AS run_seconds, ai_runs.rating AS run_rating
-  FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN ai_runs ON ai_runs.id = items.ai_run_id`;
+    ai_runs.seconds AS run_seconds, ai_runs.rating AS run_rating,
+    stories.title AS story_title, stories.tags AS story_tags, stories.items AS story_items, stories.followed_at AS story_followed_at
+  FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN ai_runs ON ai_runs.id = items.ai_run_id
+    LEFT JOIN stories ON stories.id = items.story_id`;
 type ItemSelectRow = ItemRow & ItemJoined;
 
 const VIEW_WHERE: Record<ItemView, string> = {
@@ -340,8 +352,107 @@ app.get('/api/search', async (c) => {
 
 app.get('/api/items/:id', async (c) => {
   const item = await loadItem(c.env, c.req.param('id'));
-  return item ? c.json(item) : c.json({ error: 'not found' }, 404);
+  if (!item) return c.json({ error: 'not found' }, 404);
+  // The numbers on the tag chips: one tag_counts row per tag.
+  const keys = [...new Set(item.tags.map(tagKey).filter(Boolean))].slice(0, 10);
+  if (keys.length) {
+    const rows = await c.env.DB.prepare(`SELECT tag, n FROM tag_counts WHERE tag IN (${keys.map(() => '?').join(', ')})`)
+      .bind(...keys)
+      .all<{ tag: string; n: number }>();
+    const n = new Map(rows.results.map((r) => [r.tag, r.n]));
+    item.tagCounts = Object.fromEntries(item.tags.map((t) => [t, n.get(tagKey(t)) ?? 1]));
+  }
+  return c.json(item);
 });
+
+// ---------- Tags ----------
+
+const TAG_PAGE = 30;
+const TAG_WEEKS = 8;
+const TAG_SELECT = ITEM_SELECT.replace('FROM items LEFT JOIN', 'FROM item_tags it JOIN items ON items.id = it.item_id LEFT JOIN');
+
+/** A tag's page: its items (newest first, a page at a time) and, on the first page, its numbers. */
+app.get('/api/tag', async (c) => {
+  const tag = tagKey(c.req.query('name') ?? '').slice(0, 120);
+  if (!tag) return c.json({ error: 'which tag?' }, 400);
+  const unreadOnly = c.req.query('view') === 'unread';
+  const offset = Math.min(Math.max(Number(c.req.query('offset') ?? 0) || 0, 0), 2000);
+  const where = `it.tag = ? AND items.status IN ('inbox', 'archived')${unreadOnly ? ' AND items.read_at IS NULL' : ''}`;
+  const first = offset === 0;
+  const [rows, settings, stats, seenWith] = await Promise.all([
+    c.env.DB.prepare(`${TAG_SELECT} WHERE ${where} ORDER BY it.received_at DESC LIMIT ? OFFSET ?`)
+      .bind(tag, TAG_PAGE + 1, offset)
+      .all<ItemSelectRow>(),
+    loadSettings(c.env),
+    first
+      ? c.env.DB.prepare(
+          `SELECT items.source_id, COALESCE(sources.name, items.from_name, items.from_email) AS name, items.read_at IS NULL AS unread,
+             it.received_at, it.label, items.story_id
+           FROM item_tags it JOIN items ON items.id = it.item_id LEFT JOIN sources ON sources.id = items.source_id
+           WHERE it.tag = ? AND items.status IN ('inbox', 'archived') ORDER BY it.received_at DESC LIMIT 3000`,
+        )
+          .bind(tag)
+          .all<{ source_id: string | null; name: string | null; unread: number; received_at: number; label: string; story_id: string | null }>()
+      : null,
+    first
+      ? c.env.DB.prepare(
+          `SELECT t2.tag, MAX(t2.label) AS label, COUNT(*) AS n FROM item_tags t1 JOIN item_tags t2 ON t2.item_id = t1.item_id
+           WHERE t1.tag = ?1 AND t2.tag != ?1 GROUP BY t2.tag ORDER BY n DESC, t2.tag LIMIT 12`,
+        )
+          .bind(tag)
+          .all<{ tag: string; label: string; n: number }>()
+      : null,
+  ]);
+  const s = stats?.results ?? [];
+  const t = now();
+  const weeks = Array.from({ length: TAG_WEEKS }, (_, i) => ({ start: t - (TAG_WEEKS - i) * 7 * 86_400_000, n: 0 }));
+  const bySource = new Map<string, { id: string | null; name: string; n: number }>();
+  const labels = new Map<string, number>();
+  for (const r of s) {
+    const w = Math.floor((t - r.received_at) / (7 * 86_400_000));
+    if (w >= 0 && w < TAG_WEEKS) weeks[TAG_WEEKS - 1 - w]!.n++;
+    const k = r.source_id ?? `name:${r.name ?? ''}`;
+    const e = bySource.get(k) ?? { id: r.source_id, name: r.name ?? 'Unknown', n: 0 };
+    e.n++;
+    bySource.set(k, e);
+    labels.set(r.label, (labels.get(r.label) ?? 0) + 1);
+  }
+  const label = [...labels].sort((a, b) => b[1] - a[1])[0]?.[0] ?? labelFrom(rows.results[0]?.tags ?? null, tag);
+  // Stories among the tag's items, most recent first (the rows are newest first), from rows already read.
+  const storyUnread = new Map<string, number>();
+  for (const r of s) if (r.story_id) storyUnread.set(r.story_id, (storyUnread.get(r.story_id) ?? 0) + (r.unread ? 1 : 0));
+  const storyIds = [...storyUnread.keys()].slice(0, 8);
+  const storyRows = storyIds.length
+    ? await c.env.DB.prepare(`SELECT * FROM stories WHERE id IN (${storyIds.map(() => '?').join(', ')})`)
+        .bind(...storyIds)
+        .all<Parameters<typeof toStoryInfo>[0]>()
+    : null;
+  const body: TagPage = {
+    tag,
+    label,
+    total: s.length,
+    unread: s.filter((r) => r.unread).length,
+    firstAt: s.length ? s[s.length - 1]!.received_at : null,
+    weeks,
+    seenWith: seenWith?.results ?? [],
+    sources: [...bySource.values()].sort((a, b) => b.n - a.n).slice(0, 12),
+    items: rows.results.slice(0, TAG_PAGE).map((r) => toItemSummary(r, settings.aiByKind, settings.aiOffCategories)),
+    nextOffset: rows.results.length > TAG_PAGE ? offset + TAG_PAGE : null,
+    ...(first
+      ? {
+          stories: (storyRows?.results ?? [])
+            .map((r) => ({ ...toStoryInfo(r), unread: storyUnread.get(r.id) ?? 0 }))
+            .sort((a, b) => b.lastAt - a.lastAt),
+        }
+      : {}),
+  };
+  return c.json(body);
+});
+
+/** The tag as the AI wrote it on an item, for later pages that skip the numbers. */
+function labelFrom(raw: string | null, tag: string): string {
+  return parseList(raw).find((l) => tagKey(l) === tag)?.trim() ?? tag;
+}
 
 app.get('/api/items/:id/body', async (c) => {
   const row = await c.env.DB.prepare('SELECT html_key, text_key, status FROM items WHERE id = ?')
@@ -403,15 +514,6 @@ async function logEvent(env: Env, itemId: string, type: ReadingEventType, value?
     .bind(itemId, type, value ?? null, device ?? null, now())
     .run();
 }
-
-// ---------- "You've read about this before" ----------
-
-/** Older items you read that share a specific topic with this one. */
-app.get('/api/items/:id/related', async (c) => {
-  const related = await relatedItems(c.env, c.req.param('id'));
-  if (!related) return c.json({ error: 'not found' }, 404);
-  return c.json(related);
-});
 
 // ---------- One-tap unsubscribe ----------
 
@@ -613,6 +715,51 @@ app.post('/api/addresses/:id/:action', async (c) => {
   }
   const row = await c.env.DB.prepare(`${ADDRESS_SELECT} WHERE addresses.id = ?`).bind(id).first<AddressRow & { approved_sender_count: number }>();
   return row ? c.json(toAddress(row, c.env.MAIL_DOMAIN || null)) : c.json({ error: 'not found' }, 404);
+});
+
+// The owner's own name and note for an address.
+app.put('/api/addresses/:id', async (c) => {
+  const id = c.req.param('id');
+  const input = (await c.req.json().catch(() => null)) as { label?: string | null; note?: string | null } | null;
+  if (!input) return c.json({ error: 'nothing to save' }, 400);
+  const sets: string[] = [];
+  const binds: (string | null)[] = [];
+  if (input.label !== undefined) {
+    sets.push('label = ?');
+    binds.push(input.label?.trim().slice(0, 120) || null);
+  }
+  if (input.note !== undefined) {
+    sets.push('note = ?');
+    binds.push(input.note?.trim().slice(0, 500) || null);
+  }
+  if (sets.length) await c.env.DB.prepare(`UPDATE addresses SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, id).run();
+  const row = await c.env.DB.prepare(`${ADDRESS_SELECT} WHERE addresses.id = ?`).bind(id).first<AddressRow & { approved_sender_count: number }>();
+  return row ? c.json(toAddress(row, c.env.MAIL_DOMAIN || null)) : c.json({ error: 'not found' }, 404);
+});
+
+// Emails per month for one address, from the stored counts (one row per month).
+app.get('/api/addresses/:id/months', async (c) => {
+  const rows = await c.env.DB.prepare('SELECT month, n FROM address_months WHERE address_id = ? ORDER BY month')
+    .bind(c.req.param('id'))
+    .all<{ month: string; n: number }>();
+  const body: AddressMonth[] = rows.results.map((r) => ({ month: r.month, count: r.n }));
+  return c.json(body);
+});
+
+// Only an address that never received anything can go; one that did is blocked instead,
+// so its newsletters keep their history.
+app.delete('/api/addresses/:id', async (c) => {
+  const id = c.req.param('id');
+  const row = await c.env.DB.prepare('SELECT item_count FROM addresses WHERE id = ?').bind(id).first<{ item_count: number }>();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  if (row.item_count > 0) return c.json({ error: 'This address has received emails, so it can only be blocked.' }, 409);
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM address_months WHERE address_id = ?').bind(id),
+    c.env.DB.prepare("DELETE FROM sources WHERE address_id = ? AND kind = 'newsletter'").bind(id),
+    c.env.DB.prepare('DELETE FROM senders WHERE address_id = ?').bind(id),
+    c.env.DB.prepare('DELETE FROM addresses WHERE id = ?').bind(id),
+  ]);
+  return c.json({ ok: true });
 });
 
 // ---------- Sources ----------

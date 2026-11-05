@@ -185,6 +185,12 @@ function MoreLinks({ usage }: { usage: AiUsageView | null }) {
             <span className="cardrow__sub">Define, More info, Example and the rest: edit, reorder, switch off, add your own</span>
           </div>
         </Link>
+        <Link to="/settings/ai/sites" className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">Sites the PC leaves alone</span>
+            <span className="cardrow__sub">Sites whose bot checks flag your home network (Bloomberg and co.), and categories that fetch them anyway</span>
+          </div>
+        </Link>
         <Link to="/stats/ai" className="cardrow">
           <div className="cardrow__main">
             <span className="cardrow__title">AI statistics</span>

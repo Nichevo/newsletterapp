@@ -1,10 +1,12 @@
-import type { AskPreset, FetchPageStatus, ItemBody, ItemHighlights, ItemSummary, RelatedItem, UnsubscribeResult } from '@newsletterapp/shared';
+import type { AskPreset, FetchPageStatus, ItemBody, ItemHighlights, ItemSummary, UnsubscribeResult } from '@newsletterapp/shared';
+import { TagChip } from '../components/TagChip';
+import { StoryBanner } from '../components/StoryBanner';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
 import { EmailBody } from '../components/EmailBody';
 import { AiNotes, HighlightSheet, SelectionBar, TextBody, useArticleSelection } from '../components/Highlights';
-import { revealMark } from '../highlight';
+import { applyMarks, matchScore, revealMark } from '../highlight';
 import { aiAttribution, longDate, readingMinutes, shortTime } from '../format';
 import { IconArchive, IconBack, IconBookmark, IconCheck, IconChevron, IconExternal, IconImage, IconSettings, IconStar, IconThumbDown, IconThumbUp } from '../icons';
 import { getHideSponsored, liveLink, getNotesPlace, getTextSize, imagesAllowed, setImagesAllowed, textSizePx, type AskOutputPref } from '../prefs';
@@ -21,7 +23,6 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const [body, setBody] = useState<ItemBody | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadImages, setLoadImages] = useState(false);
-  const [related, setRelated] = useState<RelatedItem[]>([]);
   const [sponsoredCount, setSponsoredCount] = useState(0);
   const [showSponsored, setShowSponsored] = useState(false);
   const fontSize = textSizePx(getTextSize());
@@ -57,7 +58,6 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
     setBody(null);
     setError(null);
     setLoadImages(false);
-    setRelated([]);
     setSponsoredCount(0);
     setShowSponsored(false);
     Promise.all([api.item(id), api.itemBody(id)])
@@ -79,18 +79,6 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   }, [id]);
 
   useReadingTracker(id, item !== null);
-
-  useEffect(() => {
-    if (!item) return;
-    let cancelled = false;
-    api
-      .related(item.id)
-      .then((r) => !cancelled && setRelated(r))
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [item]);
 
   const onLinkClick = useCallback(
     (href: string) => {
@@ -168,9 +156,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             {item.category && <span className="chip chip--category">{item.category}</span>}
             {item.sponsored && <span className="chip chip--outline">Has a sponsored section</span>}
             {item.tags.map((t) => (
-              <span key={t} className="chip chip--outline">
-                {t}
-              </span>
+              <TagChip key={t} tag={t} count={item.tagCounts?.[t]} />
             ))}
           </div>
           {marks.place === 'bottom' && marks.noteCount > 0 && (
@@ -178,7 +164,8 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
               {marks.noteCount} AI note{marks.noteCount === 1 ? '' : 's'} ↓
             </button>
           )}
-          {item.summary && <AiSummary item={item} onItem={setItem} />}
+          {item.story && <StoryBanner itemId={item.id} />}
+          {item.summary && <AiSummary item={item} onItem={setItem} marks={marks} />}
           {item.kind !== 'ai' && (
             <QuickSummary
               preview={item.preheader ?? item.snippet}
@@ -240,7 +227,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             hideSponsored={hideSponsored}
             onSponsored={setSponsoredCount}
             onLinkClick={onLinkClick}
-            highlights={marks.data.highlights}
+            highlights={marks.articleHighlights}
             activeHighlight={marks.sheet}
             onRoot={marks.setRoot}
             onHighlightTap={marks.openSheet}
@@ -251,7 +238,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
           <TextBody
             text={body.text}
             fontSize={fontSize}
-            highlights={marks.data.highlights}
+            highlights={marks.articleHighlights}
             activeHighlight={marks.sheet}
             onRoot={marks.setRoot}
             onHighlightTap={marks.openSheet}
@@ -263,7 +250,6 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
           !error && <div className="spinner">Loading…</div>
         )}
         {marks.place === 'bottom' && marks.notes}
-        {item && related.length > 0 && <RelatedList related={related} />}
         {item && item.listUnsubscribe && <Unsubscribe item={item} onChanged={onChanged} />}
       </div>
 
@@ -331,6 +317,8 @@ function useHighlights(itemId: string, jumpTo: string | null) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const roots = useRef<(ShadowRoot | HTMLElement)[]>(ROOTLESS);
+  const [articleRoot, setArticleRoot] = useState<ShadowRoot | HTMLElement | null>(null);
+  const [summaryRoot, setSummaryRootState] = useState<HTMLElement | null>(null);
   const notesRef = useRef<HTMLDivElement>(null);
   const place = getNotesPlace();
   const selection = useArticleSelection(useCallback(() => roots.current, []));
@@ -347,6 +335,7 @@ function useHighlights(itemId: string, jumpTo: string | null) {
     setMissingState([]);
     setSheet(null);
     roots.current = ROOTLESS;
+    setArticleRoot(null);
     refresh();
   }, [itemId, refresh]);
 
@@ -371,12 +360,33 @@ function useHighlights(itemId: string, jumpTo: string | null) {
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  const setRoot = useCallback((r: ShadowRoot | HTMLElement) => {
-    roots.current = [r];
-  }, []);
+  const setRoot = useCallback((r: ShadowRoot | HTMLElement) => setArticleRoot(r), []);
+  const setSummaryRoot = useCallback((r: HTMLElement | null) => setSummaryRootState(r), []);
+  useEffect(() => {
+    roots.current = [articleRoot, summaryRoot].filter((r): r is ShadowRoot | HTMLElement => r !== null);
+  }, [articleRoot, summaryRoot]);
+
+  // Highlights made in the AI summary are stored like any other; tell them
+  // apart by which text they fit best (the summary, or the article itself).
+  const { articleHighlights, summaryHighlights } = useMemo(() => {
+    if (!summaryRoot) return { articleHighlights: data.highlights, summaryHighlights: [] };
+    const inArticle: typeof data.highlights = [];
+    const inSummary: typeof data.highlights = [];
+    for (const h of data.highlights) {
+      const s = matchScore(summaryRoot, h);
+      const a = articleRoot ? matchScore(articleRoot, h) : 0;
+      (s > a ? inSummary : inArticle).push(h);
+    }
+    return { articleHighlights: inArticle, summaryHighlights: inSummary };
+  }, [data.highlights, articleRoot, summaryRoot]);
   const setMissing = useCallback((ids: string[]) => {
     setMissingState((prev) => (prev.join() === ids.join() ? prev : ids));
   }, []);
+  const markSummary = useCallback(
+    // Every highlight sent here was found in the summary, so nothing goes missing.
+    (el: HTMLElement) => void applyMarks(el, summaryHighlights, sheet),
+    [summaryHighlights, sheet],
+  );
   const openSheet = useCallback((id: string) => setSheet(id), []);
 
   function reveal(highlightId: string) {
@@ -518,13 +528,75 @@ function useHighlights(itemId: string, jumpTo: string | null) {
     overlays,
     setRoot,
     setMissing,
+    articleHighlights,
+    summary: { setRoot: setSummaryRoot, mark: markSummary, key: summaryHighlights.map((h) => h.id).join(',') + ':' + (sheet ?? '') },
     openSheet,
     scrollToNotes: () => notesRef.current?.scrollIntoView({ behavior: 'smooth' }),
   };
 }
 
+type Marks = ReturnType<typeof useHighlights>;
+
+/**
+ * The AI summary's text, drawn by hand (like TextBody) so highlight marks can
+ * split its text without upsetting React. Text selected here gets the same
+ * Highlight and Ask bar as the article.
+ */
+function SummaryText({ item, marks }: { item: ItemSummary; marks: Marks }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const { setRoot, mark } = marks.summary;
+  const textKey = JSON.stringify([item.summary, item.keyPoints, item.whyItMatters, item.background]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const parts: Node[] = [];
+    const para = (cls: string, text: string, label?: string) => {
+      const p = document.createElement('p');
+      p.className = cls;
+      if (label) {
+        const b = document.createElement('strong');
+        b.textContent = label;
+        p.append(b, ' ');
+      }
+      p.append(text);
+      parts.push(p);
+    };
+    if (item.summary) para('quick__lead', item.summary);
+    if (item.keyPoints.length > 0) {
+      const ul = document.createElement('ul');
+      ul.className = 'quick__list';
+      for (const k of item.keyPoints) {
+        const li = document.createElement('li');
+        li.textContent = k;
+        ul.append(li);
+      }
+      parts.push(ul);
+    }
+    if (item.whyItMatters) para('ai__why', item.whyItMatters, 'Why it matters:');
+    if (item.background) para('ai__why', item.background, 'Background:');
+    el.replaceChildren(...parts);
+    setRoot(el);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [textKey]);
+  useEffect(() => () => setRoot(null), [setRoot]);
+  useEffect(() => {
+    if (ref.current) mark(ref.current);
+  }, [textKey, mark, marks.summary.key]);
+  return (
+    <div
+      ref={ref}
+      className="ai__text"
+      onClick={(e) => {
+        const m = (e.target as HTMLElement).closest('mark[data-hl]') as HTMLElement | null;
+        const sel = document.getSelection();
+        if (m && (!sel || sel.isCollapsed)) marks.openSheet(m.dataset.hl!);
+      }}
+    />
+  );
+}
+
 /** The AI summary from the PC helper, with who wrote it and a thumbs up/down. */
-function AiSummary({ item, onItem }: { item: ItemSummary; onItem: (i: ItemSummary) => void }) {
+function AiSummary({ item, onItem, marks }: { item: ItemSummary; onItem: (i: ItemSummary) => void; marks: Marks }) {
   const [advice, setAdvice] = useState(false);
   const [redoing, setRedoing] = useState(false);
   const rating = item.ai?.rating ?? null;
@@ -553,25 +625,8 @@ function AiSummary({ item, onItem }: { item: ItemSummary; onItem: (i: ItemSummar
       <span className="label" style={{ color: 'var(--teal-ink)' }}>
         AI summary
       </span>
-      <p className="quick__lead">{item.summary}</p>
+      <SummaryText item={item} marks={marks} />
       {item.thinContent && <p className="hint" style={{ margin: 0 }}>This issue is mostly a teaser; the full story is on the website.</p>}
-      {item.keyPoints.length > 0 && (
-        <ul className="quick__list">
-          {item.keyPoints.map((k) => (
-            <li key={k}>{k}</li>
-          ))}
-        </ul>
-      )}
-      {item.whyItMatters && (
-        <p className="ai__why">
-          <strong>Why it matters:</strong> {item.whyItMatters}
-        </p>
-      )}
-      {item.background && (
-        <p className="ai__why">
-          <strong>Background:</strong> {item.background}
-        </p>
-      )}
       {item.coverage.length > 0 && (
         <div className="ai__why">
           <strong>Other coverage:</strong>
@@ -709,30 +764,6 @@ function writeFlag(key: string, value: boolean) {
   } catch {
     // Storage unavailable; the choice just isn't remembered.
   }
-}
-
-/** "You've read about this before": older items you read that share a specific topic. */
-function RelatedList({ related }: { related: RelatedItem[] }) {
-  return (
-    <section className="card related" aria-label="Related reading">
-      <span className="label" style={{ color: 'var(--teal-ink)' }}>
-        You've read about this before
-      </span>
-      <ul className="related__list">
-        {related.map((r) => (
-          <li key={r.id}>
-            <Link to={`/item/${r.id}`}>{r.subject}</Link>
-            <span className="related__meta">
-              {r.sourceName ?? ''}
-              {r.sourceName ? ' · ' : ''}
-              {r.readAt ? `read ${shortTime(r.readAt)}` : `arrived ${shortTime(r.receivedAt)}, unread`}
-              {r.shared.length > 0 ? ` · both about ${r.shared.slice(0, 3).join(', ')}` : r.similarity ? ' · similar story' : ''}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
 }
 
 /**

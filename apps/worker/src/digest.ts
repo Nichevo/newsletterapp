@@ -140,6 +140,8 @@ export async function buildDigest(env: Env, day: string, fromAt: number, toAt: n
 /** Builds today's digest if it is time and it hasn't been built yet. Called hourly by the cron and on demand. */
 export async function buildDigestIfDue(env: Env, force = false): Promise<Digest | null> {
   const settings = await loadSettings(env);
+  // Switched off: build nothing (and read nothing more) unless asked to directly.
+  if (!force && !settings.digest.enabled) return null;
   const at = now();
   const day = dayKey(at, settings.timezone);
   const existing = await env.DB.prepare('SELECT day FROM digests WHERE day = ?').bind(day).first<{ day: string }>();

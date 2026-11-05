@@ -2,8 +2,12 @@ import type {
   FetchPageStatus,
   SavePageResult,
   SearchResponse,
+  TagList,
+  TagPage,
+  TopicsData,
   SourceActivity,
   Address,
+  AddressMonth,
   AskPreset,
   AskPresetInput,
   BulkReadInput,
@@ -26,7 +30,9 @@ import type {
   NewSourceInput,
   NewSourceResult,
   OpmlImportResult,
-  RelatedItem,
+  StoryBanner,
+  StoryPage,
+  StoryStats,
   UnsubscribeResult,
   AiStatsRow,
   AiStatusView,
@@ -34,6 +40,7 @@ import type {
   AiUsageSettings,
   AiUsageView,
   AppSettings,
+  PcHoldsView,
   ModelInfo,
   ModelMode,
   ModelRating,
@@ -115,7 +122,12 @@ export const api = {
     post<ItemSummary>(`/api/items/${id}/${action}`, action === 'read' ? { device: isPhone() } : undefined),
   bulkRead: (input: BulkReadInput) => post<{ changed: number }>('/api/items/bulk-read', { ...input, device: isPhone() }),
   rawUrl: (id: string) => `/api/items/${id}/raw`,
-  related: (id: string) => get<RelatedItem[]>(`/api/items/${id}/related`),
+  storyBanner: (id: string) => get<StoryBanner | null>(`/api/items/${id}/story`),
+  story: (id: string) => get<StoryPage>(`/api/stories/${id}`),
+  followStory: (id: string, on: boolean) => post<{ ok: boolean }>(`/api/stories/${id}/follow`, { on }),
+  splitFromStory: (itemId: string) => post<{ ok: boolean }>(`/api/stories/split/${itemId}`),
+  rebuildStories: () => post<{ ok: boolean; matched: number }>('/api/stories/rebuild'),
+  storyStats: (days: number, fresh = false) => get<StoryStats>(`/api/stats/stories?days=${days}${fresh ? '&fresh=1' : ''}`),
   unsubscribe: (id: string) => post<UnsubscribeResult>(`/api/items/${id}/unsubscribe`),
 
   /** Fire-and-forget reading event; uses keepalive so it survives page unloads. */
@@ -134,6 +146,9 @@ export const api = {
   addresses: () => get<Address[]>('/api/addresses'),
   createAddress: (label: string) => post<Address>('/api/addresses', { label }),
   addressAction: (id: string, action: 'block' | 'unblock') => post<Address>(`/api/addresses/${id}/${action}`),
+  saveAddress: (id: string, p: { label?: string | null; note?: string | null }) => put<Address>(`/api/addresses/${id}`, p),
+  addressMonths: (id: string) => get<AddressMonth[]>(`/api/addresses/${id}/months`),
+  deleteAddress: (id: string) => request<{ ok: boolean }>(`/api/addresses/${id}`, { method: 'DELETE' }),
 
   /** With counts: each source's post count too (reads every item; only the source pages need it). */
   sources: (counts = false) => get<Source[]>(counts ? '/api/sources?counts=1' : '/api/sources'),
@@ -158,6 +173,11 @@ export const api = {
   digestUndone: (day: string) => post<{ readAt: null }>(`/api/digests/${day}/undone`),
 
   settings: () => get<AppSettings>('/api/settings'),
+  pcHolds: () => get<PcHoldsView>('/api/pc-holds'),
+  tag: (name: string, view: 'all' | 'unread', offset = 0) =>
+    get<TagPage>(`/api/tag?name=${encodeURIComponent(name)}&view=${view}&offset=${offset}`),
+  tags: (days: number) => get<TagList>(`/api/tags?days=${days}`),
+  topics: (days: number, fresh = false) => get<TopicsData>(`/api/topics?days=${days}${fresh ? '&fresh=1' : ''}`),
   saveSettings: (settings: Partial<AppSettings>) => put<AppSettings>('/api/settings', settings),
 
   // AI summaries (written by the PC helper)

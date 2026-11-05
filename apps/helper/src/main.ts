@@ -7,7 +7,7 @@ import { UPDATED_EXIT_CODE } from './constants';
 import { configPath, loadConfig, type LocalConfig } from './config';
 import { Embeddings } from './embed';
 import { askLookups, lookupsText, summaryLookups, toSources, type Lookups } from './lookups';
-import { runFetchJob } from './fetch';
+import { holdReport, holdsSent, runFetchJob, setSkipSites } from './fetch';
 import { log } from './log';
 import { findProvider, providersFrom, type Provider } from './providers';
 import { currentLoad, powerMeter } from './system';
@@ -19,8 +19,9 @@ import { itemText, parseOutput } from './text';
 // waiting items with the first switched-on model (or the one the app names,
 // when it splits the work) and posts the results. Between those rounds it
 // checks for new highlight questions every few seconds, and between
-// summaries too, so an answer doesn't wait behind a long batch. It only ever
-// makes outbound requests.
+// summaries too, so an answer doesn't wait behind a long batch. After the
+// embeddings it writes a one-line note for each new item in a story. It only
+// ever makes outbound requests.
 
 const cfg = loadConfig();
 const app = new AppClient(cfg);
@@ -70,7 +71,8 @@ async function heartbeat(): Promise<HelperConfig> {
       providerErrors.push({ provider: p.name, error: err instanceof Error ? err.message : String(err) });
     }
   }
-  return app.heartbeat({
+  const report = holdReport();
+  const config = await app.heartbeat({
     version: HELPER_VERSION,
     hostname: hostname(),
     models,
@@ -79,7 +81,11 @@ async function heartbeat(): Promise<HelperConfig> {
     webSearch: cfg.braveApiKey ? 'brave' : null,
     embedStore: embeddings.model ? embeddings.store : null,
     embedCount: embeddings.count,
+    ...report,
   });
+  holdsSent(report.holds);
+  setSkipSites(config.skipSites);
+  return config;
 }
 
 function userMessage(job: Pick<HelperJob, 'sourceName' | 'fromName' | 'subject' | 'html' | 'text'>, c: LocalConfig): string {
@@ -298,6 +304,44 @@ async function summariseQueue(config: HelperConfig) {
   }
 }
 
+/** Story notes: one short call per new item in a story, saying what it adds. A few per round. */
+async function storyNotes(config: HelperConfig) {
+  if (!config.storyWaiting || config.paused || config.limited) return;
+  const model = config.models.find((m) => findProvider(providers, m));
+  if (!model) return;
+  const provider = findProvider(providers, model)!;
+  for (let round = 0; round < 4; round++) {
+    const { jobs } = await app.storyClaim(3);
+    if (jobs.length === 0) return;
+    for (const job of jobs) {
+      await checkAsks();
+      doing(`story note for ${job.itemId}`);
+      const base = { itemId: job.itemId, provider: model.provider, model: model.name };
+      try {
+        const { reply, seconds, watts } = await runText(provider, model.name, job.prompt, job.text, false);
+        const output = parseStoryNote(reply);
+        await app.storyResult({ ...base, ok: Boolean(output.new), seconds, watts, output, error: output.new ? undefined : 'No "new" line in the reply' });
+        log(`story note with ${model.name} in ${seconds.toFixed(1)}s: ${String(output.new ?? '').slice(0, 80)}`);
+      } catch (err) {
+        const { error, seconds, watts } = failure(err);
+        log(`story note failed with ${model.name}: ${error}`);
+        await app.storyResult({ ...base, ok: false, seconds, watts, error });
+      }
+    }
+  }
+}
+
+/** The note's JSON from a plain-text reply (some models wrap it in prose or code fences). */
+function parseStoryNote(reply: string): { new?: string; title?: string; so_far?: string } {
+  const cleaned = stripThinking(reply).replace(/```(?:json)?/gi, '');
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error('The model did not return JSON');
+  const v = JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>;
+  const str = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim() : undefined);
+  return { new: str(v.new), title: str(v.title), so_far: str(v.so_far) };
+}
+
 /** Feeds and websites Cloudflare can't fetch, website watches and full articles. A few rounds per minute at most. */
 async function fetchQueue(config: HelperConfig) {
   if (!config.fetchWaiting) return;
@@ -390,6 +434,9 @@ async function tick(): Promise<number> {
   // Embeddings after summaries, since they're made from the summary.
   doing('embedding items');
   await embeddings.run(config, checkAsks).catch((err: unknown) => log('embeddings failed:', err));
+  // Story notes after embeddings, since items join stories once they're embedded.
+  doing('story notes');
+  await storyNotes(config).catch((err: unknown) => log('story notes failed:', err));
   doing('waiting for the next round');
   return config.pollSeconds;
 }

@@ -1,5 +1,5 @@
 import type { Me } from '@newsletterapp/shared';
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError, api } from './api';
 import { TabBar } from './components/TabBar';
@@ -10,6 +10,8 @@ import { AiUsagePage } from './pages/AiUsage';
 import { HighlightsPage } from './pages/Highlights';
 import { HighlightPromptsPage } from './pages/HighlightPrompts';
 import { WebSearchPage } from './pages/WebSearch';
+import { PcSitesPage } from './pages/PcSites';
+import { PcFetchStatsPage } from './pages/PcFetchStats';
 import { DigestPage } from './pages/Digest';
 import { InboxPage } from './pages/Inbox';
 import { ReaderPage } from './pages/Reader';
@@ -21,6 +23,13 @@ import { SearchPage } from './pages/Search';
 import { SourcesPage } from './pages/Sources';
 import { ReadingStatsPage } from './pages/ReadingStats';
 import { StatsPage } from './pages/Stats';
+import { TagPagePage } from './pages/Tag';
+import { TagsPage } from './pages/Tags';
+import { StoryPagePage } from './pages/Story';
+import { StoryStatsPage } from './pages/StoryStats';
+
+// The Topics map pulls in the chart layout code, so it loads only when opened.
+const TopicsPage = lazy(() => import('./pages/Topics').then((m) => ({ default: m.TopicsPage })));
 
 export interface Counts {
   inbox: number;
@@ -66,7 +75,7 @@ export default function App() {
     <div className="app">
       <Routes>
         <Route path="/" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
-        <Route path="/digest" element={<DigestPage />} />
+        <Route path="/digest" element={<DigestPage on={me.digestOn} />} />
         <Route path="/saved" element={<InboxPage key="saved" mode="saved" me={me} counts={counts} onChanged={refreshCounts} />} />
         <Route
           path="/saved/interesting"
@@ -78,20 +87,43 @@ export default function App() {
         <Route path="/add" element={<AddPage me={me} />} />
         <Route path="/ask" element={<AskPage />} />
         <Route path="/search" element={<SearchPage />} />
-        <Route path="/settings" element={<SettingsPage me={me} />} />
+        <Route
+          path="/settings"
+          element={
+            <SettingsPage
+              me={me}
+              onDigestChange={(on) => setMe((m) => (m ? { ...m, digestOn: on } : m))}
+              onGroupChange={(on) => setMe((m) => (m ? { ...m, groupSameNews: on } : m))}
+            />
+          }
+        />
         <Route path="/source/:id" element={<SourcePage />} />
         <Route path="/settings/ai" element={<AiSettingsPage />} />
         <Route path="/settings/ai/usage" element={<AiUsagePage />} />
         <Route path="/settings/ai/highlights" element={<HighlightPromptsPage />} />
         <Route path="/settings/ai/web-search" element={<WebSearchPage />} />
+        <Route path="/settings/ai/sites" element={<PcSitesPage />} />
         <Route path="/settings/sources" element={<SourcesPage />} />
         <Route path="/settings/export" element={<ExportPage />} />
         <Route path="/stats" element={<ReadingStatsPage />} />
         <Route path="/stats/reading" element={<ReadingStatsPage />} />
         <Route path="/stats/ai" element={<StatsPage />} />
+        <Route path="/stats/pc" element={<PcFetchStatsPage />} />
+        <Route
+          path="/stats/topics"
+          element={
+            <Suspense fallback={<div className="spinner">Loading…</div>}>
+              <TopicsPage />
+            </Suspense>
+          }
+        />
+        <Route path="/tags" element={<TagsPage />} />
+        <Route path="/story/:id" element={<StoryPagePage />} />
+        <Route path="/stats/stories" element={<StoryStatsPage />} />
+        <Route path="/tag/*" element={<TagPagePage />} />
         <Route path="*" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
       </Routes>
-      {!isReader && <TabBar pendingSenders={counts.pendingSenders} />}
+      {!isReader && <TabBar pendingSenders={counts.pendingSenders} showDigest={me.digestOn} />}
     </div>
   );
 }

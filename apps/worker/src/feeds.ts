@@ -8,6 +8,7 @@ import {
   extractLinks,
   findFeedLinks,
   looksBlocked,
+  looksBotCheck,
   looksScripted,
   pageTitle,
   parseFeed,
@@ -983,12 +984,19 @@ export function registerFeeds(app: App) {
       .all<{ id: string; kind: FetchJob['kind']; source_id: string | null; item_id: string | null; url: string; force: number | null }>();
 
     const jobs: FetchJob[] = [];
+    const settings = claimed.results.length ? await loadSettings(c.env) : null;
+    const allow = settings?.pcSkipAllowCategories ?? [];
     for (const j of claimed.results) {
       const s = j.source_id ? await loadSourceRow(c.env, j.source_id) : null;
       const post =
-        j.kind === 'article' && s?.follow_link === 1 && j.item_id
-          ? await c.env.DB.prepare('SELECT web_url FROM items WHERE id = ?').bind(j.item_id).first<{ web_url: string | null }>()
+        j.item_id && ((j.kind === 'article' && s?.follow_link === 1) || allow.length)
+          ? await c.env.DB.prepare('SELECT web_url, category FROM items WHERE id = ?')
+              .bind(j.item_id)
+              .first<{ web_url: string | null; category: string | null }>()
           : null;
+      // Sites the PC leaves alone, unless the item's (or its source's) category is an exception.
+      const category = post?.category ?? s?.category ?? null;
+      const skipSites = category && allow.includes(category) ? [] : (settings?.pcSkipSites ?? []);
       const known =
         j.kind === 'page' && s
           ? await c.env.DB.prepare('SELECT key FROM source_seen WHERE source_id = ? ORDER BY at DESC LIMIT 500').bind(s.id).all<{ key: string }>()
@@ -1006,7 +1014,8 @@ export function registerFeeds(app: App) {
         knownKeys: known.results.map((r) => r.key),
         firstRun: s ? s.last_ok_at === null : false,
         wantPicture: s?.show_picture === 1,
-        postUrl: post?.web_url ?? null,
+        postUrl: s?.follow_link === 1 ? (post?.web_url ?? null) : null,
+        skipSites,
         browserIfScripted: j.kind === 'article' && j.force === 1,
       });
     }
@@ -1032,7 +1041,8 @@ export function registerFeeds(app: App) {
     const error = String(r.error || 'Fetch failed on the PC').slice(0, 300);
 
     if (job.kind === 'article') {
-      const a = r.ok ? r.article : undefined;
+      // A bot-check page ("unusual activity from your computer network") is never kept as the article.
+      const a = r.ok && r.article && !looksBotCheck(r.article.text) ? r.article : undefined;
       const item = job.item_id
         ? await c.env.DB.prepare('SELECT id, word_count, lead_image, html_key FROM items WHERE id = ?')
             .bind(job.item_id)

@@ -63,13 +63,33 @@ function MenuRow({ to, title, sub }: { to: string; title: string; sub: string })
   );
 }
 
-export function SettingsPage({ me }: { me: Me }) {
+export function SettingsPage({
+  me,
+  onDigestChange,
+  onGroupChange,
+}: {
+  me: Me;
+  onDigestChange: (on: boolean) => void;
+  onGroupChange: (on: boolean) => void;
+}) {
   const [sources, setSources] = useState<Source[]>([]);
   const { settings, save, error } = useAppSettings();
 
   useEffect(() => {
     api.sources().then(setSources).catch(() => undefined);
   }, []);
+
+  // Shows or hides the Digest tab as soon as the switch is saved (or put back after a failed save).
+  const digestOn = settings?.digest.enabled;
+  useEffect(() => {
+    if (digestOn !== undefined) onDigestChange(digestOn);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [digestOn]);
+  const groupOn = settings?.stories.groupSameNews;
+  useEffect(() => {
+    if (groupOn !== undefined) onGroupChange(groupOn);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupOn]);
 
   return (
     <div className="page">
@@ -97,6 +117,7 @@ export function SettingsPage({ me }: { me: Me }) {
             title="PC helper and AI"
             sub="What gets summarised, models, prompts, highlight prompts, web search, usage limits and cost"
           />
+          <MenuRow to="/tags" title="All tags" sub="Every AI tag with how many items carry it; search, sort and open a tag's page" />
           <MenuRow to="/stats" title="Statistics" sub="What arrives and what you read; how the AI summaries are doing" />
           <MenuRow to="/settings/export" title="Backup and export" sub="Your feeds as OPML, newsletters as CSV, or everything as JSON" />
         </div>
@@ -105,6 +126,7 @@ export function SettingsPage({ me }: { me: Me }) {
       {error && <div className="error">{error}</div>}
 
       <ReadingSection />
+      {settings && <StoriesSection settings={settings} onSave={save} />}
       {settings && <DigestSection settings={settings} onSave={save} />}
 
       <div className="section">
@@ -477,106 +499,140 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
     <div className="section">
       <span className="label">Daily digest</span>
       <section className="card">
-        <div className="inline">
-          <div className="field" style={{ flex: 1, minWidth: 130 }}>
-            <label htmlFor="digest-hour">Build at</label>
-            <select
-              id="digest-hour"
-              className="input"
-              value={settings.digestHour}
-              onChange={(e) => void onSave({ digestHour: Number(e.target.value) })}
-            >
-              {HOURS.map((h) => (
-                <option key={h} value={h}>
-                  {hourLabel(h)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field" style={{ flex: 2 }}>
-            <label htmlFor="digest-zone">Time zone</label>
-            <select
-              id="digest-zone"
-              className="input"
-              value={settings.timezone}
-              onChange={(e) => void onSave({ timezone: e.target.value })}
-            >
-              {zones.map((z) => (
-                <option key={z} value={z}>
-                  {z === deviceZone ? `${z} (this device)` : z}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <span className="hint">
-          Once a day the top stories are grouped Techmeme style, using the summaries and your reading habits. Nothing extra is
-          sent to the AI.
-        </span>
-        <div className="switchrow">
-          <span style={{ fontSize: 14 }}>Lead stories</span>
-          <div className="segmented" role="group" aria-label="Lead stories" style={{ width: 180 }}>
-            {([6, 12, 20] as const).map((n) => (
-              <button key={n} aria-pressed={d.stories === n} onClick={() => void saveDigest({ stories: n })}>
-                {n}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="switchrow">
-          <span style={{ fontSize: 14 }}>Covers</span>
-          <div className="segmented" role="group" aria-label="Window" style={{ width: 240 }}>
-            {([0, 24, 48] as const).map((h) => (
-              <button key={h} aria-pressed={d.windowHours === h} onClick={() => void saveDigest({ windowHours: h })}>
-                {h === 0 ? 'Since last' : `${h} h`}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="switchrow">
-          <span style={{ fontSize: 14 }}>Group by</span>
-          <div className="segmented" role="group" aria-label="Group by" style={{ width: 200 }}>
-            {(['category', 'source'] as const).map((g) => (
-              <button key={g} aria-pressed={d.groupBy === g} onClick={() => void saveDigest({ groupBy: g })}>
-                {g === 'category' ? 'Category' : 'Newsletter'}
-              </button>
-            ))}
-          </div>
-        </div>
-        <OptionSwitch label="Include issues you've already read" value={d.includeRead} onChange={(v) => void saveDigest({ includeRead: v })} />
-        <OptionSwitch label="Include sponsored-heavy issues" value={d.includeSponsored} onChange={(v) => void saveDigest({ includeSponsored: v })} />
-        <OptionSwitch label="Done marks stories read by default (changeable per digest)" value={d.doneMarksRead} onChange={(v) => void saveDigest({ doneMarksRead: v })} />
-        <div className="field">
-          <label>Leave out categories</label>
-          <div className="chipedit">
-            {settings.categories.map((c) => {
-              const off = d.skipCategories.includes(c);
-              return (
-                <button
-                  key={c}
-                  className={`chip ${off ? 'chip--outline' : 'chip--category'}`}
-                  aria-pressed={off}
-                  style={{ textDecoration: off ? 'line-through' : 'none' }}
-                  onClick={() =>
-                    void saveDigest({ skipCategories: off ? d.skipCategories.filter((x) => x !== c) : [...d.skipCategories, c] })
-                  }
+        <OptionSwitch label="Build a daily digest" value={d.enabled} onChange={(v) => void saveDigest({ enabled: v })} />
+        {!d.enabled && (
+          <span className="hint">Off: no digest is built and the Digest tab is hidden. Your earlier digests are kept.</span>
+        )}
+        {d.enabled && (
+          <>
+            <div className="inline">
+              <div className="field" style={{ flex: 1, minWidth: 130 }}>
+                <label htmlFor="digest-hour">Build at</label>
+                <select
+                  id="digest-hour"
+                  className="input"
+                  value={settings.digestHour}
+                  onChange={(e) => void onSave({ digestHour: Number(e.target.value) })}
                 >
-                  {c}
-                </button>
-              );
-            })}
-          </div>
-          <span className="hint">Tap a category to leave it out of the digest; struck-through ones are skipped.</span>
-        </div>
-        <div className="inline">
-          <button className="btn btn--small" disabled={building} onClick={() => void buildNow()}>
-            {building ? 'Building…' : 'Build now'}
-          </button>
-          <Link to="/digest" className="btn btn--ghost btn--small">
-            Open digest
-          </Link>
-        </div>
-        {note && <span className="hint">{note}</span>}
+                  {HOURS.map((h) => (
+                    <option key={h} value={h}>
+                      {hourLabel(h)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field" style={{ flex: 2 }}>
+                <label htmlFor="digest-zone">Time zone</label>
+                <select
+                  id="digest-zone"
+                  className="input"
+                  value={settings.timezone}
+                  onChange={(e) => void onSave({ timezone: e.target.value })}
+                >
+                  {zones.map((z) => (
+                    <option key={z} value={z}>
+                      {z === deviceZone ? `${z} (this device)` : z}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <span className="hint">
+              Once a day the top stories are grouped Techmeme style, using the summaries and your reading habits. Nothing extra is
+              sent to the AI.
+            </span>
+            <div className="switchrow">
+              <span style={{ fontSize: 14 }}>Lead stories</span>
+              <div className="segmented" role="group" aria-label="Lead stories" style={{ width: 180 }}>
+                {([6, 12, 20] as const).map((n) => (
+                  <button key={n} aria-pressed={d.stories === n} onClick={() => void saveDigest({ stories: n })}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="switchrow">
+              <span style={{ fontSize: 14 }}>Covers</span>
+              <div className="segmented" role="group" aria-label="Window" style={{ width: 240 }}>
+                {([0, 24, 48] as const).map((h) => (
+                  <button key={h} aria-pressed={d.windowHours === h} onClick={() => void saveDigest({ windowHours: h })}>
+                    {h === 0 ? 'Since last' : `${h} h`}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="switchrow">
+              <span style={{ fontSize: 14 }}>Group by</span>
+              <div className="segmented" role="group" aria-label="Group by" style={{ width: 200 }}>
+                {(['category', 'source'] as const).map((g) => (
+                  <button key={g} aria-pressed={d.groupBy === g} onClick={() => void saveDigest({ groupBy: g })}>
+                    {g === 'category' ? 'Category' : 'Newsletter'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <OptionSwitch label="Include issues you've already read" value={d.includeRead} onChange={(v) => void saveDigest({ includeRead: v })} />
+            <OptionSwitch label="Include sponsored-heavy issues" value={d.includeSponsored} onChange={(v) => void saveDigest({ includeSponsored: v })} />
+            <OptionSwitch label="Done marks stories read by default (changeable per digest)" value={d.doneMarksRead} onChange={(v) => void saveDigest({ doneMarksRead: v })} />
+            <div className="field">
+              <label>Leave out categories</label>
+              <div className="chipedit">
+                {settings.categories.map((c) => {
+                  const off = d.skipCategories.includes(c);
+                  return (
+                    <button
+                      key={c}
+                      className={`chip ${off ? 'chip--outline' : 'chip--category'}`}
+                      aria-pressed={off}
+                      style={{ textDecoration: off ? 'line-through' : 'none' }}
+                      onClick={() =>
+                        void saveDigest({ skipCategories: off ? d.skipCategories.filter((x) => x !== c) : [...d.skipCategories, c] })
+                      }
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="hint">Tap a category to leave it out of the digest; struck-through ones are skipped.</span>
+            </div>
+            <div className="inline">
+              <button className="btn btn--small" disabled={building} onClick={() => void buildNow()}>
+                {building ? 'Building…' : 'Build now'}
+              </button>
+              <Link to="/digest" className="btn btn--ghost btn--small">
+                Open digest
+              </Link>
+            </div>
+            {note && <span className="hint">{note}</span>}
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/** Stories: related reading grouped by chain of events. */
+function StoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
+  const st = settings.stories;
+  return (
+    <div className="section">
+      <span className="label">Stories</span>
+      <section className="card">
+        <p className="hint" style={{ margin: 0 }}>
+          Articles about the same chain of events are joined into a story, shown at the top of an article with what's new since you last read about
+          it. How strict the matching is, and how it's doing, is under <Link to="/stats/stories">Statistics &gt; Stories</Link>.
+        </p>
+        <OptionSwitch
+          label="Show the same news from several sources as one inbox row"
+          value={st.groupSameNews}
+          onChange={(v) => void onSave({ stories: { ...st, groupSameNews: v } })}
+        />
+        <OptionSwitch
+          label="Your PC writes what each new article adds to its story"
+          value={st.notes}
+          onChange={(v) => void onSave({ stories: { ...st, notes: v } })}
+        />
       </section>
     </div>
   );

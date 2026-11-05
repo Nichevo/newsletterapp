@@ -1,6 +1,6 @@
 import type { ItemSummary, SearchResponse, SearchState, Source } from '@newsletterapp/shared';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { ItemRow, type SwipeAction } from '../components/ItemRow';
 import { IconBack } from '../icons';
@@ -252,7 +252,7 @@ export function SearchPage() {
       {!active && (
         <p className="hint" style={{ padding: '0 16px' }}>
           Searches subjects, senders, previews, AI summaries, key points and tags, including archived items. Words match their beginnings
-          ("rate" finds "rates"); put words in quotes to find them together.
+          ("rate" finds "rates"); put words in quotes to find them together. Or <Link to="/tags">browse all tags</Link>.
         </p>
       )}
 

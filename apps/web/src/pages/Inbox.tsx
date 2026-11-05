@@ -1,13 +1,13 @@
 import { SavedTabs } from './Highlights';
 import type { ItemListResponse, ItemSummary, ItemView, Me, SavedFilter, Source } from '@newsletterapp/shared';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { rememberList } from '../readingList';
-import { api } from '../api';
+import { api, isPhone } from '../api';
 import type { Counts } from '../App';
 import { DensityToggle } from '../components/DensityToggle';
 import { FilterBar, type Filters } from '../components/FilterBar';
-import { ItemRow, type SwipeAction } from '../components/ItemRow';
+import { ItemRow, type RowGroup, type SwipeAction } from '../components/ItemRow';
 import { getSwipeReadSide } from '../prefs';
 import { todayLabel } from '../format';
 import { IconPlus, IconRefresh, IconSearch, IconSparkle } from '../icons';
@@ -218,6 +218,34 @@ export function InboxPage({
     }
   }
 
+  // The same news from several sources shows as one row: the first one in the list leads.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const rows = useMemo(() => groupSameNews(items, me.groupSameNews), [items, me.groupSameNews]);
+
+  /** Marks a whole same-news group read, with Undo. */
+  async function markGroupRead(group: ItemSummary[]) {
+    const ids = group.filter((i) => !i.readAt).map((i) => i.id);
+    if (!ids.length) return;
+    const at = Date.now();
+    setItems((prev) => prev.map((i) => (ids.includes(i.id) ? { ...i, readAt: at } : i)));
+    try {
+      await api.bulkRead({ ids, action: 'read' });
+      api.event(group[0]!.id, { type: 'story_link', device: isPhone() });
+      onChanged();
+      showToast(`Marked ${ids.length} read`, () => {
+        setToast(null);
+        setItems((prev) => prev.map((i) => (ids.includes(i.id) ? { ...i, readAt: null } : i)));
+        api
+          .bulkRead({ ids, action: 'unread' })
+          .then(() => onChanged())
+          .catch(() => showToast('Could not undo'));
+      });
+    } catch (err) {
+      setItems((prev) => prev.map((i) => (ids.includes(i.id) ? { ...i, readAt: null } : i)));
+      setError(err instanceof Error ? err.message : 'Action failed');
+    }
+  }
+
   const readSide = getSwipeReadSide();
   // On an item already read, the read swipe flips to Mark unread.
   const readAction = (item: ItemSummary): SwipeAction =>
@@ -343,14 +371,37 @@ export function InboxPage({
       {error && <div className="error">{error}</div>}
 
       <div className="list">
-        {items.map((item) => (
-          <ItemRow
-            key={item.id}
-            item={item}
-            left={readSide === 'left' ? readAction(item) : saveAction(item)}
-            right={readSide === 'right' ? readAction(item) : saveAction(item)}
-          />
-        ))}
+        {rows.map(({ item, others }) => {
+          const row = (i: ItemSummary, nested = false, group?: RowGroup) => (
+            <ItemRow
+              key={i.id}
+              item={i}
+              nested={nested}
+              group={group}
+              left={readSide === 'left' ? readAction(i) : saveAction(i)}
+              right={readSide === 'right' ? readAction(i) : saveAction(i)}
+            />
+          );
+          if (others.length === 0) return row(item);
+          const open = expanded.has(item.id);
+          return (
+            <Fragment key={item.id}>
+              {row(item, false, {
+                others,
+                expanded: open,
+                onToggle: () =>
+                  setExpanded((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(item.id)) next.delete(item.id);
+                    else next.add(item.id);
+                    return next;
+                  }),
+                onMarkAll: () => void markGroupRead([item, ...others]),
+              })}
+              {open && others.map((o) => row(o, true))}
+            </Fragment>
+          );
+        })}
       </div>
 
       {!loading && items.length === 0 && !error && (
@@ -420,4 +471,22 @@ export function InboxPage({
       )}
     </div>
   );
+}
+
+/** Puts items carrying the same news id under the first of them in the list. */
+function groupSameNews(items: ItemSummary[], on: boolean): { item: ItemSummary; others: ItemSummary[] }[] {
+  if (!on) return items.map((item) => ({ item, others: [] }));
+  const out: { item: ItemSummary; others: ItemSummary[] }[] = [];
+  const lead = new Map<string, { item: ItemSummary; others: ItemSummary[] }>();
+  for (const item of items) {
+    const g = item.newsId ? lead.get(item.newsId) : undefined;
+    if (g) {
+      g.others.push(item);
+      continue;
+    }
+    const row = { item, others: [] as ItemSummary[] };
+    if (item.newsId) lead.set(item.newsId, row);
+    out.push(row);
+  }
+  return out;
 }

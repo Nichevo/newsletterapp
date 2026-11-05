@@ -2,7 +2,7 @@
 // Timestamps are Unix milliseconds.
 
 import type { AiLimitHit } from './usage';
-import type { Article, FeedEntry } from './web';
+import { DEFAULT_SKIP_SITES, type Article, type FeedEntry } from './web';
 
 export * from './web';
 export * from './highlights';
@@ -85,6 +85,8 @@ export interface ItemSummary {
   whyItMatters: string | null;
   /** Topic tags picked by the AI. */
   tags: string[];
+  /** How many items carry each of those tags (keyed as in tags); only on a single item. */
+  tagCounts?: Record<string, number>;
   thinContent: boolean;
   /** Who wrote the AI summary, for the italic attribution line. */
   ai: AiAttribution | null;
@@ -102,24 +104,148 @@ export interface ItemSummary {
   /** With web search on for the item's source or category: context the issue assumes, and other coverage of the story. */
   background: string | null;
   coverage: { title: string; url: string }[];
+  /** The story this item is part of (items about the same chain of events), if any. */
+  story: ItemStory | null;
+  /** Same news from several sources within a couple of days: the group's first item. */
+  newsId: string | null;
+}
+
+/** The story an item belongs to, as shown on its inbox row. */
+export interface ItemStory {
+  id: string;
+  title: string;
+  items: number;
+  followed: boolean;
 }
 
 export type ReadVia = 'reader' | 'swipe' | 'bulk' | 'digest';
 export type ReadDevice = 'phone' | 'desktop';
 
-/** An older item that shares topics with the one being read. */
-export interface RelatedItem {
+/** Why an item was linked into its story, for "Why these are linked" on the story page. */
+export interface StoryWhy {
+  /** The earlier item it matched best. */
+  with: string | null;
+  /** How close the two are in meaning (0-1), from the PC's embeddings. */
+  sim: number;
+  /** Specific tags the two share. */
+  tags: string[];
+  /** news = the same news from another source within a couple of days; story = a later step. */
+  kind: 'news' | 'story';
+}
+
+/** One item in a story's timeline. */
+export interface StoryStep {
   id: string;
   subject: string;
   sourceName: string | null;
   receivedAt: number;
   readAt: number | null;
   savedAt: number | null;
-  /** The topics or words the two items share, for the "because" line. */
-  shared: string[];
-  /** How close the two are in meaning (0-1), when the PC helper's embeddings found it. */
-  similarity?: number;
+  /** The PC's line on what this item added to the story; null for the first item or older ones. */
+  note: string | null;
+  /** The item's own summary (or quick summary), for steps without a note. */
+  summary: string | null;
+  newsId: string | null;
+  why: StoryWhy | null;
 }
+
+export interface StoryInfo {
+  id: string;
+  /** The PC's name for the story, else its main tags, else its first headline. */
+  title: string;
+  /** The PC's "so far" summary, once a note has been written. */
+  summary: string | null;
+  tags: { tag: string; label: string }[];
+  firstAt: number;
+  lastAt: number;
+  items: number;
+  sources: number;
+  followedAt: number | null;
+}
+
+/** A story's page: its details and every item in it, newest first. */
+export interface StoryPage extends StoryInfo {
+  unread: number;
+  read: number;
+  steps: StoryStep[];
+}
+
+/** The story banner at the top of an article. */
+export interface StoryBanner {
+  story: StoryInfo;
+  /** Items in the story you've read, other than this one. */
+  read: number;
+  /** Unread items in the story other than this one, oldest first. */
+  unreadIds: string[];
+  /** The latest earlier item you read, for "Last time you read...". */
+  lastRead: StoryStep | null;
+  /** This item's own line on what it adds (null until the PC writes it). */
+  note: string | null;
+  /** The PC is still writing the note. */
+  notePending: boolean;
+  /** Earlier items in the story, newest first (up to 4). */
+  earlier: StoryStep[];
+  /** The same news from other sources. */
+  sameNews: StoryStep[];
+  /** This item's tags with counts, for "More on ..." links. */
+  tags: { tag: string; label: string; n: number }[];
+}
+
+/** Statistics > Stories. */
+export interface StoryStats {
+  days: number;
+  /** Stories with an item in the period, and how many of those started in it. */
+  active: number;
+  started: number;
+  /** Items that arrived in the period, how many joined a story, and how many repeated news from another source. */
+  arrived: number;
+  inStories: number;
+  sameNews: number;
+  followed: number;
+  followedUnread: number;
+  /** Taps on story links (banner, story page, inbox group) and "Not part of this story". */
+  linkTaps: number;
+  splits: number;
+  notes: { done: number; failed: number; seconds: number; model: string | null; waiting: number };
+  /** Items waiting to be matched (counted up to 1000). */
+  matchWaiting: number;
+  /** Most active stories in the period. */
+  top: (StoryInfo & { periodItems: number; unread: number })[];
+  /** Stories by size: 2, 3-4, 5-9, 10+ items. */
+  sizes: { label: string; n: number }[];
+}
+
+/** One story note for the PC: the story so far and the new item. */
+export interface StoryJob {
+  itemId: string;
+  storyId: string;
+  prompt: string;
+  text: string;
+}
+
+export interface StoryResult {
+  itemId: string;
+  ok: boolean;
+  provider: string;
+  model: string;
+  seconds: number;
+  watts?: number;
+  output?: { new?: string; title?: string; so_far?: string };
+  error?: string;
+}
+
+export type StoryMatch = 'loose' | 'normal' | 'strict';
+
+export interface StorySettings {
+  /** The PC writes a line on what each new item adds, and names the story. */
+  notes: boolean;
+  /** Show the same news from several sources as one inbox row. */
+  groupSameNews: boolean;
+  /** How close items must be to count as the same story. */
+  match: StoryMatch;
+}
+
+export const DEFAULT_STORY_SETTINGS: StorySettings = { notes: true, groupSameNews: true, match: 'normal' };
 
 export interface UnsubscribeResult {
   /** The Worker sent the one-click request and the sender accepted it. */
@@ -327,6 +453,17 @@ export interface Address {
   blockedAt: number | null;
   blockedCount: number;
   approvedSenderCount: number;
+  /** The owner's own short note, e.g. "now shared by several Substacks". */
+  note: string | null;
+  /** Emails stored for this address since it was made (blocked ones not included). */
+  itemCount: number;
+  lastItemAt: number | null;
+}
+
+/** Emails that arrived at an address in one calendar month (UTC), oldest first. */
+export interface AddressMonth {
+  month: string; // 'YYYY-MM'
+  count: number;
 }
 
 export type ReadingEventType =
@@ -341,7 +478,9 @@ export type ReadingEventType =
   | 'archive'
   | 'unarchive'
   | 'link_click'
-  | 'open_original';
+  | 'open_original'
+  | 'story_link' // tapped a link in a story banner, story page or inbox group
+  | 'story_split'; // "Not part of this story"
 
 export interface ReadingEventInput {
   type: ReadingEventType;
@@ -352,6 +491,24 @@ export interface ReadingEventInput {
 export interface Me {
   email: string;
   domain: string | null;
+  /** Whether the daily digest is switched on (Settings > Daily digest). */
+  digestOn: boolean;
+  /** Show the same news from several sources as one inbox row (Settings > Reading). */
+  groupSameNews: boolean;
+}
+
+/** One AI tag on the All tags page. */
+export interface TagCount {
+  tag: string;
+  label: string;
+  /** Items carrying it: all time, or within the chosen days. */
+  n: number;
+}
+
+export interface TagList {
+  /** 0 = all time. */
+  days: number;
+  tags: TagCount[];
 }
 
 export interface KeywordRule {
@@ -381,6 +538,17 @@ export interface AppSettings {
   digest: DigestOptions;
   /** Named inbox filters, shown as one-tap presets in the filter bar on every device. */
   savedFilters: SavedFilter[];
+  /**
+   * Sites the PC never fetches (and their subdomains), e.g. bloomberg.com: their bot
+   * checks flag a home network quickly. The reader's Live page still opens them.
+   */
+  pcSkipSites: string[];
+  /** Categories whose items are fetched from those sites anyway. */
+  pcSkipAllowCategories: string[];
+  /** Named filter sets for the Topics map. */
+  topicFilters: TopicFilter[];
+  /** Stories: related reading grouped by chain of events. */
+  stories: StorySettings;
 }
 
 export interface SavedFilter {
@@ -395,6 +563,8 @@ export interface SavedFilter {
 }
 
 export interface DigestOptions {
+  /** Off: no digest is built and the Digest tab is hidden. */
+  enabled: boolean;
   /** Roughly how many lead stories. */
   stories: 6 | 12 | 20;
   /** Hours of mail to cover; 0 = everything since the last digest. */
@@ -409,6 +579,7 @@ export interface DigestOptions {
 }
 
 export const DEFAULT_DIGEST_OPTIONS: DigestOptions = {
+  enabled: true,
   stories: 12,
   windowHours: 0,
   includeRead: false,
@@ -428,6 +599,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   timezone: 'UTC',
   digest: DEFAULT_DIGEST_OPTIONS,
   savedFilters: [],
+  pcSkipSites: [...DEFAULT_SKIP_SITES],
+  pcSkipAllowCategories: [],
+  topicFilters: [],
+  stories: DEFAULT_STORY_SETTINGS,
 };
 
 // ---------- Daily digest ----------
@@ -584,6 +759,8 @@ export interface FetchJob {
   wantPicture?: boolean;
   /** Follow-link sources: the aggregator's own page for the post, to list its other links for the story. */
   postUrl?: string | null;
+  /** Sites the PC must not fetch for this job (settings, less any category exception). */
+  skipSites?: string[];
   /** Asked for by hand (Fetch full page, or a page added on its own): open it in a browser if it comes back built by JavaScript. */
   browserIfScripted?: boolean;
 }
@@ -674,10 +851,48 @@ export interface HelperHeartbeat {
   embedStore?: string | null;
   /** Items in that store. */
   embedCount?: number;
+  /** Fetches the PC held back or slowed down since its last heartbeat, by site. */
+  holds?: PcHoldCount[];
+  /** Sites the PC is leaving alone right now after a bot check. */
+  resting?: PcRest[];
+}
+
+/** One site's held-back fetches since the helper last reported. */
+export interface PcHoldCount {
+  site: string;
+  /** Not fetched: the site is on the Sites the PC leaves alone list. */
+  skipped: number;
+  /** Not fetched: the site showed a bot check and is resting. */
+  rested: number;
+  /** Bot checks (or 429s) seen, each starting or lengthening a rest. */
+  flagged: number;
+  /** Fetches that waited for the same-site gap, and how long in all. */
+  waited: number;
+  waitMs: number;
+  /** The limits in force: the gap between requests and the longest rest started. */
+  gapMs: number;
+  restMs: number;
+}
+
+export interface PcRest {
+  site: string;
+  until: number;
+  ms: number;
+}
+
+/** Settings > PC helper and AI > Sites the PC leaves alone: limits, rests now and the last days' counts. */
+export interface PcHoldsView {
+  gapMs: number;
+  restFirstMs: number;
+  restMaxMs: number;
+  resting: PcRest[];
+  reportedAt: number | null;
+  days: ({ day: string } & Omit<PcHoldCount, 'site'>)[];
+  sites: PcHoldCount[];
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.3.10';
+export const HELPER_VERSION = '0.4.1';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -702,6 +917,10 @@ export interface HelperConfig {
   embedWaiting?: boolean;
   /** Changes whenever an item is marked or unmarked Interesting, so the helper rescores. */
   interestingKey?: string;
+  /** Sites the PC must not fetch for lookups outside a fetch job (highlight questions). */
+  skipSites?: string[];
+  /** Story notes waiting for the PC. */
+  storyWaiting?: boolean;
 }
 
 /** One item for the helper to embed: its text and when it arrived. */
@@ -1020,4 +1239,68 @@ export function filterState(value: string | null | undefined, token: string): 'i
 export function matchesFilterSet(value: string | null | undefined, set: FilterSet): boolean {
   if (set.include.length && !set.include.includes(value ?? '')) return false;
   return !set.exclude.includes(value ?? '');
+}
+
+// ---------- Tags and the Topics map ----------
+
+/** The key a tag is grouped under: "Tinybuild" and "tinybuild " are the same tag. */
+export function tagKey(label: string): string {
+  return label.trim().toLowerCase();
+}
+
+/** Everything about one tag: its numbers and its items, newest first. */
+export interface TagPage {
+  tag: string;
+  label: string;
+  /** Items with the tag (inbox and archived), and how many are unread. Counted on the first page only. */
+  total: number;
+  unread: number;
+  firstAt: number | null;
+  /** Items per week, oldest first, ending with the current week. */
+  weeks: { start: number; n: number }[];
+  /** Other tags on the same items, most often first. */
+  seenWith: { tag: string; label: string; n: number }[];
+  sources: { id: string | null; name: string; n: number }[];
+  items: ItemSummary[];
+  nextOffset: number | null;
+  /** Stories with items carrying the tag, most recent first (first page only). */
+  stories?: (StoryInfo & { unread: number })[];
+}
+
+export type TopicsDays = 7 | 30 | 90;
+export const TOPICS_DAYS: TopicsDays[] = [7, 30, 90];
+
+/**
+ * One item on the Topics map, packed small: source and category are indexes into
+ * TopicsData.sources / categories (-1 = none), flags bit 1 = read, bit 2 = starred,
+ * then when it arrived and the indexes of its tags.
+ */
+export type TopicsItem = [source: number, category: number, flags: number, receivedAt: number, tags: number[]];
+
+/** The Topics map's data for one period. Filters are applied in the app, so changing them costs no reads. */
+export interface TopicsData {
+  days: TopicsDays;
+  generatedAt: number;
+  sources: { id: string; name: string; type: SourceType }[];
+  categories: string[];
+  tags: { key: string; label: string }[];
+  items: TopicsItem[];
+}
+
+export type TopicsRead = 'all' | 'unread' | 'read' | 'starred';
+
+/** A saved set of Topics map filters. */
+export interface TopicFilter {
+  name: string;
+  days: TopicsDays;
+  categories: string[];
+  /** Source ids. */
+  sources: string[];
+  types: SourceType[];
+  read: TopicsRead;
+  /** How many tags to show, most common first; 0 = all. */
+  top: number;
+  /** Only tags on at least this many items. */
+  min: number;
+  showSources: boolean;
 }

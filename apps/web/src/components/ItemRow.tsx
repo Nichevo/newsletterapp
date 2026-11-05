@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useDensity, useViewOptions } from './DensityToggle';
+import { TagChip } from './TagChip';
 import { readingMinutes, shortTime } from '../format';
 import { IconBookmark, IconCheck, IconHighlight, IconSparkle } from '../icons';
 
@@ -19,7 +20,28 @@ export interface SwipeAction {
   kind: 'read' | 'save';
 }
 
-export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeAction; right: SwipeAction }) {
+/** The same news from other sources, shown under the row that leads the group. */
+export interface RowGroup {
+  others: ItemSummary[];
+  expanded: boolean;
+  onToggle: () => void;
+  onMarkAll: () => void;
+}
+
+export function ItemRow({
+  item,
+  left,
+  right,
+  group,
+  nested = false,
+}: {
+  item: ItemSummary;
+  left: SwipeAction;
+  right: SwipeAction;
+  group?: RowGroup;
+  /** Shown opened out under its group's lead row. */
+  nested?: boolean;
+}) {
   const navigate = useNavigate();
   const density = useDensity();
   const opts = useViewOptions();
@@ -84,7 +106,7 @@ export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeA
   const previewLines = expanded ? (opts.expandedFullSummary ? 'unset' : 4) : opts.cardLines;
 
   return (
-    <div className={`row row--${density}${item.readAt ? ' row--read' : ''}`} style={{ background: bg }}>
+    <div className={`row row--${density}${item.readAt ? ' row--read' : ''}${nested ? ' row--grouped' : ''}`} style={{ background: bg }}>
       {viewing && item.leadImage && <PictureViewer src={item.leadImage.src} alt={item.leadImage.alt ?? item.leadImage.title ?? ''} onClose={() => setViewing(false)} />}
       <div className="row__under" aria-hidden="true">
         <span style={{ opacity: dx > 20 ? 1 : 0 }}>
@@ -135,6 +157,11 @@ export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeA
           </span>
         </div>
         <span className="row__title">{item.subject}</span>
+        {item.story?.followed && !item.readAt && (
+          <span className="row__follow" title={item.story.title}>
+            Update to a story you follow · {item.story.title}
+          </span>
+        )}
         {expanded && item.leadImage && (
           <figure className="row__picture">
             <div className="row__picture-frame">
@@ -180,12 +207,47 @@ export function ItemRow({ item, left, right }: { item: ItemSummary; left: SwipeA
             {item.category && <span className="chip chip--category">{item.category}</span>}
             {item.sponsored && <span className="chip chip--outline">Sponsored</span>}
             {item.tags.map((t) => (
-              <span key={t} className="chip chip--outline">
-                {t}
-              </span>
+              <TagChip key={t} tag={t} inRow />
             ))}
           </div>
         )}
+        {group && group.others.length > 0 && <GroupBar item={item} group={group} />}
+      </div>
+    </div>
+  );
+}
+
+/** "Same news in 2 more: Techmeme, The Verge", with Show and Mark all read. Keeps its taps from opening the row. */
+function GroupBar({ item, group }: { item: ItemSummary; group: RowGroup }) {
+  const names = [...new Set(group.others.map((o) => o.sourceName ?? o.fromName ?? o.fromEmail ?? 'another source'))];
+  const unread = [item, ...group.others].filter((i) => !i.readAt).length;
+  const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+  return (
+    <div className="row__group" onPointerDown={stop} onClick={stop}>
+      <span>
+        <strong>
+          Same news in {group.others.length} more{names.length ? ':' : ''}
+        </strong>{' '}
+        {names.join(', ')}
+      </span>
+      <div className="row__group-bar">
+        {item.story ? (
+          <span className="row__group-story">
+            Story: {item.story.title} · {item.story.items} items
+          </span>
+        ) : (
+          <span />
+        )}
+        <span className="inline">
+          <button type="button" className="btn btn--ghost btn--small" aria-expanded={group.expanded} onClick={group.onToggle}>
+            {group.expanded ? 'Hide' : 'Show'}
+          </button>
+          {unread > 0 && (
+            <button type="button" className="btn btn--small" onClick={group.onMarkAll}>
+              Mark all {unread} read
+            </button>
+          )}
+        </span>
       </div>
     </div>
   );
