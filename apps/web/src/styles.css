@@ -1455,6 +1455,34 @@ select {
   font-size: 12px;
 }
 
+.snear {
+  margin-top: 24px;
+  border-style: dashed;
+}
+
+.snear .sbanner__head > svg:first-child {
+  color: var(--quiet);
+}
+
+.snear__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.snear__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.snear__row .btn {
+  flex-shrink: 0;
+}
+
 .storypage__head {
   padding: 8px 16px 12px;
   display: flex;

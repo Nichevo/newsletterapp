@@ -1,6 +1,6 @@
 import type { AskPreset, FetchPageStatus, ItemBody, ItemHighlights, ItemSummary, UnsubscribeResult } from '@newsletterapp/shared';
 import { TagChip } from '../components/TagChip';
-import { StoryBanner } from '../components/StoryBanner';
+import { NearLinks, StoryBanner } from '../components/StoryBanner';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
@@ -248,6 +248,15 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
           <p className="muted">{item.kind === 'newsletter' ? 'This email has no readable body.' : 'No saved copy of this post; open the live page.'}</p>
         ) : (
           !error && <div className="spinner">Loading…</div>
+        )}
+        {item && !item.story && item.hasNear && (
+          <NearLinks
+            itemId={item.id}
+            onJoined={async () => {
+              setItem(await api.item(item.id));
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
         )}
         {marks.place === 'bottom' && marks.notes}
         {item && item.listUnsubscribe && <Unsubscribe item={item} onChanged={onChanged} />}

@@ -1,4 +1,4 @@
-import type { StoryBanner as Banner, StoryStep } from '@newsletterapp/shared';
+import type { StoryBanner as Banner, StoryNear, StoryStep } from '@newsletterapp/shared';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, isPhone } from '../api';
@@ -182,9 +182,92 @@ export function Timeline({ steps, current, onOpen, showWhy }: { steps: StoryStep
   );
 }
 
+/**
+ * "Close, but not linked" at the foot of an article that isn't in a story: the older
+ * items nearest in meaning, why each was left apart, and a Same story button to link
+ * them by hand (counted in Statistics > Stories, to tell if matching is too tight).
+ */
+export function NearLinks({ itemId, onJoined }: { itemId: string; onJoined: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState<StoryNear[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setOpen(false);
+    setList(null);
+    setError(null);
+  }, [itemId]);
+
+  function toggle() {
+    setOpen((v) => !v);
+    if (!list) {
+      api
+        .storyNear(itemId)
+        .then(setList)
+        .catch(() => setError('Could not load'));
+    }
+  }
+
+  async function join(n: StoryNear) {
+    setBusy(n.id);
+    try {
+      await api.joinStory(itemId, n.id);
+      onJoined();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not link them');
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="sbanner snear" aria-label="Close, but not linked">
+      <button type="button" className="sbanner__head" aria-expanded={open} onClick={toggle}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+          <circle cx="5" cy="12" r="2" />
+          <circle cx="19" cy="12" r="2" />
+          <path d="M7 12h3M14 12h3" strokeDasharray="2 2" />
+        </svg>
+        <span className="sbanner__titles">
+          <span className="sbanner__title">Close, but not linked</span>
+          <span className="sbanner__sub">Older articles near this one in meaning that didn’t make a story</span>
+        </span>
+        <IconChevron style={{ transform: open ? 'rotate(180deg)' : undefined }} />
+      </button>
+      {open && (
+        <div className="sbanner__more">
+          {error && <div className="error">{error}</div>}
+          {!list && !error && <span className="muted">Loading…</span>}
+          {list && list.length === 0 && <span className="muted">Nothing close enough to show.</span>}
+          {list?.map((n) => (
+            <div key={n.id} className="snear__row">
+              <div className="snear__main">
+                <Link to={`/item/${n.id}`}>{n.subject}</Link>
+                <span className="timeline__meta">
+                  {n.sourceName ? `${n.sourceName} · ` : ''}
+                  {day(n.receivedAt)} · {n.readAt ? 'read' : 'unread'}
+                  {n.story ? ` · in “${n.story.title}”` : ''}
+                </span>
+                <span className="timeline__why">{n.reason}</span>
+              </div>
+              <button type="button" className="btn btn--small btn--ghost" disabled={busy !== null} onClick={() => void join(n)}>
+                {busy === n.id ? 'Linking…' : n.story ? 'Join its story' : 'Same story'}
+              </button>
+            </div>
+          ))}
+          {list && list.length > 0 && (
+            <span className="hint">Linking by hand is counted in Statistics &gt; Stories. Lots of these means matching is too strict.</span>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** "Same news as another source · meaning 0.88 · shares Nuvia", or how the story started. */
 export function whyText(s: StoryStep): string {
   if (!s.why) return 'Started the story';
+  if (s.why.manual) return `Linked by hand${s.why.sim ? ` · meaning ${s.why.sim.toFixed(2)}` : ''}`;
   const parts = [s.why.kind === 'news' ? 'Same news as another source' : 'Later step', `meaning ${s.why.sim.toFixed(2)}`];
   if (s.why.tags.length) parts.push(`shares ${s.why.tags.join(', ')}`);
   return parts.join(' · ');

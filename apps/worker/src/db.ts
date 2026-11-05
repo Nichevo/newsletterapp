@@ -145,6 +145,7 @@ export interface ItemRow {
   coverage?: string | null;
   story_id?: string | null;
   news_id?: string | null;
+  neighbours?: string | null;
 }
 
 /** Extra columns joined in by the item queries (source and the AI run that wrote the summary). */
@@ -294,7 +295,25 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<Summa
           }
         : null,
     newsId: row.news_id ?? null,
+    hasNear: !row.story_id && nearestSim(row.neighbours ?? null) >= NEAR_SHOW,
   };
+}
+
+/** The least closeness in meaning shown under "Close, but not linked" in the reader. */
+export const NEAR_SHOW = 0.62;
+
+/** The closest neighbour's similarity from an item's neighbours JSON ([[id, sim], ...]); 0 when none. */
+export function nearestSim(raw: string | null): number {
+  if (!raw) return 0;
+  try {
+    const list = JSON.parse(raw) as unknown;
+    if (!Array.isArray(list)) return 0;
+    let top = 0;
+    for (const n of list) if (Array.isArray(n) && typeof n[1] === 'number' && n[1] > top) top = n[1];
+    return top;
+  } catch {
+    return 0;
+  }
 }
 
 export function toAddress(
