@@ -131,6 +131,7 @@ export const api = {
   storyNear: (id: string) => get<StoryNear[]>(`/api/items/${id}/near`),
   joinStory: (itemId: string, withId: string) => post<{ ok: boolean; storyId: string }>('/api/stories/join', { itemId, withId }),
   splitFromStory: (itemId: string) => post<{ ok: boolean }>(`/api/stories/split/${itemId}`),
+  recheckStories: (category: string) => post<{ ok: boolean; changed: number }>('/api/stories/recheck', { category }),
   resetStoryLearnt: () => post<{ ok: boolean }>('/api/stories/learnt/reset'),
   rebuildStories: () => post<{ ok: boolean; matched: number }>('/api/stories/rebuild'),
   storyStats: (days: number, fresh = false) => get<StoryStats>(`/api/stats/stories?days=${days}${fresh ? '&fresh=1' : ''}`),

@@ -71,6 +71,11 @@ const STORY_ITEMS_MAX = 300;
 // tag with 2 net links starts counting as a specific one. Kept as one settings row,
 // read once per matching run.
 
+/** Extra closeness needed when both articles come from the same source (its headlines and wording look alike). */
+const SAME_SOURCE_EXTRA = 0.03;
+/** Extra closeness needed in a category set to Stricter, which also needs a shared specific tag. */
+const STRICT_EXTRA = 0.06;
+
 const TUNE_STEP = 0.01;
 const TUNE_LOOSEN_MAX = 0.06;
 const TUNE_TIGHTEN_MAX = 0.04;
@@ -108,6 +113,23 @@ function lineShift(tunes: Tunes, sharedTags: string[], sources: (string | null)[
   const loosen = Math.min(0, ...shifts);
   const tighten = Math.max(0, ...shifts);
   return Math.round((loosen + tighten) * 1000) / 1000;
+}
+
+/** An article's category as the app shows it: keyword rule, then the source's, then the AI's first. */
+const CATEGORY_SQL = "COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]'))";
+
+/**
+ * The meaning lines for a pair of articles: the setting's lines moved by what was learnt,
+ * by sharing a source, and by a Stricter category (which also needs a shared tag).
+ */
+function pairLines(
+  th: { story: number; alone: number },
+  shift: number,
+  sameSource: boolean,
+  strict: boolean,
+): { story: number; alone: number | null } {
+  const extra = shift + (sameSource ? SAME_SOURCE_EXTRA : 0) + (strict ? STRICT_EXTRA : 0);
+  return { story: th.story + extra, alone: strict ? null : th.alone + extra };
 }
 
 const learntSpecific = (tunes: Tunes, k: string) => {
@@ -157,6 +179,7 @@ interface QueueRow {
   story_split: number | null;
   status: string;
   story_note: string | null;
+  category: string | null;
 }
 
 interface NeighbourRow {
@@ -168,13 +191,16 @@ interface NeighbourRow {
   tags: string | null;
   status: string;
   story_split: number | null;
+  category: string | null;
 }
 
 /** Matches up to `max` waiting items into stories, oldest first. Returns how many it looked at. */
 export async function assignStories(env: Env, max: number): Promise<number> {
   const rows = await env.DB.prepare(
-    `SELECT id, source_id, received_at, tags, neighbours, story_split, status, story_note FROM items INDEXED BY items_story_queue
-     WHERE story_at IS NULL AND embedded_at IS NOT NULL ORDER BY received_at LIMIT ?`,
+    `SELECT items.id, items.source_id, items.received_at, items.tags, items.neighbours, items.story_split, items.status, items.story_note,
+       ${CATEGORY_SQL} AS category
+     FROM items INDEXED BY items_story_queue LEFT JOIN sources ON sources.id = items.source_id
+     WHERE items.story_at IS NULL AND items.embedded_at IS NOT NULL ORDER BY items.received_at LIMIT ?`,
   )
     .bind(max)
     .all<QueueRow>();
@@ -203,7 +229,8 @@ export async function assignStories(env: Env, max: number): Promise<number> {
     const nearMiss = top >= th.story - NEAR_GAP ? Math.round(top * 1000) / 1000 : null;
     const mark = (miss: number | null = null) =>
       env.DB.prepare('UPDATE items SET story_at = ?, story_near = ? WHERE id = ?').bind(t, miss, row.id).run();
-    if ((row.status !== 'inbox' && row.status !== 'archived') || row.story_split) {
+    const rowMode = row.category ? settings.categories[row.category] : undefined;
+    if ((row.status !== 'inbox' && row.status !== 'archived') || row.story_split || rowMode === 'off') {
       await mark();
       continue;
     }
@@ -215,7 +242,8 @@ export async function assignStories(env: Env, max: number): Promise<number> {
     }
     const sims = new Map(near);
     const others = await env.DB.prepare(
-      `SELECT id, source_id, received_at, story_id, news_id, tags, status, story_split FROM items WHERE id IN (${near.map(() => '?').join(', ')})`,
+      `SELECT items.id, items.source_id, items.received_at, items.story_id, items.news_id, items.tags, items.status, items.story_split, ${CATEGORY_SQL} AS category
+       FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE items.id IN (${near.map(() => '?').join(', ')})`,
     )
       .bind(...near.map((n) => n[0]))
       .all<NeighbourRow>();
@@ -237,15 +265,19 @@ export async function assignStories(env: Env, max: number): Promise<number> {
     for (const raw of others.results) {
       const n = { ...raw, ...(changed.get(raw.id) ?? {}) };
       // Taken out of a story by hand: it doesn't pull other items into one either.
-      if ((n.status !== 'inbox' && n.status !== 'archived') || n.story_split) continue;
+      const theirMode = n.category ? settings.categories[n.category] : undefined;
+      if ((n.status !== 'inbox' && n.status !== 'archived') || n.story_split || theirMode === 'off') continue;
       const sim = sims.get(n.id) ?? 0;
       const days = (row.received_at - n.received_at) / DAY;
       const theirs = [...new Set(parseList(n.tags).map(tagKey))];
       const sharedKeys = theirs.filter((k) => specific.has(k));
       const shared = sharedKeys.map((k) => mine.get(k)!);
       const shift = lineShift(tunes, theirs.filter((k) => mine.has(k)), [row.source_id, n.source_id]);
-      const news = sim >= th.news && days <= NEWS_DAYS && n.source_id !== row.source_id;
-      const story = news || (days <= STORY_DAYS && sim >= th.story + shift && shared.length > 0) || (days <= ALONE_DAYS && sim >= th.alone + shift);
+      const sameSource = Boolean(row.source_id && n.source_id === row.source_id);
+      const lines = pairLines(th, shift, sameSource, rowMode === 'strict' || theirMode === 'strict');
+      const news = sim >= th.news && days <= NEWS_DAYS && !sameSource && n.source_id !== row.source_id;
+      const story =
+        news || (days <= STORY_DAYS && sim >= lines.story && shared.length > 0) || (lines.alone !== null && days <= ALONE_DAYS && sim >= lines.alone);
       if (!story) continue;
       // Same news beats a later step; then closeness, shared tags and joining an existing story.
       const score = (news ? 1 : 0) + sim + 0.04 * shared.length + (n.story_id ? 0.02 : 0);
@@ -498,9 +530,15 @@ export function registerStories(app: App) {
    * nearest in meaning and why each wasn't linked. Reads the item, 3 items, their stories and a few tag counts.
    */
   app.get('/api/items/:id/near', async (c) => {
-    const item = await c.env.DB.prepare('SELECT id, source_id, received_at, tags, neighbours, story_id, story_split FROM items WHERE id = ?')
+    const item = await c.env.DB.prepare(
+      `SELECT items.id, items.source_id, items.received_at, items.tags, items.neighbours, items.story_id, items.story_split, ${CATEGORY_SQL} AS category
+       FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE items.id = ?`,
+    )
       .bind(c.req.param('id'))
-      .first<{ id: string; source_id: string | null; received_at: number; tags: string | null; neighbours: string | null; story_id: string | null; story_split: number | null }>();
+      .first<{
+        id: string; source_id: string | null; received_at: number; tags: string | null; neighbours: string | null; story_id: string | null;
+        story_split: number | null; category: string | null;
+      }>();
     if (!item) return c.json({ error: 'not found' }, 404);
     if (item.story_id) return c.json([]);
     let all: [string, number][] = [];
@@ -515,14 +553,15 @@ export function registerStories(app: App) {
     const th = MATCH[settings.stories.match];
     const rows = await c.env.DB.prepare(
       `SELECT items.id, items.subject, COALESCE(sources.name, items.from_name, items.from_email) AS source_name, items.source_id, items.received_at,
-         items.read_at, items.tags, items.status, items.story_split, items.story_id, stories.title AS story_title, stories.tags AS story_tags
+         items.read_at, items.tags, items.status, items.story_split, items.story_id, stories.title AS story_title, stories.tags AS story_tags,
+         ${CATEGORY_SQL} AS category
        FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN stories ON stories.id = items.story_id
        WHERE items.id IN (${near.map(() => '?').join(', ')})`,
     )
       .bind(...near.map((n) => n[0]))
       .all<{
         id: string; subject: string; source_name: string | null; source_id: string | null; received_at: number; read_at: number | null; tags: string | null;
-        status: string; story_split: number | null; story_id: string | null; story_title: string | null; story_tags: string | null;
+        status: string; story_split: number | null; story_id: string | null; story_title: string | null; story_tags: string | null; category: string | null;
       }>();
     const mine = new Map(parseList(item.tags).map((l) => [tagKey(l), l.trim()] as const).filter(([k]) => k));
     const keys = [...mine.keys()].slice(0, 8);
@@ -544,17 +583,25 @@ export function registerStories(app: App) {
       const days = Math.abs(item.received_at - n.received_at) / DAY;
       const shared = [...new Set(parseList(n.tags).map(tagKey))].filter((k) => specific.has(k));
       const sharedAny = [...new Set(parseList(n.tags).map(tagKey))].filter((k) => mine.has(k));
-      const news = sim >= th.news && days <= NEWS_DAYS && n.source_id !== item.source_id;
+      const sameSource = Boolean(item.source_id && n.source_id === item.source_id);
       const shift = lineShift(tunes, sharedAny, [item.source_id, n.source_id]);
-      const storyLine = th.story + shift;
+      const modes = [item.category, n.category].map((cat) => (cat ? { cat, mode: settings.stories.categories[cat] } : null));
+      const off = modes.find((m) => m?.mode === 'off');
+      const strict = modes.find((m) => m?.mode === 'strict');
+      const lines = pairLines(th, shift, sameSource, Boolean(strict));
+      const news = sim >= th.news && days <= NEWS_DAYS && !sameSource;
+      const storyLine = lines.story;
       let reason: string;
-      if (item.story_split || n.story_split) reason = 'One of them was taken out of a story by hand';
+      if (off) reason = `Stories are off for ${off.cat}`;
+      else if (item.story_split || n.story_split) reason = 'One of them was taken out of a story by hand';
       else if (days > STORY_DAYS) reason = `Meaning ${f(sim)}, but more than ${STORY_DAYS} days apart`;
       else if (sim < storyLine) reason = `Meaning ${f(sim)}; a story needs ${f(storyLine)} plus a shared specific tag`;
       else if (shared.length === 0)
         reason =
-          days <= ALONE_DAYS
-            ? `Meaning ${f(sim)}, no shared specific tag${sharedAny.length ? ' (only broad ones)' : ''}; on its own it needs ${f(th.alone + shift)}`
+          lines.alone === null
+            ? `Meaning ${f(sim)}, no shared specific tag, which ${strict?.cat ?? 'a Stricter category'} always needs`
+            : days <= ALONE_DAYS
+            ? `Meaning ${f(sim)}, no shared specific tag${sharedAny.length ? ' (only broad ones)' : ''}; on its own it needs ${f(lines.alone)}`
             : `Meaning ${f(sim)}, no shared specific tag${sharedAny.length ? ' (only broad ones)' : ''}, and over a week apart`;
       else reason = news ? 'Would count as the same news with today’s setting' : 'Would link with today’s setting (matched before a change)';
       out.push({
@@ -564,7 +611,16 @@ export function registerStories(app: App) {
         receivedAt: n.received_at,
         readAt: n.read_at,
         sim: Math.round(sim * 1000) / 1000,
-        reason: shift < 0 ? `${reason} (line lowered ${f(-shift)} by your links)` : shift > 0 ? `${reason} (line raised ${f(shift)} by your splits)` : reason,
+        reason: [
+          reason,
+          ...(off ? [] : [
+            sameSource ? 'same source, so it needs 0.03 more' : '',
+            strict ? `${strict.cat} is set to Stricter` : '',
+            shift < 0 ? `line lowered ${f(-shift)} by your links` : shift > 0 ? `line raised ${f(shift)} by your take-outs` : '',
+          ]),
+        ]
+          .filter(Boolean)
+          .join(' · '),
         story: n.story_id ? { id: n.story_id, title: storyTitle({ title: n.story_title, tags: n.story_tags }, n.subject) } : null,
       });
     }
@@ -700,6 +756,39 @@ export function registerStories(app: App) {
       await recordTune(c.env, tags, row.source_id ? [{ id: row.source_id, name: row.source_name ?? 'Source' }] : [], false);
     }
     return c.json({ ok: true });
+  });
+
+  /**
+   * After a category is set to Stricter or Off: takes its articles out of their stories and
+   * queues them to be matched again under the new rule (Off ones are then left out).
+   * Reads the story items once (index), up to 500 changed per call.
+   */
+  app.post('/api/stories/recheck', async (c) => {
+    const input = (await c.req.json().catch(() => ({}))) as { category?: string };
+    const cat = String(input.category ?? '').trim();
+    if (!cat) return c.json({ error: 'category needed' }, 400);
+    const rows = await c.env.DB.prepare(
+      `SELECT items.id, items.story_id FROM items INDEXED BY items_story LEFT JOIN sources ON sources.id = items.source_id
+       WHERE items.story_id IS NOT NULL AND ${CATEGORY_SQL} = ? LIMIT 500`,
+    )
+      .bind(cat)
+      .all<{ id: string; story_id: string }>();
+    if (!rows.results.length) return c.json({ ok: true, changed: 0 });
+    const ids = rows.results.map((r) => r.id);
+    const stmts: D1PreparedStatement[] = [];
+    for (let i = 0; i < ids.length; i += 50) {
+      const part = ids.slice(i, i + 50);
+      stmts.push(
+        c.env.DB.prepare(
+          `UPDATE items SET story_id = NULL, news_id = NULL, story_why = NULL, story_at = NULL, story_near = NULL,
+             story_note_status = CASE WHEN story_note_status IN ('pending', 'working') THEN NULL ELSE story_note_status END
+           WHERE id IN (${part.map(() => '?').join(', ')})`,
+        ).bind(...part),
+      );
+    }
+    await c.env.DB.batch(stmts);
+    for (const id of new Set(rows.results.map((r) => r.story_id))) await refreshStory(c.env, id);
+    return c.json({ ok: true, changed: ids.length });
   });
 
   /** Forgets what matching learnt from your links and splits. */
