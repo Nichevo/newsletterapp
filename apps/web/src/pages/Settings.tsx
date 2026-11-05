@@ -650,7 +650,12 @@ function StoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (
                           const categories = { ...st.categories };
                           if (m === 'normal') delete categories[c];
                           else categories[c] = m;
-                          void onSave({ stories: { ...st, categories } }).then(() => (m !== 'normal' ? api.recheckStories(c).then(() => undefined) : undefined));
+                          void onSave({ stories: { ...st, categories } }).then(() => {
+                            // New articles use the change; older story links stay unless you ask.
+                            if (m !== 'normal' && window.confirm(`Also take ${c} articles already in stories out and match them again? Cancel keeps them as they are.`))
+                              return api.recheckStories(c).then(() => undefined);
+                            return undefined;
+                          });
                         }}
                       >
                         {m === 'normal' ? 'Normal' : m === 'strict' ? 'Stricter' : 'Off'}
@@ -662,7 +667,7 @@ function StoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (
             })}
             <span className="hint">
               Stricter needs a much closer match and a shared specific tag, for things like comics whose titles look alike. Off keeps a category out of
-              stories. Its articles already in stories are taken out and matched again. Articles from the same source always need a slightly closer match.
+              stories. A change applies to new articles; you’re asked whether to match the ones already in stories again. Articles from the same source always need a slightly closer match.
             </span>
           </div>
         )}

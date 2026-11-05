@@ -237,6 +237,8 @@ export interface StoryStats {
   joins: number;
   /** What matching has learnt from "Same story" and "Not part of this story", per tag and source. */
   learnt: StoryTune[];
+  /** Sources whose own posts look alike, with how alike and the line two of them must reach. */
+  lookAlike: { key: string; label: string; base: number; line: number; posts: number; everyday: string[] }[];
   notes: { done: number; failed: number; seconds: number; model: string | null; waiting: number };
   /** Items waiting to be matched (counted up to 1000). */
   matchWaiting: number;

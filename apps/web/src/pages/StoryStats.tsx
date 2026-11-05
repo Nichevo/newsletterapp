@@ -251,6 +251,41 @@ export function StoryStatsPage() {
             </section>
           </div>
 
+          {data.lookAlike.length > 0 && (
+            <div className="section">
+              <span className="label">Sources whose posts look alike</span>
+              <section className="card">
+                <div className="tablewrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Source</th>
+                        <th>Usually</th>
+                        <th>Two of its posts need</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.lookAlike.map((s) => (
+                        <tr key={s.key}>
+                          <td>
+                            <Link to={`/source/${s.key}`}>{s.label}</Link>
+                            {s.everyday.length > 0 && <span className="muted"> · ignores {s.everyday.join(', ')}</span>}
+                          </td>
+                          <td>{s.base.toFixed(2)}</td>
+                          <td>{s.line.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <span className="hint">
+                  Learnt as articles are matched: how close a source’s new post usually is to its last one. Two posts from it only join a story when they are
+                  clearly closer than that, and tags it puts on most posts don’t count. Other sources use the normal line.
+                </span>
+              </section>
+            </div>
+          )}
+
           {settings && (
             <div className="section">
               <span className="label">Matching</span>
