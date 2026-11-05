@@ -35,7 +35,7 @@ interface FollowRow {
 export function registerExport(app: App) {
   app.get('/api/export/opml', async (c) => {
     const rows = await c.env.DB.prepare(
-      "SELECT kind, name, url, feed_url, folder, paused_at FROM sources WHERE kind IN ('feed', 'site') ORDER BY folder, name",
+      "SELECT kind, name, url, feed_url, folder, paused_at FROM sources WHERE kind IN ('feed', 'site') AND NOT (kind = 'site' AND url IS NULL) ORDER BY folder, name",
     ).all<FollowRow>();
     const outline = (r: FollowRow) =>
       r.kind === 'feed'

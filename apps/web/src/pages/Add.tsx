@@ -1,4 +1,12 @@
-import { DEFAULT_DAILY_CAP, type Address, type DiscoverResult, type DiscoveredFeed, type Me, type NewSourceResult } from '@newsletterapp/shared';
+import {
+  DEFAULT_DAILY_CAP,
+  type Address,
+  type DiscoverResult,
+  type DiscoveredFeed,
+  type Me,
+  type NewSourceResult,
+  type SavePageResult,
+} from '@newsletterapp/shared';
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
@@ -8,6 +16,7 @@ import { DailyCapPicker, ModePicker, PerDayLine, QuickForm, type FollowMode, typ
 
 export function AddPage({ me }: { me: Me }) {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [label, setLabel] = useState('');
   const [created, setCreated] = useState<Address | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -67,7 +76,9 @@ export function AddPage({ me }: { me: Me }) {
         </div>
       </header>
 
-      <FollowSection />
+      <PageSection />
+      {/* "Follow the site instead" swaps in ?url=, which starts the lookup afresh. */}
+      <FollowSection key={params.get('url') ?? ''} />
       <OpmlSection />
 
       <div className="section">
@@ -142,6 +153,98 @@ export function AddPage({ me }: { me: Me }) {
           <p className="hint">Block an address if it starts getting spam or was passed on. Everything sent to it is then dropped.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The first web address in a shared link, which may be a whole sentence ("Look at this https://…"). */
+function firstUrl(s: string): string {
+  return s.match(/https?:\/\/\S+/)?.[0] ?? s.trim();
+}
+
+/**
+ * One page on its own: it goes into the inbox once, and its site isn't followed.
+ * The phone's share sheet opens /add?shared_url=… (or shared_text=…), which fills this in.
+ */
+function PageSection() {
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const shared = params.get('shared_url') || params.get('shared_text') || '';
+  const [url, setUrl] = useState(firstUrl(shared));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<SavePageResult | null>(null);
+
+  async function add(e?: FormEvent) {
+    e?.preventDefault();
+    const target = firstUrl(url);
+    if (!target) return;
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    try {
+      setDone(await api.savePage(target));
+      setUrl('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not add that page');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="section">
+      <span className="label">Just one page</span>
+      <form className="card" onSubmit={(e) => void add(e)}>
+        <div className="field">
+          <label htmlFor="page-url">Page address</label>
+          <input
+            id="page-url"
+            className="input"
+            type="url"
+            inputMode="url"
+            placeholder="https://…"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            autoComplete="off"
+            autoFocus={Boolean(shared)}
+          />
+        </div>
+        <p className="hint" style={{ margin: 0 }}>
+          Adds this one page to your inbox as a clean copy, without following the site. It's kept under Saved pages.
+        </p>
+        <div className="inline">
+          <button className="btn btn--primary" disabled={busy || !url.trim()} type="submit">
+            {busy ? 'Adding…' : 'Add to inbox'}
+          </button>
+          {shared && !done && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => navigate(`/add?url=${encodeURIComponent(firstUrl(shared))}`, { replace: true })}
+            >
+              Follow the site instead
+            </button>
+          )}
+        </div>
+        {error && <div className="error" style={{ margin: 0 }}>{error}</div>}
+        {done && (
+          <div className="inline" style={{ flexWrap: 'wrap' }}>
+            <span className="hint" style={{ margin: 0 }}>
+              {done.already ? 'Already in the app: ' : 'Added: '}
+              <strong>{done.title}</strong>
+              {done.waitingForPc
+                ? done.helperOnline
+                  ? '. Cloudflare could not get a clean copy, so your PC is fetching it now.'
+                  : '. Cloudflare could not get a clean copy; your PC fetches it when it is back on.'
+                : '.'}
+            </span>
+            <Link to={`/item/${done.itemId}`} className="btn btn--small">
+              Open it
+            </Link>
+          </div>
+        )}
+      </form>
     </div>
   );
 }

@@ -16,6 +16,13 @@ export default defineConfig({
         background_color: '#F6F7F5',
         display: 'standalone',
         start_url: '/',
+        // The app shows up in the phone's share sheet (installed app on Chrome or Samsung Internet):
+        // a shared link opens Add with "Just one page" filled in.
+        share_target: {
+          action: '/add',
+          method: 'GET',
+          params: { title: 'shared_title', text: 'shared_text', url: 'shared_url' },
+        },
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },

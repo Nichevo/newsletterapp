@@ -437,7 +437,15 @@ async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResu
     await addStoryLinks(article, job.postUrl, [job.url], cfg);
     return article.wordCount > 0 ? { jobId: job.id, ok: true, article } : bad;
   }
-  const article = extractArticle(page.body, page.url);
+  let article = extractArticle(page.body, page.url);
+  if (job.browserIfScripted && !job.render && article.wordCount < 80 && looksScripted(page.body)) {
+    // Asked for by hand and built by JavaScript: worth opening in the browser.
+    const rendered = await get(job.url, cfg, { render: true }).catch(() => null);
+    if (rendered && !failed(job, rendered)) {
+      const again = extractArticle(rendered.body, rendered.url);
+      if (again.wordCount > article.wordCount) article = again;
+    }
+  }
   if (job.wantPicture) article.picture = await pagePicture(page.body, page.url, article.image);
   if (job.postUrl) await addStoryLinks(article, job.postUrl, [job.url, page.url], cfg);
   return { jobId: job.id, ok: true, article };

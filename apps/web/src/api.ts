@@ -1,5 +1,6 @@
 import type {
   FetchPageStatus,
+  SavePageResult,
   SearchResponse,
   SourceActivity,
   Address,
@@ -140,6 +141,7 @@ export const api = {
   sourceBulk: (id: string, action: 'read-all' | 'archive-all') => post<{ changed: number }>(`/api/sources/${id}/${action}`),
   discoverSource: (url: string) => post<DiscoverResult>('/api/sources/discover', { url }),
   addSource: (input: NewSourceInput) => post<NewSourceResult>('/api/sources', input),
+  savePage: (url: string) => post<SavePageResult>('/api/pages', { url }),
   importOpml: (opml: string, startWith?: number) => post<OpmlImportResult>('/api/sources/opml', { opml, startWith }),
   checkAllSources: () => post<{ due: number; cloud: number; queued: number; added: number }>('/api/sources/check-all'),
   exportMeta: () => get<{ exportedAt: number; sources: unknown[]; settings: unknown; highlights: unknown[] }>('/api/export/meta'),
