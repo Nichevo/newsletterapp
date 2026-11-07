@@ -425,6 +425,74 @@ export function pageTitle(html: string): string | null {
   return title ? title.slice(0, 200) : null;
 }
 
+const LAZY_SRC = ['data-lazy-src', 'data-src', 'data-original', 'data-orig-src', 'data-actualsrc'];
+const LAZY_SRCSET = ['data-lazy-srcset', 'data-srcset'];
+const PLACEHOLDER = /^data:|placeholder|blank\.(gif|png)|lazy[-_]?load|spacer/i;
+
+/** An image tag's real address: lazy-loading pages keep it in data-src (or similar) and a placeholder in src. */
+function realSrc(tag: string): string | null {
+  const src = attr(tag, 'src');
+  if (src && !PLACEHOLDER.test(src)) return src;
+  for (const name of LAZY_SRC) {
+    const v = attr(tag, name);
+    if (v && !v.startsWith('data:')) return v;
+  }
+  return null;
+}
+
+/**
+ * Lazy-loaded images made plain: the real address goes into src (and srcset), so
+ * the saved copy shows the picture without the site's script. Images with only a
+ * placeholder go.
+ */
+export function plainImages(html: string): string {
+  return html.replace(/<img\b[^>]*>/gi, (tag) => {
+    const real = realSrc(tag);
+    if (!real) return '';
+    const lazySet = LAZY_SRCSET.map((n) => attr(tag, n)).find((v) => v && !v.startsWith('data:'));
+    let out = tag
+      .replace(/\s(data-[a-z-]*src(set)?|data-original|data-actualsrc)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/\ssrc\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '');
+    if (lazySet) out = out.replace(/\ssrcset\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '');
+    else if (/\ssrcset\s*=\s*["']?data:/i.test(out)) out = out.replace(/\ssrcset\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '');
+    const q = (v: string) => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const extra = ` src="${q(real)}"${lazySet ? ` srcset="${q(lazySet)}"` : ''}`;
+    return out.replace(/^<img\b/i, `<img${extra}`);
+  });
+}
+
+/**
+ * The article's main picture when the kept text lost it: a big image that sits
+ * above the text (infographic sites put the graphic before the first paragraph,
+ * past a block of share buttons). The one matching og:image wins.
+ */
+function heroImage(block: string, kept: string, og: string | null, pageUrl: string): string | null {
+  const keptOwn = (kept.match(/<img\b[^>]*>/gi) ?? []).some((t) => {
+    const src = absoluteUrl(attr(t, 'src'), pageUrl);
+    return src !== null && !junkImage(src, attr(t, 'alt'));
+  });
+  if (keptOwn) return null;
+  const stem = (u: string | null) => (u ? u.replace(/[?#].*$/, '').replace(/-\d{2,5}x\d{2,5}(?=\.\w+$)/, '').replace(/^.*\//, '').toLowerCase() : '');
+  const ogStem = stem(og);
+  let pick: string | null = null;
+  for (const tag of block.match(/<img\b[^>]*>/gi) ?? []) {
+    const src = absoluteUrl(attr(tag, 'src'), pageUrl);
+    if (!src || junkImage(src, attr(tag, 'alt'))) continue;
+    const w = Number(attr(tag, 'width') ?? 0);
+    const h = Number(attr(tag, 'height') ?? 0);
+    if (ogStem && stem(src) === ogStem) {
+      pick = tag;
+      break;
+    }
+    if (!pick && (w >= 300 || h >= 300)) pick = tag;
+  }
+  if (!pick) return null;
+  const src = absoluteUrl(attr(pick, 'src'), pageUrl)!;
+  const alt = attr(pick, 'alt');
+  const q = (v: string) => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  return `<figure><img src="${q(src)}"${alt ? ` alt="${q(alt)}"` : ''}></figure>`;
+}
+
 /** The page with scripts, styles and the usual site chrome (menus, headers, footers, sidebars) removed. */
 function withoutChrome(html: string, dropHeaders = true): string {
   const body = /<body\b[^>]*>([\s\S]*)<\/body>/i.exec(html)?.[1] ?? html;
@@ -557,11 +625,12 @@ export function extractArticle(html: string, pageUrl: string): Article {
     attr(/<time\b[^>]*datetime[^>]*>/i.exec(html)?.[0] ?? '', 'datetime');
   const author = metaContent(html, ['author', 'article:author', 'parsely-author']) ?? /"author"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/.exec(html)?.[1] ?? null;
 
-  const body = articleRange(mainBlock(withoutChrome(html)))
+  const image = absoluteUrl(metaContent(html, ['og:image', 'og:image:url', 'twitter:image', 'twitter:image:src']), pageUrl);
+  const block = plainImages(mainBlock(withoutChrome(html)));
+  const kept = articleRange(block);
+  const body = ((heroImage(block, kept, image, pageUrl) ?? '') + kept)
     // Inline handlers and styles go; the reader sanitises again anyway.
-    .replace(/\s(on[a-z]+|style|class|id)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    // Lazy-loaded images keep their real address in data-src.
-    .replace(/<img\b([^>]*?)\sdata-src\s*=\s*(["'])([^"']+)\2/gi, '<img$1 src=$2$3$2');
+    .replace(/\s(on[a-z]+|style|class|id)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
   const clean = absolutizeHtml(body, pageUrl).trim();
   const text = articleText(clean);
   return {
@@ -571,7 +640,7 @@ export function extractArticle(html: string, pageUrl: string): Article {
     html: clean,
     text,
     wordCount: countWords(text),
-    image: absoluteUrl(metaContent(html, ['og:image', 'og:image:url', 'twitter:image', 'twitter:image:src']), pageUrl),
+    image,
   };
 }
 
@@ -657,10 +726,9 @@ export function leadImage(html: string, base: string | null, fallback?: string |
   let best: { src: string; title: string | null; alt: string | null; score: number } | null = null;
   for (let n = 0; n < 40 && (m = re.exec(html)) !== null; n++) {
     const tag = m[0];
-    const plain = attr(tag, 'src');
     // Lazy-loaded images keep a placeholder in src and the real address in data-src.
-    const raw = plain && !plain.startsWith('data:') ? plain : attr(tag, 'data-src');
-    if (!raw || raw.startsWith('data:')) continue;
+    const raw = realSrc(tag);
+    if (!raw) continue;
     const src = base ? absoluteUrl(raw, base) : /^https?:\/\//i.test(raw) ? raw : null;
     if (!src) continue;
     const w = Number(attr(tag, 'width') ?? 0);

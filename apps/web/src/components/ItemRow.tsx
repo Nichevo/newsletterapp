@@ -165,7 +165,7 @@ export function ItemRow({
         {expanded && item.leadImage && (
           <figure className="row__picture">
             <div className="row__picture-frame">
-              <img src={item.leadImage.src} alt={item.leadImage.alt ?? item.leadImage.title ?? ''} loading="lazy" referrerPolicy="no-referrer" />
+              <RowPicture src={item.leadImage.src} alt={item.leadImage.alt ?? item.leadImage.title ?? ''} />
               <button
                 type="button"
                 className="row__picture-open"
@@ -257,6 +257,16 @@ function GroupBar({ item, group }: { item: ItemSummary; group: RowGroup }) {
 function originalSize(src: string): string | null {
   const full = src.replace(/-\d{2,5}x\d{2,5}(\.(?:jpe?g|png|webp|gif|avif))(\?.*)?$/i, '$1$2');
   return full !== src ? full : null;
+}
+
+/**
+ * The inbox picture uncut: feeds often hand out a cropped copy (a 1200x630 share card of
+ * a tall infographic), so the original is tried first, and the given copy if that fails.
+ */
+export function RowPicture({ src, alt }: { src: string; alt: string }) {
+  const [shown, setShown] = useState(() => originalSize(src) ?? src);
+  useEffect(() => setShown(originalSize(src) ?? src), [src]);
+  return <img src={shown} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => shown !== src && setShown(src)} />;
 }
 
 /** The whole picture on its own screen, full width and scrollable, for tall infographics. */
