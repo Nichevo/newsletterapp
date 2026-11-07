@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
 import { EmailBody } from '../components/EmailBody';
+import { RowPicture } from '../components/ItemRow';
 import { AiNotes, HighlightSheet, SelectionBar, TextBody, useArticleSelection } from '../components/Highlights';
 import { applyMarks, matchScore, revealMark } from '../highlight';
 import { aiAttribution, longDate, readingMinutes, shortTime } from '../format';
@@ -101,6 +102,10 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   }
 
   const hasRemoteImages = body?.html ? /<img[^>]+src=["']?https?:/i.test(body.html) : false;
+  // The post's inbox picture, when the saved article lost it (some sites' pictures sit
+  // outside the text the app keeps, or load only by script).
+  const missingPicture =
+    item?.leadImage && body && loadImages && !(body.html && /<img\b[^>]*\ssrc=["']?(https?:|\/api\/)/i.test(body.html)) ? item.leadImage : null;
 
   function allowImagesForSource() {
     if (item?.sourceId) setImagesAllowed(item.sourceId, true);
@@ -219,6 +224,12 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
       )}
 
       <div className="reader__body">
+        {missingPicture && (
+          <figure className="reader__picture">
+            <RowPicture src={missingPicture.src} alt={missingPicture.alt ?? missingPicture.title ?? ''} />
+            {missingPicture.title && <figcaption>{missingPicture.title}</figcaption>}
+          </figure>
+        )}
         {body?.html ? (
           <EmailBody
             html={body.html}

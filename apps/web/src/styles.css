@@ -821,6 +821,23 @@ select {
   padding-bottom: calc(76px + var(--safe-bottom) + 24px);
 }
 
+.reader__picture {
+  margin: 0 0 16px;
+}
+.reader__picture img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 8px;
+}
+.reader__picture figcaption {
+  font-size: 14px;
+  font-style: italic;
+  color: var(--quiet);
+  margin-top: 6px;
+}
+
 .reader__text {
   font-family: var(--serif);
   font-size: 18px;

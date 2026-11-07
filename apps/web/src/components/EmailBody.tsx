@@ -187,6 +187,9 @@ export function EmailBody({
         }
       }
       img.removeAttribute('loading');
+      // Sites that refuse pictures shown on other sites (hotlink protection) still serve a
+      // request that doesn't say where it came from; it also keeps reading private.
+      img.setAttribute('referrerpolicy', 'no-referrer');
       addCaption(img);
     }
     if (!loadImages) {
