@@ -507,12 +507,32 @@ function withoutChrome(html: string, dropHeaders = true): string {
 const ASSET = /\.(jpe?g|png|gif|webp|svg|pdf|zip|mp3|mp4|css|js|xml|json|ico)(\?|$)/i;
 const NOT_ARTICLE = /\/(tag|tags|category|categories|author|authors|page|search|login|signin|signup|register|account|cart|about|contact|privacy|terms|subscribe|feed|rss)(\/|$|\?)/i;
 
+/** How old a dated link (…/2021/04/16/…) can be and still count as a new post on a watched page. */
+const OLD_LINK_DAYS = 30;
+
+/**
+ * The date in a link's path (/2021/04/16/slug, /2021-04-16-slug, /2021/04/slug),
+ * and whether anything follows it (a bare /2021/04/16 is a date archive, not a post).
+ */
+function pathDate(pathname: string): { time: number; hasSlug: boolean } | null {
+  const m = /(?:^|\/)((?:19|20)\d{2})[/-](0[1-9]|1[0-2])(?:[/-](0[1-9]|[12]\d|3[01]))?(?=[/_.-]|$)/.exec(pathname);
+  if (!m) return null;
+  const time = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3] ?? 28));
+  const rest = pathname.slice(m.index + m[0].length).replace(/^[/_.-]+/, '').replace(/\/+$/, '');
+  return { time, hasSlug: rest.length > 0 };
+}
+
 /**
  * Links on a listing page that look like articles: same site, a real path,
  * and a headline-length link text. With a hint, only links whose address
  * contains it (e.g. "/blog/"), whatever their text. In page order.
+ *
+ * Links dated well in the past (a "15 years ago" box, a post linking back to an
+ * old one) are never new posts, so they are left out. A link dated in the last
+ * few weeks is taken even with short text ("Permalink"), since comic and blog
+ * pages often link their newest post that way.
  */
-export function extractLinks(html: string, pageUrl: string, hint?: string | null): PageLink[] {
+export function extractLinks(html: string, pageUrl: string, hint?: string | null, now = Date.now()): PageLink[] {
   const page = new URL(pageUrl);
   const content = withoutChrome(html, false);
   const found = new Map<string, PageLink>();
@@ -526,13 +546,16 @@ export function extractLinks(html: string, pageUrl: string, hint?: string | null
     // A card link often wraps the headline and a blurb; the headline is the title.
     const heading = /<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/i.exec(m[2] ?? '')?.[1];
     const text = stripTags(heading ?? m[2] ?? '') || attr(`<a ${m[1] ?? ''}>`, 'title') || '';
+    const dated = pathDate(u.pathname);
+    if (dated && dated.time < now - OLD_LINK_DAYS * 86_400_000) continue;
     if (hint) {
       if (!url.includes(hint)) continue;
     } else {
       if (u.hostname.replace(/^www\./, '') !== page.hostname.replace(/^www\./, '')) continue;
       if (u.pathname === '/' || ASSET.test(u.pathname) || NOT_ARTICLE.test(u.pathname)) continue;
       if (canonicalUrl(pageUrl) === key) continue;
-      if (text.length < 20 || text.split(' ').length < 3) continue;
+      const recentPost = dated !== null && dated.hasSlug && u.search === '';
+      if (!recentPost && (text.length < 20 || text.split(' ').length < 3)) continue;
     }
     const existing = found.get(key);
     if (!existing) found.set(key, { url: key, title: text.slice(0, 300) || key });
