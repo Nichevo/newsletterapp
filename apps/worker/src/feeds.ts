@@ -1382,9 +1382,14 @@ export function registerFeeds(app: App) {
           if (feedCopy) html = `${feedCopy}\n<hr data-linked-article>\n${html}`;
         }
         await c.env.RAW.put(key, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
+        // Asked for by hand (or a page added on its own): the copy is new, so its quick summary is
+        // worked out again and the AI summarises it again; otherwise a feed's own preview line stays.
+        const fresh = Boolean(job.force) && !comments;
         await c.env.DB.prepare(
-          `UPDATE items SET html_key = ?, has_html = 1, word_count = ?, snippet = COALESCE(?, snippet), preheader = COALESCE(preheader, ?), sponsored = ?,
-             ai_status = COALESCE(ai_status, 'pending'), body_v = body_v + 1 WHERE id = ?`,
+          `UPDATE items SET html_key = ?, has_html = 1, word_count = ?, snippet = COALESCE(?, snippet),
+             preheader = ${fresh ? '?' : 'COALESCE(preheader, ?)'}, sponsored = ?,
+             ai_status = ${fresh ? "CASE WHEN ai_status IN ('done', 'failed') THEN 'pending' ELSE COALESCE(ai_status, 'pending') END" : "COALESCE(ai_status, 'pending')"},
+             ${fresh ? 'ai_attempts = 0, ai_error = NULL,' : ''} body_v = body_v + 1 WHERE id = ?`,
         )
           .bind(
             key,
