@@ -187,6 +187,22 @@ export interface StoryPage extends StoryInfo {
   unread: number;
   read: number;
   steps: StoryStep[];
+  /** The PC's whole-story summary, if one was asked for. */
+  overview: StoryOverview | null;
+}
+
+/** "Summarise the whole story" on the story page, written by the PC. */
+export interface StoryOverview {
+  /** A new summary is written each time an article joins the story. */
+  auto: boolean;
+  /** null = never asked; waiting = queued for the PC (or being written). */
+  status: 'waiting' | 'done' | 'failed' | null;
+  /** Markdown. Kept from the last finished summary while a newer one is waiting. */
+  answer: string | null;
+  error: string | null;
+  model: string | null;
+  askedAt: number | null;
+  doneAt: number | null;
 }
 
 /** The story banner at the top of an article. */

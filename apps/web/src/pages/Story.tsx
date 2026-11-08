@@ -1,5 +1,5 @@
-import type { StoryList, StoryPage as Story } from '@newsletterapp/shared';
-import { useEffect, useState } from 'react';
+import { markdownToHtml, type StoryList, type StoryOverview, type StoryPage as Story } from '@newsletterapp/shared';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { storyTap, Timeline } from '../components/StoryBanner';
@@ -103,6 +103,8 @@ export function StoryPagePage() {
             {story.followedAt && <span className="hint">New items in this story are marked “Update to a story you follow” in the inbox.</span>}
           </div>
 
+          <Overview storyId={story.id} overview={story.overview} onChange={(o) => setStory((cur) => (cur ? { ...cur, overview: o } : cur))} />
+
           <div className="section">
             <div className="inline" style={{ justifyContent: 'space-between' }}>
               <span className="label">Timeline</span>
@@ -122,6 +124,82 @@ export function StoryPagePage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The PC's summary of the whole story: asked for with a button, or rewritten each time an
+ * article joins when "Update it when new articles join" is on. Checks back while it's being written.
+ */
+function Overview({ storyId, overview, onChange }: { storyId: string; overview: StoryOverview | null; onChange: (o: StoryOverview) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const html = useMemo(() => (overview?.answer ? markdownToHtml(overview.answer) : ''), [overview?.answer]);
+  const waiting = overview?.status === 'waiting';
+
+  // While the PC is writing it, look again every 20 seconds for up to 10 minutes.
+  useEffect(() => {
+    if (!waiting) return;
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      if (Date.now() - started > 10 * 60_000) return window.clearInterval(timer);
+      api
+        .story(storyId)
+        .then((s) => s.overview && s.overview.status !== 'waiting' && onChange(s.overview))
+        .catch(() => undefined);
+    }, 20_000);
+    return () => window.clearInterval(timer);
+  }, [waiting, storyId, onChange]);
+
+  async function run(fn: () => Promise<StoryOverview>) {
+    setBusy(true);
+    setError(null);
+    try {
+      onChange(await fn());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not ask the PC');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="section">
+      <span className="label">Whole-story summary</span>
+      <section className="card">
+        {html ? (
+          // markdownToHtml escapes everything first; only its own few tags come out.
+          <div className="note__answer" dangerouslySetInnerHTML={{ __html: html }} />
+        ) : !waiting ? (
+          <p className="hint" style={{ margin: 0 }}>
+            Your PC can write an overview of every article in this story: what it’s about, the key steps in order, and where it stands now.
+          </p>
+        ) : null}
+        {waiting && <p className="muted" style={{ margin: 0 }}>{html ? 'Your PC is writing a newer one…' : 'Your PC is writing this…'}</p>}
+        {overview?.status === 'failed' && <p className="error" style={{ margin: 0 }}>{overview.error ?? 'The PC could not write it.'}</p>}
+        {error && <p className="error" style={{ margin: 0 }}>{error}</p>}
+        {overview?.doneAt && html && (
+          <span className="cardrow__sub">
+            Written {agoText(overview.doneAt)}
+            {overview.model ? ` by ${overview.model}` : ''}
+          </span>
+        )}
+        <div className="inline" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <button className="btn btn--small btn--ghost" disabled={busy || waiting} onClick={() => void run(() => api.summariseStory(storyId))}>
+            {html || overview?.status === 'failed' ? 'Write it again' : 'Summarise the whole story'}
+          </button>
+        </div>
+        <label className="switchrow">
+          <span style={{ fontSize: 14 }}>Update it when new articles join</span>
+          <input
+            type="checkbox"
+            checked={Boolean(overview?.auto)}
+            disabled={busy}
+            onChange={(e) => void run(() => api.storySummaryAuto(storyId, e.target.checked))}
+          />
+        </label>
+      </section>
     </div>
   );
 }
