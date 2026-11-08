@@ -27,6 +27,23 @@ export function StoryPagePage() {
       .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load the story'));
   }, [id]);
 
+  /** "Unlink": takes one article out of the story, and matching gets a little stricter for its source and tags. */
+  async function unlink(step: Story['steps'][number]) {
+    if (!story) return;
+    if (!window.confirm(`Take “${step.subject}” out of this story? It won’t be put in a story again, and matching gets a little stricter for its source and the tags it shared with the story.`)) return;
+    try {
+      await api.splitFromStory(step.id);
+      const fresh = await api.story(story.id).catch(() => null);
+      if (fresh) setStory(fresh);
+      else {
+        setStory(null);
+        setError('That left one article, so the story was taken apart.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not unlink it');
+    }
+  }
+
   async function follow(on: boolean) {
     if (!story) return;
     setStory({ ...story, followedAt: on ? Date.now() : null });
@@ -96,11 +113,11 @@ export function StoryPagePage() {
             {why && (
               <p className="hint">
                 Meaning is how close your PC rates two items (0 to 1). Items join a story when they are close in meaning and share a specific tag, or are very
-                close on their own. Change how strict this is in Statistics &gt; Stories.
+                close on their own. Change how strict this is in Statistics &gt; Stories. Unlink takes an article out if it doesn’t belong.
               </p>
             )}
             <section className="card">
-              <Timeline steps={story.steps} showWhy={why} onOpen={(s) => storyTap(s.id)} />
+              <Timeline steps={story.steps} showWhy={why} onOpen={(s) => storyTap(s.id)} onUnlink={(s) => void unlink(s)} />
             </section>
           </div>
         </>
