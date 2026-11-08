@@ -159,6 +159,25 @@ function PageSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<SavePageResult | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  // A file shared from the phone that could not be kept comes back here with the reason.
+  const shareError = params.get('share_error');
+
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    setDone(null);
+    try {
+      setDone(await api.uploadFile(file));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not upload that file');
+    } finally {
+      setUploading(false);
+      if (fileInput.current) fileInput.current.value = '';
+    }
+  }
 
   async function add(e?: FormEvent) {
     e?.preventDefault();
@@ -212,7 +231,22 @@ function PageSection() {
             </button>
           )}
         </div>
-        {error && <div className="error" style={{ margin: 0 }}>{error}</div>}
+        <div className="inline" style={{ flexWrap: 'wrap' }}>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="application/pdf,.pdf,image/*,text/plain,.txt,.md"
+            style={{ display: 'none' }}
+            onChange={(e) => void upload(e.target.files?.[0])}
+          />
+          <button type="button" className="btn btn--small" disabled={uploading} onClick={() => fileInput.current?.click()}>
+            {uploading ? 'Uploading…' : 'Upload a file'}
+          </button>
+          <span className="hint" style={{ margin: 0 }}>
+            A PDF from this device (up to 25 MB): your PC reads its text, pictures, charts and tables.
+          </span>
+        </div>
+        {(error ?? shareError) && <div className="error" style={{ margin: 0 }}>{error ?? shareError}</div>}
         {done && (
           <div className="inline" style={{ flexWrap: 'wrap' }}>
             <span className="hint" style={{ margin: 0 }}>
@@ -220,8 +254,8 @@ function PageSection() {
               <strong>{done.title}</strong>
               {done.waitingForPc
                 ? done.helperOnline
-                  ? '. Cloudflare could not get a clean copy, so your PC is fetching it now.'
-                  : '. Cloudflare could not get a clean copy; your PC fetches it when it is back on.'
+                  ? '. Your PC is making a readable copy now.'
+                  : '. Your PC makes a readable copy when it is back on.'
                 : '.'}
             </span>
             <Link to={`/item/${done.itemId}`} className="btn btn--small">

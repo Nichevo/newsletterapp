@@ -10,7 +10,8 @@
     "start": "node ../web/public/helper/newsletter-helper.mjs"
   },
   "dependencies": {
-    "@newsletterapp/shared": "workspace:*"
+    "@newsletterapp/shared": "workspace:*",
+    "unpdf": "1.9.1"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",
