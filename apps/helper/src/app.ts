@@ -5,6 +5,10 @@ import type {
   EmbedJob,
   EmbedResult,
   LikelyState,
+  LinkJob,
+  LinkResult,
+  SuggestCheckResult,
+  SuggestRun,
   FetchJob,
   FetchJobResult,
   HelperConfig,
@@ -59,6 +63,11 @@ export class AppClient {
   storyResult = (r: StoryResult) => this.call<{ ok: boolean }>('POST', '/api/helper/story/result', r);
   likelyState = () => this.call<LikelyState>('GET', '/api/helper/likely');
   likelySave = (set: string[], unset: string[]) => this.call<{ ok: boolean }>('POST', '/api/helper/likely', { set, unset });
+  linksClaim = (max: number) => this.call<{ jobs: LinkJob[] }>('POST', '/api/helper/suggest/links/claim', { max });
+  linksResult = (results: LinkResult[]) => this.call<{ ok: boolean }>('POST', '/api/helper/suggest/links/result', { results });
+  suggestStart = () => this.call<SuggestRun>('POST', '/api/helper/suggest/start', {});
+  suggestResult = (results: SuggestCheckResult[], done: boolean) =>
+    this.call<{ ok: boolean }>('POST', '/api/helper/suggest/result', { results, done });
   fetchResult = (r: FetchJobResult) => this.call<{ ok: boolean; added?: number }>('POST', '/api/helper/fetch/result', r);
 
   /** Downloads a file the web app serves (used for self-update). */

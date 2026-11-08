@@ -211,6 +211,35 @@ export class Embeddings {
     }
   }
 
+  /**
+   * For feed suggestions: how close a site's latest posts are to the items
+   * marked Interesting (the average of each post's three closest stars, over
+   * the better half of the posts), and the reader's items closest to them.
+   * Null fit when there's no model or fewer than three stars.
+   */
+  async closeness(texts: string[], interesting: string[]): Promise<{ fit: number | null; near: string[] }> {
+    if (!this.model || texts.length === 0 || this.items.size === 0 || !(await this.ensureModel())) return { fit: null, near: [] };
+    const vectors = await this.embed(texts);
+    const stars = interesting.map((id) => this.items.get(id)?.v).filter((v): v is Float32Array => Boolean(v));
+    let fit: number | null = null;
+    if (stars.length >= 3) {
+      const per = vectors
+        .map((v) => {
+          const top = stars.map((s) => dot(v, s)).sort((a, b) => b - a).slice(0, 3);
+          return top.reduce((a, b) => a + b, 0) / top.length;
+        })
+        .sort((a, b) => b - a);
+      const half = per.slice(0, Math.max(1, Math.ceil(per.length / 2)));
+      fit = half.reduce((a, b) => a + b, 0) / half.length;
+    }
+    const best = new Map<string, number>();
+    for (const v of vectors) {
+      for (const [id, sim] of this.neighbours('', Infinity, v).slice(0, 3)) best.set(id, Math.max(best.get(id) ?? 0, sim));
+    }
+    const near = [...best].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([id]) => id);
+    return { fit, near };
+  }
+
   /** Flags recent items close in meaning to the ones marked Interesting; sends only the changes. */
   private async rescore() {
     const state = await this.app.likelyState();

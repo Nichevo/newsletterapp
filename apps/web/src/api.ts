@@ -63,6 +63,8 @@ import type {
   SenderStatus,
   Source,
   SourceUpdate,
+  SuggestLearntPage,
+  SuggestionList,
 } from '@newsletterapp/shared';
 
 export class ApiError extends Error {
@@ -163,6 +165,15 @@ export const api = {
 
   /** With counts: each source's post count too (reads every item; only the source pages need it). */
   sources: (counts = false) => get<Source[]>(counts ? '/api/sources?counts=1' : '/api/sources'),
+  suggestions: () => get<SuggestionList>('/api/suggestions'),
+  suggestionsRun: () => post<{ ok: boolean }>('/api/suggestions/run'),
+  suggestionFollowed: (site: string, sourceId: string | null) =>
+    post<{ ok: boolean; sourceId: string | null }>(`/api/suggestions/${encodeURIComponent(site)}/follow`, { sourceId }),
+  suggestionDismiss: (site: string) => post<{ ok: boolean }>(`/api/suggestions/${encodeURIComponent(site)}/dismiss`),
+  suggestionUndo: (site: string) => post<{ ok: boolean }>(`/api/suggestions/${encodeURIComponent(site)}/undo`),
+  suggestionIgnore: (site: string, on: boolean) => post<{ ok: boolean }>(`/api/suggestions/${encodeURIComponent(site)}/ignore`, { on }),
+  suggestionsLearnt: () => get<SuggestLearntPage>('/api/suggestions/learnt'),
+  suggestionsForget: (input: { kind?: 'topic' | 'source'; key?: string; all?: boolean }) => post<{ ok: boolean }>('/api/suggestions/learnt/forget', input),
   updateSource: (id: string, update: SourceUpdate) => post<Source>(`/api/sources/${id}`, update),
   sourceBulk: (id: string, action: 'read-all' | 'archive-all') => post<{ changed: number }>(`/api/sources/${id}/${action}`),
   discoverSource: (url: string) => post<DiscoverResult>('/api/sources/discover', { url }),

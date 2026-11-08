@@ -85,8 +85,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
 
   const onLinkClick = useCallback(
     (href: string) => {
-      api.event(id, { type: 'link_click', device: isPhone() });
-      void href;
+      api.event(id, { type: 'link_click', device: isPhone(), url: href });
     },
     [id],
   );

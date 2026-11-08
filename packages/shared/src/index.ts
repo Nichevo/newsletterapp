@@ -5,6 +5,7 @@ import type { AiLimitHit } from './usage';
 import { DEFAULT_SKIP_SITES, type Article, type FeedEntry } from './web';
 
 export * from './web';
+export * from './suggest';
 export * from './highlights';
 export * from './files';
 
@@ -570,6 +571,8 @@ export interface ReadingEventInput {
   type: ReadingEventType;
   value?: number;
   device?: 'phone' | 'desktop';
+  /** link_click: the link that was tapped (its site counts towards feed suggestions). */
+  url?: string;
 }
 
 export interface Me {
@@ -976,7 +979,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.4.4';
+export const HELPER_VERSION = '0.5.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -1005,6 +1008,8 @@ export interface HelperConfig {
   skipSites?: string[];
   /** Story notes waiting for the PC. */
   storyWaiting?: boolean;
+  /** Feed suggestions are due: count links in recent reading, then check the candidate sites. */
+  suggestDue?: boolean;
 }
 
 /** One item for the helper to embed: its text and when it arrived. */

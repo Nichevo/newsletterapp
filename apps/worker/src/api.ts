@@ -53,6 +53,7 @@ import {
 import { buildDigestIfDue } from './digest';
 import { registerStories, toStoryInfo } from './stories';
 import { registerEmbed } from './embed';
+import { recordLinkClick, registerSuggest } from './suggest';
 import { normalizeUrl, registerFeeds, startCount } from './feeds';
 import { registerExport } from './export';
 import { junkImage, leadImage } from './html';
@@ -94,6 +95,7 @@ app.get('/api/me', async (c) => {
 // item action route so /api/items/:id/rate and friends match first.
 registerAi(app);
 registerEmbed(app);
+registerSuggest(app);
 // Highlights and highlight asks; before the generic item action route too.
 registerHighlights(app);
 registerHighlightPages(app);
@@ -594,6 +596,9 @@ app.post('/api/items/:id/:action', async (c) => {
     const input = (await c.req.json().catch(() => null)) as ReadingEventInput | null;
     if (!input?.type) return c.json({ error: 'type required' }, 400);
     await logEvent(c.env, id, input.type, input.value, input.device);
+    if (input.type === 'link_click' && typeof input.url === 'string') {
+      await recordLinkClick(c.env, id, input.url.slice(0, 2000)).catch((err: unknown) => console.error('link click not recorded', err));
+    }
     if (input.type === 'open') await markRead(c.env, [id], 'reader', deviceOf(c, input.device));
     return c.json({ ok: true });
   }

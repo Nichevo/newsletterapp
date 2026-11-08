@@ -21,6 +21,7 @@ import {
   type TrialView,
 } from '@newsletterapp/shared';
 import type { Hono } from 'hono';
+import { suggestHeartbeat } from './suggest';
 import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
 import { embedHeartbeat } from './embed';
@@ -354,6 +355,7 @@ export function registerAi(app: App) {
       skipSites: settings.pcSkipSites,
       ...(await embedHeartbeat(c.env, hb)),
       ...(await storyHeartbeat(c.env, state.paused)),
+      ...(state.paused ? {} : await suggestHeartbeat(c.env)),
     };
     return c.json(config);
   });

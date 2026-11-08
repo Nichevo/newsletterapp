@@ -9,6 +9,7 @@ import { Embeddings } from './embed';
 import { askLookups, lookupsText, summaryLookups, toSources, type Lookups } from './lookups';
 import { holdReport, holdsSent, runFetchJob, setSkipSites } from './fetch';
 import { log } from './log';
+import { runSuggestions } from './suggest';
 import { findProvider, providersFrom, type Provider } from './providers';
 import { currentLoad, powerMeter } from './system';
 import { itemText, parseOutput } from './text';
@@ -20,8 +21,9 @@ import { itemText, parseOutput } from './text';
 // when it splits the work) and posts the results. Between those rounds it
 // checks for new highlight questions every few seconds, and between
 // summaries too, so an answer doesn't wait behind a long batch. After the
-// embeddings it writes a one-line note for each new item in a story. It only
-// ever makes outbound requests.
+// embeddings it writes a one-line note for each new item in a story, and once
+// a week it looks for feeds you might like (suggest.ts). It only ever makes
+// outbound requests.
 
 const cfg = loadConfig();
 const app = new AppClient(cfg);
@@ -437,6 +439,9 @@ async function tick(): Promise<number> {
   // Story notes after embeddings, since items join stories once they're embedded.
   doing('story notes');
   await storyNotes(config).catch((err: unknown) => log('story notes failed:', err));
+  // Feed suggestions last: weekly, and the least urgent.
+  doing('feed suggestions');
+  await runSuggestions(config, app, cfg, embeddings, checkAsks).catch((err: unknown) => log('feed suggestions failed:', err));
   doing('waiting for the next round');
   return config.pollSeconds;
 }

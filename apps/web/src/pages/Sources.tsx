@@ -98,6 +98,16 @@ export function SourcesPage() {
       </header>
 
       {error && <div className="error">{error}</div>}
+      <div className="section">
+        <div className="card card--list">
+          <Link to="/settings/sources/suggested" className="cardrow">
+            <div className="cardrow__main">
+              <span className="cardrow__title">Suggested for you</span>
+              <span className="cardrow__sub">Feeds you might like, from the sites your reading keeps linking to</span>
+            </div>
+          </Link>
+        </div>
+      </div>
       {sources === null && !error && <div className="spinner">Loading…</div>}
 
       {sources && sources.length === 0 && (

@@ -2515,3 +2515,103 @@ a.chip { text-decoration: none; }
 .sbanner__unread .btn {
   white-space: nowrap;
 }
+
+/* Feed suggestions */
+.notice--teal-tint {
+  background: var(--teal-tint);
+  color: var(--teal-ink);
+}
+
+.suggest {
+  gap: 12px;
+}
+
+.suggest__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.suggest__mark {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--teal-tint);
+  color: var(--teal-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.suggest__match {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--green-ink);
+}
+
+.suggest__desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--quiet);
+  line-height: 1.4;
+}
+
+.suggest__why {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.suggest__samples {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--serif);
+  font-size: 14px;
+}
+
+.suggest__samples .label {
+  font-family: var(--font);
+}
+
+.suggest__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.suggest__actions .btn {
+  flex: 1;
+  min-height: 44px;
+}
+
+.suggest__actions .suggest__no {
+  flex: none;
+  width: 44px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.suggest__net {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.suggest__net--up {
+  color: var(--green-ink);
+}
+
+.suggest__net--down {
+  color: var(--red-ink);
+}
