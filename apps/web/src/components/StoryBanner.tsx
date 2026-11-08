@@ -156,7 +156,20 @@ export function StoryBanner({ itemId, onSplit }: { itemId: string; onSplit?: () 
 }
 
 /** Story steps as a timeline: date, dot (filled = read), headline, source and what each added. */
-export function Timeline({ steps, current, onOpen, showWhy }: { steps: StoryStep[]; current?: string; onOpen?: (s: StoryStep) => void; showWhy?: boolean }) {
+export function Timeline({
+  steps,
+  current,
+  onOpen,
+  showWhy,
+  onUnlink,
+}: {
+  steps: StoryStep[];
+  current?: string;
+  onOpen?: (s: StoryStep) => void;
+  showWhy?: boolean;
+  /** Shows an Unlink button on each step (story page): takes it out of the story. */
+  onUnlink?: (s: StoryStep) => void;
+}) {
   return (
     <ol className="timeline">
       {steps.map((s) => (
@@ -175,6 +188,11 @@ export function Timeline({ steps, current, onOpen, showWhy }: { steps: StoryStep
             </span>
             {(s.note ?? s.summary) && <span className="timeline__note">{s.note ? `Added: ${s.note}` : s.summary}</span>}
             {showWhy && <span className="timeline__why">{whyText(s)}</span>}
+            {onUnlink && (
+              <button type="button" className="timeline__unlink" onClick={() => onUnlink(s)}>
+                Unlink
+              </button>
+            )}
           </span>
         </li>
       ))}

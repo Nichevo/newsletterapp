@@ -1472,6 +1472,20 @@ select {
   font-size: 12px;
 }
 
+.timeline__unlink {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 6px 0;
+  min-height: 32px;
+  border: none;
+  background: none;
+  color: var(--quiet);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .snear {
   margin-top: 24px;
   border-style: dashed;
