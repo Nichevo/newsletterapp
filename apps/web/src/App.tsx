@@ -21,6 +21,8 @@ import { SourcePage } from './pages/Source';
 import { ExportPage } from './pages/Export';
 import { SearchPage } from './pages/Search';
 import { SourcesPage } from './pages/Sources';
+import { SuggestedPage } from './pages/Suggested';
+import { SuggestedLearntPage } from './pages/SuggestedLearnt';
 import { ReadingStatsPage } from './pages/ReadingStats';
 import { StatsPage } from './pages/Stats';
 import { TagPagePage } from './pages/Tag';
@@ -105,6 +107,8 @@ export default function App() {
         <Route path="/settings/ai/web-search" element={<WebSearchPage />} />
         <Route path="/settings/ai/sites" element={<PcSitesPage />} />
         <Route path="/settings/sources" element={<SourcesPage />} />
+        <Route path="/settings/sources/suggested" element={<SuggestedPage />} />
+        <Route path="/settings/sources/suggested/learnt" element={<SuggestedLearntPage />} />
         <Route path="/settings/export" element={<ExportPage />} />
         <Route path="/stats" element={<ReadingStatsPage />} />
         <Route path="/stats/reading" element={<ReadingStatsPage />} />

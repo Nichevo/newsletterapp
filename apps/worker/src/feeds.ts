@@ -418,7 +418,7 @@ async function queueSourceForPc(env: Env, source: SourceRow) {
   ]);
 }
 
-async function helperOnline(env: Env): Promise<boolean> {
+export async function helperOnline(env: Env): Promise<boolean> {
   const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'helper'").first<{ value: string }>();
   if (!row) return false;
   try {

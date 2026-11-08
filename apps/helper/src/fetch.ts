@@ -40,7 +40,7 @@ const FIRST_RUN_ARTICLES = 5;
 const PICTURE_MAX_BYTES = 4_000_000;
 const ARTICLES_PER_CHECK = 10;
 
-interface Page {
+export interface Page {
   status: number;
   url: string;
   body: string;
@@ -194,7 +194,7 @@ function noteAnswer(url: string, blocked: boolean): void {
 /** A page that was never fetched, because the PC is leaving that site alone. */
 const heldOff = (url: string, why: string): Page => ({ status: 429, url, body: '', etag: null, lastModified: null, held: why });
 
-async function get(
+export async function get(
   url: string,
   cfg: LocalConfig,
   opts: { render?: boolean; etag?: string | null; lastModified?: string | null; skip?: string[] } = {},
@@ -611,3 +611,6 @@ export async function runFetchJob(job: FetchJob, cfg: LocalConfig): Promise<Fetc
     return { jobId: job.id, ok: false, error: e.name === 'TimeoutError' ? 'The site took too long to answer' : e.message.slice(0, 300) };
   }
 }
+
+/** A plain fetch for feed suggestions, keeping to the app's "leave alone" list and the bot-check rests. */
+export const getPage = (url: string, cfg: LocalConfig): Promise<Page> => get(url, cfg, { skip: skipFor() });
