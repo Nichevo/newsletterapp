@@ -1,8 +1,9 @@
 import type { AskPreset, FetchPageStatus, ItemBody, ItemHighlights, ItemSummary, UnsubscribeResult } from '@newsletterapp/shared';
+import { noteDeleted } from '../deleted';
 import { TagChip } from '../components/TagChip';
 import { NearLinks, StoryBanner } from '../components/StoryBanner';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
 import { EmailBody } from '../components/EmailBody';
 import { RowPicture } from '../components/ItemRow';
@@ -20,6 +21,7 @@ const PLATFORM_NAME = { reddit: 'Reddit', youtube: 'YouTube', github: 'GitHub' }
 export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [item, setItem] = useState<ItemSummary | null>(null);
   const [body, setBody] = useState<ItemBody | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -181,7 +183,8 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             />
           )}
           {marks.place === 'top' && marks.notes}
-          {item.webUrl && item.kind !== 'newsletter' && item.kind !== 'ai' && (
+          {item.file && <FileBar item={item} />}
+          {item.webUrl && item.kind !== 'newsletter' && item.kind !== 'ai' && (!item.file || item.file.type === 'application/pdf') && (
             <FetchPage
               item={item}
               onFetched={async () => {
@@ -271,6 +274,17 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
         )}
         {marks.place === 'bottom' && marks.notes}
         {item && item.listUnsubscribe && <Unsubscribe item={item} onChanged={onChanged} />}
+        {item && (
+          <DeleteItem
+            item={item}
+            onDeleted={() => {
+              onChanged();
+              // Opened straight from a link (or a share): there's no list in the app to go back to.
+              if (location.key === 'default') navigate('/', { replace: true });
+              else navigate(-1);
+            }}
+          />
+        )}
       </div>
 
       <div className="reader__actions">
@@ -304,6 +318,11 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
           <a href={liveLink(item.webUrl)} target="_blank" rel="noopener noreferrer" onClick={() => api.event(id, { type: 'open_original', device: isPhone() })}>
             <IconExternal />
             {item.kind === 'newsletter' ? 'Web version' : 'Live page'}
+          </a>
+        ) : item?.file?.kept ? (
+          <a href={api.fileUrl(id)} target="_blank" rel="noopener noreferrer" onClick={() => api.event(id, { type: 'open_original', device: isPhone() })}>
+            <IconExternal />
+            {item.file.type === 'application/pdf' ? 'PDF' : 'File'}
           </a>
         ) : (
           <a href={api.rawUrl(id)} download onClick={() => api.event(id, { type: 'open_original', device: isPhone() })}>
@@ -923,6 +942,71 @@ function readLabel(item: ItemSummary): string {
   const how = item.readVia ? READ_VIA_LABEL[item.readVia] : 'Read';
   const where = item.readDevice ? ` on ${item.readDevice}` : '';
   return `${how}${where}, ${item.readAt ? longDate(item.readAt) : ''}`.replace(/, $/, '');
+}
+
+/** A page that was a file (a PDF, a picture): open the file itself, from the app's own copy when it keeps one. */
+function FileBar({ item }: { item: ItemSummary }) {
+  const file = item.file!;
+  const href = file.kept ? api.fileUrl(item.id) : item.webUrl;
+  if (!href) return null;
+  const isPdf = file.type === 'application/pdf';
+  return (
+    <div className="reader__images">
+      <span>{isPdf ? (item.wordCount ? 'Read from a PDF. Open it for the exact layout.' : 'This is a PDF.') : `This is a ${file.label}.`}</span>
+      <a className="btn btn--small" style={{ whiteSpace: 'nowrap' }} href={href} target="_blank" rel="noopener noreferrer">
+        {isPdf ? 'Open PDF' : 'Open file'}
+      </a>
+    </div>
+  );
+}
+
+/**
+ * Delete, at the very end of the article: rare, so it's out of the way and asks
+ * first. The list it goes back to offers Undo for a few seconds.
+ */
+function DeleteItem({ item, onDeleted }: { item: ItemSummary; onDeleted: () => void }) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (item.status === 'dropped') return null;
+
+  async function remove() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteItem(item.id);
+      noteDeleted(item.id, item.subject);
+      onDeleted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete it');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="reader__delete">
+      {asking ? (
+        <>
+          <span>
+            Delete this {item.savedPage ? 'page' : item.kind === 'newsletter' ? 'issue' : 'post'} for good? Its saved copy, highlights and notes go too.
+          </span>
+          <span className="inline">
+            <button className="btn btn--small btn--danger" disabled={busy} onClick={() => void remove()}>
+              {busy ? 'Deleting…' : 'Delete'}
+            </button>
+            <button className="btn btn--ghost btn--small" disabled={busy} onClick={() => setAsking(false)}>
+              Cancel
+            </button>
+          </span>
+        </>
+      ) : (
+        <button className="btn btn--ghost btn--small" onClick={() => setAsking(true)}>
+          Delete…
+        </button>
+      )}
+      {error && <span className="error">{error}</span>}
+    </div>
+  );
 }
 
 /**

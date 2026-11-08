@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Link, useSearchParams } from 'react-router-dom';
 import { rememberList } from '../readingList';
 import { api, isPhone } from '../api';
+import { UNDO_SHOW_MS, takeDeleted } from '../deleted';
 import type { Counts } from '../App';
 import { DensityToggle } from '../components/DensityToggle';
 import { FilterBar, type Filters } from '../components/FilterBar';
@@ -89,12 +90,33 @@ export function InboxPage({
   const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
-  function showToast(text: string, undo?: () => void) {
+  function showToast(text: string, undo?: () => void, ms = 6000) {
     window.clearTimeout(toastTimer.current);
     setToast({ text, undo });
-    toastTimer.current = window.setTimeout(() => setToast(null), 6000);
+    toastTimer.current = window.setTimeout(() => setToast(null), ms);
   }
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+
+  // Back from the reader after Delete: offer Undo for a few seconds.
+  useEffect(() => {
+    const d = takeDeleted();
+    if (!d) return;
+    showToast(
+      `Deleted “${d.title.length > 40 ? `${d.title.slice(0, 40)}…` : d.title}”`,
+      () => {
+        setToast(null);
+        api
+          .undeleteItem(d.id)
+          .then(() => {
+            onChanged();
+            void load(false);
+          })
+          .catch((err: unknown) => showToast(err instanceof Error ? err.message : 'Could not undo'));
+      },
+      UNDO_SHOW_MS,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const load = useCallback(
     async (append: boolean) => {

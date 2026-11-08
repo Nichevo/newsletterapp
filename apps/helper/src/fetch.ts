@@ -22,7 +22,14 @@ import {
   type PcHoldCount,
   type PcRest,
   HELPER_VERSION,
+  articleText,
+  fileKind,
+  fileTypeLabel,
+  kindFromType,
+  textFileHtml,
+  type FileKind,
 } from '@newsletterapp/shared';
+import { pdfArticle } from './pdf';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -48,7 +55,25 @@ interface Page {
   lastModified: string | null;
   /** Set when the page was not fetched at all: why the PC is leaving the site alone. */
   held?: string;
+  /** Set when the link was a file (a PDF, a picture, a Word file), which body is then empty for. */
+  file?: { kind: FileKind; type: string | null; bytes: Uint8Array | null };
 }
+
+/** Biggest file the PC downloads to read (a PDF); bigger ones are left as a link. */
+const FILE_MAX_BYTES = 60_000_000;
+
+/** The app's own address: files you uploaded are fetched from there with the helper's service token. */
+function appHeaders(url: string, cfg: LocalConfig): Record<string, string> {
+  if (!cfg.appUrl || !url.startsWith(`${cfg.appUrl}/`)) return {};
+  return {
+    'CF-Access-Client-Id': cfg.clientId,
+    'CF-Access-Client-Secret': cfg.clientSecret,
+    // Local testing against `wrangler dev` with DEV_BYPASS_AUTH.
+    ...(process.env.HELPER_DEV === '1' ? { 'X-Dev-Helper': '1' } : {}),
+  };
+}
+
+const looksLikeFile = (url: string) => /\.(pdf|png|jpe?g|gif|webp|docx?|xlsx?|pptx?|epub|zip|mp3|mp4)([?#]|$)/i.test(url);
 
 function browserCandidates(cfg: LocalConfig): string[] {
   const env = process.env;
@@ -197,26 +222,41 @@ const heldOff = (url: string, why: string): Page => ({ status: 429, url, body: '
 async function get(
   url: string,
   cfg: LocalConfig,
-  opts: { render?: boolean; etag?: string | null; lastModified?: string | null; skip?: string[] } = {},
+  opts: { render?: boolean; etag?: string | null; lastModified?: string | null; skip?: string[]; files?: boolean } = {},
 ): Promise<Page> {
-  const why = holdOff(url, opts.skip);
+  const fromApp = Object.keys(appHeaders(url, cfg)).length > 0;
+  const why = fromApp ? null : holdOff(url, opts.skip);
   if (why) return heldOff(url, why);
-  await waitTurn(url);
+  if (!fromApp) await waitTurn(url);
   let page: Page;
-  if (opts.render) page = await renderInBrowser(url, cfg);
+  // A browser shows a PDF in its viewer, which --dump-dom gives back empty: files are always downloaded.
+  if (opts.render && !fromApp && !(opts.files && looksLikeFile(url))) page = await renderInBrowser(url, cfg);
   else {
-    const headers: Record<string, string> = { ...FETCH_HEADERS };
+    const headers: Record<string, string> = { ...FETCH_HEADERS, ...appHeaders(url, cfg) };
     if (opts.etag) headers['If-None-Match'] = opts.etag;
     if (opts.lastModified) headers['If-Modified-Since'] = opts.lastModified;
-    const res = await fetch(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(30_000) });
-    page = {
-      status: res.status,
-      url: res.url || url,
-      body: res.status === 304 ? '' : await res.text(),
-      etag: res.headers.get('etag'),
-      lastModified: res.headers.get('last-modified'),
-    };
+    const res = await fetch(url, { headers, redirect: fromApp ? 'manual' : 'follow', signal: AbortSignal.timeout(opts.files ? 90_000 : 30_000) });
+    const base = { status: res.status, url: res.url || url, etag: res.headers.get('etag'), lastModified: res.headers.get('last-modified') };
+    if (opts.files && res.ok) {
+      // Article fetches: a link may be a file, which must never be read as text.
+      const type = res.headers.get('content-type');
+      const size = Number(res.headers.get('content-length') ?? 0);
+      if (size > FILE_MAX_BYTES) {
+        await res.body?.cancel();
+        page = { ...base, body: '', file: { kind: kindFromType(type) ?? 'other', type, bytes: null } };
+      } else {
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        const kind = fileKind(type, bytes.subarray(0, 4096));
+        page =
+          kind === 'page'
+            ? { ...base, body: new TextDecoder().decode(bytes) }
+            : { ...base, body: kind === 'text' ? new TextDecoder().decode(bytes) : '', file: { kind, type, bytes } };
+      }
+    } else {
+      page = { ...base, body: res.status === 304 ? '' : await res.text() };
+    }
   }
+  if (fromApp) return page;
   // A plain 403 is often just "no programs here"; a 429 or a bot-check page is the network being flagged.
   const flagged = page.status === 429 || (page.status !== 403 && page.status !== 304 && looksBlocked(page.status, page.body));
   noteAnswer(url, flagged);
@@ -556,7 +596,8 @@ async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResu
     const article = await redditComments(job.url, cfg).catch(() => null);
     return article ? { jobId: job.id, ok: true, article } : { jobId: job.id, ok: false, error: `Reddit gave no comments (or turned the PC away): ${redditTrail.join('; ')}`.slice(0, 300) };
   }
-  const page = await get(job.url, cfg, { render: job.render, skip: skipFor(job) });
+  const page = await get(job.url, cfg, { render: job.render, skip: skipFor(job), files: true });
+  if (page.file && page.status < 400) return await fileJob(job, page);
   const bad = failed(job, page);
   if (bad) {
     // The linked article is paywalled or blocked: the story's other links are still worth having.
@@ -585,6 +626,27 @@ async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResu
   if (job.wantPicture) article.picture = await pagePicture(page.body, page.url, article.image);
   if (job.postUrl) await addStoryLinks(article, job.postUrl, [job.url, page.url], cfg, skipFor(job));
   return { jobId: job.id, ok: true, article };
+}
+
+/** A link that was a file: a PDF is read into text, plain text is kept as it is, anything else is said plainly. */
+async function fileJob(job: FetchJob, page: Page): Promise<FetchJobResult> {
+  const f = page.file!;
+  if (f.kind === 'pdf') {
+    if (!f.bytes) return { jobId: job.id, ok: false, error: 'The PDF is too big for the PC to read (over 60 MB)' };
+    const article = await pdfArticle(f.bytes);
+    log(`PDF ${job.url.slice(0, 80)}: ${article.pages} pages, ${article.wordCount} words, ${article.images?.length ?? 0} pictures (${article.drawn} charts or tables drawn)`);
+    if (article.wordCount === 0 && !article.images?.length) {
+      return { jobId: job.id, ok: false, error: 'The PDF has no text in it (probably scanned pages), so there is nothing to read out of it' };
+    }
+    const { pages: _pages, drawn: _drawn, ...rest } = article;
+    return { jobId: job.id, ok: true, article: rest };
+  }
+  if (f.kind === 'text') {
+    const html = textFileHtml(page.body);
+    const text = articleText(html);
+    return { jobId: job.id, ok: true, article: { title: null, author: null, publishedAt: null, html, text, wordCount: countWords(text), fileType: 'text/plain' } };
+  }
+  return { jobId: job.id, ok: false, error: `This link is a ${fileTypeLabel(f.type, job.url)}, not a web page` };
 }
 
 /** The readable text of a web page, for lookups. Opens it in a browser only when it was built by JavaScript. */
