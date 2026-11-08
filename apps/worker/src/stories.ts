@@ -608,8 +608,9 @@ async function saveOverviews(env: Env, refs: Record<string, OverviewRef>) {
 }
 
 async function storyOverview(env: Env, storyId: string): Promise<StoryOverview | null> {
-  const ref = (await loadOverviews(env))[storyId];
-  if (!ref) return null;
+  const [refs, settings] = await Promise.all([loadOverviews(env), loadSettings(env)]);
+  const ref = refs[storyId];
+  if (!ref) return settings.stories.autoSummaries ? { auto: true, status: null, answer: null, error: null, model: null, askedAt: null, doneAt: null } : null;
   const a = ref.askId
     ? await env.DB.prepare('SELECT id, status, answer, error, model, created_at, done_at FROM asks WHERE id = ?')
         .bind(ref.askId)
@@ -623,7 +624,7 @@ async function storyOverview(env: Env, storyId: string): Promise<StoryOverview |
           .first<{ answer: string | null; model: string | null; done_at: number | null }>()
       : null;
   return {
-    auto: Boolean(ref.auto),
+    auto: ref.auto ?? settings.stories.autoSummaries,
     status: !a ? null : a.status === 'done' || a.status === 'failed' ? a.status : 'waiting',
     answer: a?.answer ?? prev?.answer ?? null,
     error: a?.error ?? null,
@@ -669,13 +670,28 @@ async function requestOverview(env: Env, storyId: string, refs: Record<string, O
   return true;
 }
 
-/** After articles join stories: stories set to keep their summary up to date get a new one queued. */
+/**
+ * After articles join stories: stories set to keep their summary up to date get a new one
+ * queued. With "Summarise every story automatically" on, that's every story active in the
+ * last two weeks (so matching old articles doesn't summarise old stories), unless the story
+ * itself has it switched off.
+ */
 async function autoOverviews(env: Env, storyIds: Iterable<string>) {
   const ids = [...new Set(storyIds)];
   if (!ids.length) return;
-  const refs = await loadOverviews(env);
+  const [refs, settings] = await Promise.all([loadOverviews(env), loadSettings(env)]);
+  const all = settings.stories.autoSummaries;
   let changed = false;
-  for (const id of ids) if (refs[id]?.auto) changed = (await requestOverview(env, id, refs)) || changed;
+  for (const id of ids) {
+    const ref = refs[id];
+    const on = ref?.auto ?? all;
+    if (!on) continue;
+    if (ref?.auto === undefined) {
+      const recent = await env.DB.prepare('SELECT 1 AS r FROM stories WHERE id = ? AND last_at >= ?').bind(id, now() - NOTE_DAYS * DAY).first();
+      if (!recent) continue;
+    }
+    changed = (await requestOverview(env, id, refs)) || changed;
+  }
   if (changed) await saveOverviews(env, refs);
 }
 

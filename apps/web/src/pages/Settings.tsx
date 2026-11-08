@@ -633,6 +633,15 @@ function StoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (
           value={st.notes}
           onChange={(v) => void onSave({ stories: { ...st, notes: v } })}
         />
+        <OptionSwitch
+          label="Summarise every story automatically"
+          value={st.autoSummaries}
+          onChange={(v) => void onSave({ stories: { ...st, autoSummaries: v } })}
+        />
+        <span className="hint">
+          Your PC writes a whole-story summary as soon as a story forms, and writes it again each time an article joins. It covers stories from the last two
+          weeks. You can still switch it off for one story on its page.
+        </span>
         {settings.categories.length > 0 && (
           <div className="field">
             <label>Stories by category</label>

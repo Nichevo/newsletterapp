@@ -312,11 +312,13 @@ export interface StorySettings {
    * titles look alike); 'off' keeps its articles out of stories. Others match as usual.
    */
   categories: Record<string, StoryCategoryMode>;
+  /** Every recent story gets a whole-story summary from the PC, rewritten as articles join (a story can still switch it off). */
+  autoSummaries: boolean;
 }
 
 export type StoryCategoryMode = 'strict' | 'off';
 
-export const DEFAULT_STORY_SETTINGS: StorySettings = { notes: true, groupSameNews: true, match: 'normal', categories: {} };
+export const DEFAULT_STORY_SETTINGS: StorySettings = { notes: true, groupSameNews: true, match: 'normal', categories: {}, autoSummaries: false };
 
 export interface UnsubscribeResult {
   /** The Worker sent the one-click request and the sender accepted it. */
