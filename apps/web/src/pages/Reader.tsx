@@ -1,4 +1,5 @@
 import type { AskPreset, FetchPageStatus, ItemBody, ItemHighlights, ItemSummary, UnsubscribeResult } from '@newsletterapp/shared';
+import { fileFilterOf, fileTag } from '@newsletterapp/shared';
 import { noteDeleted } from '../deleted';
 import { TagChip } from '../components/TagChip';
 import { NearLinks, StoryBanner } from '../components/StoryBanner';
@@ -157,6 +158,11 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             <span className="chip chip--outline">{longDate(item.receivedAt)}</span>
             {item.readAt && <span className="chip chip--outline">{readLabel(item)}</span>}
             {item.toAddress && <span className="chip chip--outline">to {item.toAddress}</span>}
+            {item.file && (
+              <Link className="chip chip--file" to={`/?kind=${fileFilterOf(item.file.type)}`} title="Show all of this type">
+                {fileTag(item.file)}
+              </Link>
+            )}
             {item.savedAt && <span className="chip chip--warn">Saved</span>}
             {item.interestingAt && <span className="chip chip--warn">★ Interesting</span>}
             {item.category && <span className="chip chip--category">{item.category}</span>}

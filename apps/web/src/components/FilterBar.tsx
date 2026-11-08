@@ -1,5 +1,8 @@
 import {
   SOURCE_TYPES,
+  FILE_FILTERS,
+  FILE_FILTER_LABEL,
+  type FileFilter,
   cycleFilterValue,
   filterState,
   matchesFilterSet,
@@ -120,7 +123,10 @@ export function FilterBar({
   // For a category, that's the sources with items in it (items often get their category from keyword
   // rules or the AI, not their source); until the server has said, sources set to that category.
   const inCategory = categorySources ? new Set(categorySources) : null;
-  const kindSet = parseFilterSet(filters.kind);
+  // File types pick items, not sources, so they leave the source list alone.
+  const isFileToken = (k: string) => (FILE_FILTERS as readonly string[]).includes(k);
+  const allKinds = parseFilterSet(filters.kind);
+  const kindSet = { include: allKinds.include.filter((k) => !isFileToken(k)), exclude: allKinds.exclude.filter((k) => !isFileToken(k)) };
   const catSet = parseFilterSet(filters.category);
   const matchingSources = sources.filter(
     (s) =>
@@ -130,6 +136,8 @@ export function FilterBar({
         !catSet.exclude.includes(s.category ?? '')),
   );
   // Reddit, YouTube and GitHub only show up as types once you follow something there.
+  // PDFs, pictures and other files come in as single pages.
+  const hasFiles = sources.some((s) => s.savedPages);
   const types = new Set<SourceType>(['newsletter', 'feed', 'site', 'ai', ...sources.map(sourceType)]);
   // The list stays folded to the chosen source until asked for, so the panel isn't a wall of chips.
   const SOURCE_PREVIEW = 8;
@@ -139,7 +147,7 @@ export function FilterBar({
     : matchingSources;
   const summary = [
     fixedView ? null : VIEW_LABEL[filters.view],
-    setLabel(filters.kind, (k) => KIND_LABEL[k as SourceType] ?? k),
+    setLabel(filters.kind, (k) => KIND_LABEL[k as SourceType] ?? FILE_FILTER_LABEL[k as FileFilter] ?? k),
     setLabel(filters.category, (c) => c),
     sourceName,
     SORT_LABEL[filters.sort],
@@ -198,6 +206,13 @@ export function FilterBar({
                 <TriPill key={k} value={filters.kind} token={k} label={KIND_LABEL[k]} onChange={(v) => onChange({ ...filters, kind: v })} />
               ))}
             </div>
+            {(hasFiles || FILE_FILTERS.some((k) => filterState(filters.kind, k) !== null)) && (
+              <div className="pills">
+                {FILE_FILTERS.map((k) => (
+                  <TriPill key={k} value={filters.kind} token={k} label={FILE_FILTER_LABEL[k]} onChange={(v) => onChange({ ...filters, kind: v })} />
+                ))}
+              </div>
+            )}
             <span className="hint">Types, categories and sources: tap once to show only that, again to hide it (✕), once more to clear. Pick as many as you like.</span>
           </div>
           {categories.length > 0 && (

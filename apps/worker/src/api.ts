@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { registerDeleting } from './deleting';
-import { normalizePostFilter, parseFilterSet, tagKey } from '@newsletterapp/shared';
+import { normalizePostFilter, parseFilterSet, tagKey, type FileFilter } from '@newsletterapp/shared';
 import type {
   Platform,
   AiMode,
@@ -147,7 +147,16 @@ const PLATFORM_SQL: Record<Platform, string> = {
   youtube: "COALESCE(sources.feed_url, '') LIKE '%youtube.com/feeds/%'",
   github: "COALESCE(sources.feed_url, '') LIKE '%github.com/%'",
 };
+/** Items kept as files (PDFs, pictures...), by the file type stored with them. */
+const FILE_TYPE = "COALESCE(items.file_type, '')";
+const FILE_SQL: Record<FileFilter, string> = {
+  pdf: `${FILE_TYPE} LIKE '%pdf%'`,
+  picture: `${FILE_TYPE} LIKE 'image/%'`,
+  textfile: `(${FILE_TYPE} LIKE 'text/%' AND ${FILE_TYPE} <> 'text/html')`,
+  otherfile: `(${FILE_TYPE} <> '' AND NOT (${FILE_TYPE} LIKE '%pdf%' OR ${FILE_TYPE} LIKE 'image/%' OR (${FILE_TYPE} LIKE 'text/%' AND ${FILE_TYPE} <> 'text/html')))`,
+};
 function typeSql(kind: string): string | null {
+  if (kind in FILE_SQL) return FILE_SQL[kind as FileFilter];
   if (kind in PLATFORM_SQL) return `(items.kind = 'feed' AND ${PLATFORM_SQL[kind as Platform]})`;
   if (kind === 'feed') return `(items.kind = 'feed' AND NOT (${Object.values(PLATFORM_SQL).join(' OR ')}))`;
   if (kind === 'newsletter' || kind === 'site' || kind === 'ai') return `items.kind = '${kind}'`;

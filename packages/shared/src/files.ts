@@ -111,3 +111,31 @@ export function fileNoteHtml(label: string, href: string): string {
   const a = /^[aeiou]/i.test(label) ? 'an' : 'a';
   return `<p><em>This link is ${a} ${esc(label)}, not a web page, so there's no article to show.</em></p><p><a href="${esc(href)}">Open the ${esc(label)}</a></p>`;
 }
+
+/** File types the inbox Type filter can pick, as filter tokens. */
+export const FILE_FILTERS = ['pdf', 'picture', 'textfile', 'otherfile'] as const;
+export type FileFilter = (typeof FILE_FILTERS)[number];
+
+export const FILE_FILTER_LABEL: Record<FileFilter, string> = {
+  pdf: 'PDFs',
+  picture: 'Pictures',
+  textfile: 'Text files',
+  otherfile: 'Other files',
+};
+
+/** Which file filter an item's stored file type falls under. */
+export function fileFilterOf(type: string): FileFilter {
+  const t = type.toLowerCase();
+  if (t.includes('pdf')) return 'pdf';
+  if (t.startsWith('image/')) return 'picture';
+  if (t.startsWith('text/') && t !== 'text/html') return 'textfile';
+  return 'otherfile';
+}
+
+/** The type tag shown on a file item: "PDF", "Picture", "Word file". */
+export function fileTag(file: { type: string; label: string }): string {
+  const t = file.type.toLowerCase();
+  if (t === 'text/html' || t === 'application/xhtml+xml') return 'Web page file';
+  const label = file.label === 'file' ? 'File' : file.label;
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}

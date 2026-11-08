@@ -1,4 +1,5 @@
 import type { ItemSummary } from '@newsletterapp/shared';
+import { fileTag } from '@newsletterapp/shared';
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -100,7 +101,7 @@ export function ItemRow({
   const kindClass = `chip chip--${item.kind}`;
   const preview = item.summary ?? item.preheader ?? item.snippet;
   const expanded = density === 'expanded';
-  const hasTags = item.savedAt || item.interestingAt || item.likely || item.category || item.sponsored || item.tags.length > 0;
+  const hasTags = item.file || item.savedAt || item.interestingAt || item.likely || item.category || item.sponsored || item.tags.length > 0;
   const showTags = hasTags && (expanded ? opts.expandedTags : density === 'card' && opts.cardTags);
   const showPreview = preview && (expanded ? true : density === 'card' && opts.cardLines > 0);
   const previewLines = expanded ? (opts.expandedFullSummary ? 'unset' : 4) : opts.cardLines;
@@ -201,6 +202,7 @@ export function ItemRow({
         {expanded && opts.expandedWhy && item.whyItMatters && <span className="row__why">Why it matters: {item.whyItMatters}</span>}
         {showTags && (
           <div className="row__tags">
+            {item.file && <span className="chip chip--file">{fileTag(item.file)}</span>}
             {item.savedAt && <span className="chip chip--warn">Saved</span>}
             {item.interestingAt && <span className="chip chip--warn">★ Interesting</span>}
             {item.likely && !item.interestingAt && !item.readAt && <span className="chip chip--outline">Likely interesting</span>}

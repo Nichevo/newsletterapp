@@ -1,5 +1,6 @@
 import { SavedTabs } from './Highlights';
 import type { ItemListResponse, ItemSummary, ItemView, Me, SavedFilter, Source } from '@newsletterapp/shared';
+import { FILE_FILTERS } from '@newsletterapp/shared';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { rememberList } from '../readingList';
@@ -65,7 +66,12 @@ export function InboxPage({
     const linked = searchParams.get('source');
     const stored = loadFilters(mode);
     const linkedView = VIEWS.find((v) => v === searchParams.get('view'));
-    return linked ? { ...stored, view: linkedView ?? (mode === 'inbox' ? 'inbox' : mode), source: linked, category: null, kind: null } : stored;
+    if (linked) return { ...stored, view: linkedView ?? (mode === 'inbox' ? 'inbox' : mode), source: linked, category: null, kind: null };
+    // /?kind=pdf (from a file's type tag in the reader) opens the inbox on that type of file.
+    const linkedKind = searchParams.get('kind');
+    if (linkedKind && (FILE_FILTERS as readonly string[]).includes(linkedKind))
+      return { view: mode === 'inbox' ? 'inbox' : mode, sort: stored.sort, source: null, category: null, kind: linkedKind };
+    return stored;
   });
   const [items, setItems] = useState<ItemSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -144,7 +150,7 @@ export function InboxPage({
   }, [filters]);
 
   useEffect(() => {
-    if (searchParams.has('source')) setSearchParams({}, { replace: true });
+    if (searchParams.has('source') || searchParams.has('kind')) setSearchParams({}, { replace: true });
     api.sources().then(setSources).catch(() => undefined);
     api
       .settings()
