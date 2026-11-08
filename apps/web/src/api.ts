@@ -131,6 +131,7 @@ export const api = {
   summariseStory: (id: string) => post<StoryOverview>(`/api/stories/${id}/summary`),
   storySummaryAuto: (id: string, on: boolean) => post<StoryOverview>(`/api/stories/${id}/summary/auto`, { on }),
   followStory: (id: string, on: boolean) => post<{ ok: boolean }>(`/api/stories/${id}/follow`, { on }),
+  closeStory: (id: string, on: boolean) => post<{ ok: boolean }>(`/api/stories/${id}/close`, { on }),
   storyNear: (id: string) => get<StoryNear[]>(`/api/items/${id}/near`),
   joinStory: (itemId: string, withId: string) => post<{ ok: boolean; storyId: string }>('/api/stories/join', { itemId, withId }),
   splitFromStory: (itemId: string) => post<{ ok: boolean }>(`/api/stories/split/${itemId}`),

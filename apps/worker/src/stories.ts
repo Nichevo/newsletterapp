@@ -321,6 +321,7 @@ export async function assignStories(env: Env, max: number): Promise<number> {
   // Story and news ids set during this run, so later items in it see them.
   const changed = new Map<string, { story_id: string | null; news_id: string | null }>();
   const grown = new Set<string>();
+  const closedStories = new Map<string, boolean>();
 
   for (const row of rows.results) {
     const t = now();
@@ -363,6 +364,16 @@ export async function assignStories(env: Env, max: number): Promise<number> {
       looksChanged = true;
     }
     const others = { results: fetched.filter((n) => (sims.get(n.id) ?? 0) >= th.story - maxLoosen) };
+    // Articles in a story the reader closed don't take new ones (nor start another story).
+    const unknownStories = [...new Set(others.results.map((n) => n.story_id).filter((id): id is string => Boolean(id) && !closedStories.has(id!)))];
+    if (unknownStories.length) {
+      const closed = await env.DB.prepare(`SELECT id, closed_at FROM stories WHERE id IN (${unknownStories.map(() => '?').join(', ')})`)
+        .bind(...unknownStories)
+        .all<{ id: string; closed_at: number | null }>();
+      for (const id of unknownStories) closedStories.set(id, false);
+      for (const x of closed.results) closedStories.set(x.id, Boolean(x.closed_at));
+    }
+    others.results = others.results.filter((n) => !(n.story_id && closedStories.get(n.story_id)));
     if (others.results.length === 0) {
       await mark(nearMiss);
       continue;
@@ -496,6 +507,7 @@ interface StoryRow {
   items: number;
   sources: number;
   followed_at: number | null;
+  closed_at?: number | null;
 }
 
 interface StepRow {
@@ -528,6 +540,7 @@ export function toStoryInfo(row: StoryRow, firstSubject?: string | null): StoryI
     items: row.items,
     sources: row.sources,
     followedAt: row.followed_at,
+    closedAt: row.closed_at ?? null,
   };
 }
 
@@ -803,7 +816,7 @@ export function registerStories(app: App) {
     const everyday = everydayTags(look);
     const rows = await c.env.DB.prepare(
       `SELECT items.id, items.subject, COALESCE(sources.name, items.from_name, items.from_email) AS source_name, items.source_id, items.received_at,
-         items.read_at, items.tags, items.status, items.story_split, items.story_id, stories.title AS story_title, stories.tags AS story_tags,
+         items.read_at, items.tags, items.status, items.story_split, items.story_id, stories.title AS story_title, stories.tags AS story_tags, stories.closed_at AS story_closed,
          ${CATEGORY_SQL} AS category
        FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN stories ON stories.id = items.story_id
        WHERE items.id IN (${near.map(() => '?').join(', ')})`,
@@ -812,6 +825,7 @@ export function registerStories(app: App) {
       .all<{
         id: string; subject: string; source_name: string | null; source_id: string | null; received_at: number; read_at: number | null; tags: string | null;
         status: string; story_split: number | null; story_id: string | null; story_title: string | null; story_tags: string | null; category: string | null;
+        story_closed: number | null;
       }>();
     const mine = new Map(parseList(item.tags).map((l) => [tagKey(l), l.trim()] as const).filter(([k]) => k));
     const keys = [...mine.keys()].slice(0, 8);
@@ -844,6 +858,7 @@ export function registerStories(app: App) {
       const storyLine = lines.story;
       let reason: string;
       if (off) reason = `Stories are off for ${off.cat}`;
+      else if (n.story_closed) reason = `Meaning ${f(sim)}, but its story is closed`;
       else if (item.story_split || n.story_split) reason = 'One of them was taken out of a story by hand';
       else if (days > STORY_DAYS) reason = `Meaning ${f(sim)}, but more than ${STORY_DAYS} days apart`;
       else if (sim < storyLine) reason = `Meaning ${f(sim)}; a story needs ${f(storyLine)} plus a shared specific tag`;
@@ -998,6 +1013,15 @@ export function registerStories(app: App) {
     if (input.on !== false && !refs[id]!.askId) await requestOverview(c.env, id, refs);
     await saveOverviews(c.env, refs);
     return c.json(await storyOverview(c.env, id));
+  });
+
+  /** "Close story": matching adds no new articles to it (Reopen undoes it). */
+  app.post('/api/stories/:id/close', async (c) => {
+    const input = (await c.req.json().catch(() => ({}))) as { on?: boolean };
+    await c.env.DB.prepare('UPDATE stories SET closed_at = ? WHERE id = ?')
+      .bind(input.on === false ? null : now(), c.req.param('id'))
+      .run();
+    return c.json({ ok: true });
   });
 
   app.post('/api/stories/:id/follow', async (c) => {
