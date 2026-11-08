@@ -180,6 +180,8 @@ export interface StoryInfo {
   items: number;
   sources: number;
   followedAt: number | null;
+  /** Closed by the reader: matching adds no new articles to it. */
+  closedAt: number | null;
 }
 
 /** A story's page: its details and every item in it, newest first. */
