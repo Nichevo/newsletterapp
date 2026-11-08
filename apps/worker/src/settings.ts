@@ -137,6 +137,7 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
   const stories: StorySettings = {
     notes: typeof st.notes === 'boolean' ? st.notes : bs.notes,
     groupSameNews: typeof st.groupSameNews === 'boolean' ? st.groupSameNews : bs.groupSameNews,
+    autoSummaries: typeof st.autoSummaries === 'boolean' ? st.autoSummaries : (bs.autoSummaries ?? false),
     match: st.match === 'loose' || st.match === 'normal' || st.match === 'strict' ? st.match : bs.match,
     categories:
       st.categories && typeof st.categories === 'object'
