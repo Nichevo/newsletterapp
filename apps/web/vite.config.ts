@@ -17,11 +17,18 @@ export default defineConfig({
         display: 'standalone',
         start_url: '/',
         // The app shows up in the phone's share sheet (installed app on Chrome or Samsung Internet):
-        // a shared link opens Add with "Just one page" filled in.
+        // a shared link opens Add with "Just one page" filled in; a shared PDF (or picture) is kept
+        // and opened in the reader while the PC reads it. The Worker answers /api/share (POST).
         share_target: {
-          action: '/add',
-          method: 'GET',
-          params: { title: 'shared_title', text: 'shared_text', url: 'shared_url' },
+          action: '/api/share',
+          method: 'POST',
+          enctype: 'multipart/form-data',
+          params: {
+            title: 'shared_title',
+            text: 'shared_text',
+            url: 'shared_url',
+            files: [{ name: 'file', accept: ['application/pdf', '.pdf', 'image/*', 'text/plain'] }],
+          },
         },
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },

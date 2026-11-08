@@ -44,6 +44,22 @@ export interface Article {
   image?: string | null;
   /** The post's picture picked from the whole page, downloaded by the PC; only when the source shows pictures. */
   picture?: Picture | null;
+  /** Set when the link was a file and the PC read the text out of it, e.g. 'application/pdf'. */
+  fileType?: string | null;
+  /**
+   * Pictures that go with the article (a PDF's pictures, and its charts and tables
+   * drawn as pictures): the html refers to each as <img src="pdf-image:N">, and the
+   * Worker stores them and swaps in their own addresses.
+   */
+  images?: ArticleImage[];
+}
+
+export interface ArticleImage {
+  /** How the html refers to it, e.g. "pdf-image:0". */
+  name: string;
+  type: string;
+  /** base64 */
+  data: string;
 }
 
 /** A post's picture for the inbox, e.g. a comic strip and its hover text. */

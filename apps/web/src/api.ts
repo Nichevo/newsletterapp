@@ -133,6 +133,7 @@ export const api = {
   summariseStory: (id: string) => post<StoryOverview>(`/api/stories/${id}/summary`),
   storySummaryAuto: (id: string, on: boolean) => post<StoryOverview>(`/api/stories/${id}/summary/auto`, { on }),
   followStory: (id: string, on: boolean) => post<{ ok: boolean }>(`/api/stories/${id}/follow`, { on }),
+  closeStory: (id: string, on: boolean) => post<{ ok: boolean }>(`/api/stories/${id}/close`, { on }),
   storyNear: (id: string) => get<StoryNear[]>(`/api/items/${id}/near`),
   joinStory: (itemId: string, withId: string) => post<{ ok: boolean; storyId: string }>('/api/stories/join', { itemId, withId }),
   splitFromStory: (itemId: string) => post<{ ok: boolean }>(`/api/stories/split/${itemId}`),
@@ -178,6 +179,19 @@ export const api = {
   discoverSource: (url: string) => post<DiscoverResult>('/api/sources/discover', { url }),
   addSource: (input: NewSourceInput) => post<NewSourceResult>('/api/sources', input),
   savePage: (url: string) => post<SavePageResult>('/api/pages', { url }),
+  /** Add > Upload a file (a PDF, usually); sent as a form so the file goes as it is. */
+  uploadFile: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/pages/file', { method: 'POST', body: form, headers: { Accept: 'application/json' } });
+    const body = (await res.json().catch(() => ({}))) as SavePageResult & { error?: string };
+    if (!res.ok) throw new ApiError(body.error ?? res.statusText, res.status);
+    return body;
+  },
+  deleteItem: (id: string) => post<{ ok: boolean }>(`/api/items/${id}/delete`),
+  undeleteItem: (id: string) => post<{ ok: boolean }>(`/api/items/${id}/undelete`),
+  /** The app's own copy of a file added as a page (a PDF, a picture). */
+  fileUrl: (id: string) => `/api/items/${id}/file`,
   importOpml: (opml: string, startWith?: number) => post<OpmlImportResult>('/api/sources/opml', { opml, startWith }),
   checkAllSources: () => post<{ due: number; cloud: number; queued: number; added: number }>('/api/sources/check-all'),
   exportMeta: () => get<{ exportedAt: number; sources: unknown[]; settings: unknown; highlights: unknown[] }>('/api/export/meta'),

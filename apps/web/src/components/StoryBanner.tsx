@@ -61,7 +61,7 @@ export function StoryBanner({ itemId, onSplit }: { itemId: string; onSplit?: () 
           <span className="sbanner__sub">
             Story · {story.items} items since {day(story.firstAt)}
             {data.read > 0 ? ` · you read ${data.read}${lastRead?.readAt ? `, last ${agoText(lastRead.readAt)}` : ''}` : ''}
-            {story.followedAt ? ' · following' : ''}
+            {story.followedAt ? ' · following' : ''}{story.closedAt ? ' · closed' : ''}
           </span>
         </span>
         <IconChevron style={{ transform: open ? 'rotate(180deg)' : undefined }} />

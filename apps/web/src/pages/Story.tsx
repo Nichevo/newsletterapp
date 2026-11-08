@@ -50,6 +50,12 @@ export function StoryPagePage() {
     await api.followStory(story.id, on).catch(() => setStory(story));
   }
 
+  async function close(on: boolean) {
+    if (!story) return;
+    setStory({ ...story, closedAt: on ? Date.now() : null });
+    await api.closeStory(story.id, on).catch(() => setStory(story));
+  }
+
   /** Opens the oldest unread item, with the story's unread items as the reader's next/previous list. */
   function readUnread() {
     if (!story) return;
@@ -94,12 +100,18 @@ export function StoryPagePage() {
               <button className={`btn btn--small${story.followedAt ? '' : ' btn--ghost'}`} aria-pressed={Boolean(story.followedAt)} onClick={() => void follow(!story.followedAt)}>
                 {story.followedAt ? 'Following' : 'Follow story'}
               </button>
+              <button className="btn btn--small btn--ghost" aria-pressed={Boolean(story.closedAt)} onClick={() => void close(!story.closedAt)}>
+                {story.closedAt ? 'Reopen story' : 'Close story'}
+              </button>
               {story.unread > 0 && (
                 <button className="btn btn--small btn--ghost" onClick={readUnread}>
                   Read the {story.unread} unread in order
                 </button>
               )}
             </div>
+            {story.closedAt && (
+              <span className="hint">Closed {day(story.closedAt)}: no new articles are added to it. You can still add one by hand with “Same story”.</span>
+            )}
             {story.followedAt && <span className="hint">New items in this story are marked “Update to a story you follow” in the inbox.</span>}
           </div>
 

@@ -200,6 +200,12 @@ select {
   color: var(--teal);
 }
 
+.btn--danger {
+  background: var(--red-ink);
+  border-color: var(--red-ink);
+  color: #fff;
+}
+
 .btn--small {
   height: 36px;
   padding: 0 14px;
@@ -810,6 +816,24 @@ select {
   background: var(--teal-tint);
   color: var(--teal-ink);
   font-size: 13px;
+}
+
+.reader__delete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-top: 32px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted, var(--ink));
+  font-size: 13px;
+}
+
+.reader__delete > .btn--ghost {
+  color: var(--muted, var(--ink));
+  margin-left: auto;
 }
 
 .reader__body {

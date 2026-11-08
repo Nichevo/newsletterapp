@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { registerDeleting } from './deleting';
 import { normalizePostFilter, parseFilterSet, tagKey } from '@newsletterapp/shared';
 import type {
   Platform,
@@ -109,10 +110,11 @@ registerPcHolds(app);
 registerTopics(app);
 registerTagList(app);
 registerStories(app);
+registerDeleting(app);
 
 // ---------- Items ----------
 
-const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category, sources.ai_mode AS source_ai_mode, sources.ai_since AS source_ai_since, sources.show_picture AS source_show_picture, sources.feed_url AS source_feed_url,
+const ITEM_SELECT = `SELECT items.*, sources.name AS source_name, sources.category AS source_category, sources.ai_mode AS source_ai_mode, sources.ai_since AS source_ai_since, sources.show_picture AS source_show_picture, sources.feed_url AS source_feed_url, sources.kind AS source_kind, sources.url AS source_url,
     ai_runs.provider AS run_provider, ai_runs.model AS run_model, ai_runs.prompt_version AS run_prompt_version,
     ai_runs.seconds AS run_seconds, ai_runs.rating AS run_rating,
     stories.title AS story_title, stories.tags AS story_tags, stories.items AS story_items, stories.followed_at AS story_followed_at

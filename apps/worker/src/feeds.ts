@@ -25,6 +25,17 @@ import {
   type Picture,
   type SavePageInput,
   type SavePageResult,
+  type Article,
+  type ArticleImage,
+  type FileKind,
+  KEEP_FILE_MAX_BYTES,
+  fileKind,
+  fileNameFromUrl,
+  fileNoteHtml,
+  fileTypeLabel,
+  kindFromType,
+  textFileHtml,
+  titleFromFileName,
   DEFAULT_DAILY_CAP,
   normalizePostFilter,
   passesPostFilter,
@@ -167,6 +178,20 @@ function keepPicture(env: Env, itemId: string, p: Picture, puts: Promise<unknown
   if (!p.data) return { src: p.src, title: p.title, alt: p.alt ?? null };
   puts.push(env.RAW.put(`items/${itemId}/picture`, Buffer.from(p.data, 'base64'), { httpMetadata: { contentType: p.type || 'image/jpeg' } }));
   return { src: `/api/items/${itemId}/picture`, title: p.title, alt: p.alt ?? null };
+}
+
+/** Stores the pictures that came with an article and points its html at them (pdf-image:N -> /api/items/<id>/images/N). */
+async function keepArticleImages(env: Env, itemId: string, html: string, images: ArticleImage[]): Promise<string> {
+  let out = html;
+  const puts: Promise<unknown>[] = [];
+  for (const [n, img] of images.slice(0, 60).entries()) {
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(img.type) || !img.data) continue;
+    puts.push(env.RAW.put(`items/${itemId}/images/${n}`, Buffer.from(img.data, 'base64'), { httpMetadata: { contentType: img.type } }));
+    out = out.split(`"${img.name}"`).join(`"/api/items/${itemId}/images/${n}"`);
+  }
+  await Promise.all(puts);
+  // Any left unmatched would show as broken pictures.
+  return out.replace(/<p><img src="pdf-image:\d+"[^>]*><\/p>/g, '');
 }
 
 /** The saved page shows the kept copy too, so the reader's picture doesn't break when the site's link expires. */
@@ -725,11 +750,77 @@ async function savedPagesSource(env: Env): Promise<SourceRow> {
   return (await env.DB.prepare(sql).first<SourceRow>())!;
 }
 
+interface FetchedLink extends Fetched {
+  /** What the link turned out to be: a web page, plain text, a PDF, a picture or some other file. */
+  fileKind: FileKind;
+  contentType: string | null;
+  /** The file itself, for PDFs and pictures small enough to keep. */
+  bytes: Uint8Array | null;
+}
+
+/**
+ * Fetches a link that may be a file rather than a page. Pages and text come
+ * back as text, as fetchText does; anything else is never decoded as text
+ * (that turned a PDF into a screenful of junk characters).
+ */
+async function fetchLink(url: string): Promise<FetchedLink> {
+  const base: FetchedLink = {
+    ok: false,
+    status: 0,
+    url,
+    body: '',
+    etag: null,
+    lastModified: null,
+    notModified: false,
+    blocked: false,
+    error: null,
+    fileKind: 'page',
+    contentType: null,
+    bytes: null,
+  };
+  try {
+    const res = await fetch(url, { headers: FETCH_HEADERS, redirect: 'follow', signal: AbortSignal.timeout(15_000) });
+    const out: FetchedLink = { ...base, status: res.status, url: res.url || url, contentType: res.headers.get('content-type') };
+    const size = Number(res.headers.get('content-length') ?? 0);
+    const typed = kindFromType(out.contentType);
+    if (size > MAX_BYTES) {
+      await res.body?.cancel();
+      // Too big to read here; the PC can still fetch a big PDF.
+      return { ...out, fileKind: typed ?? 'other', ok: res.ok, error: res.ok ? null : `The site answered ${res.status}` };
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    out.fileKind = res.ok ? fileKind(out.contentType, bytes.subarray(0, 4096)) : 'page';
+    if (out.fileKind === 'page' || out.fileKind === 'text') {
+      out.body = new TextDecoder().decode(bytes);
+      out.blocked = looksBlocked(res.status, out.body);
+    } else if (bytes.length <= KEEP_FILE_MAX_BYTES && (out.fileKind === 'pdf' || out.fileKind === 'image')) {
+      out.bytes = bytes;
+    }
+    out.ok = res.ok && !out.blocked;
+    if (!out.ok) out.error = out.blocked ? `The site turned Cloudflare away (${res.status})` : `The site answered ${res.status}`;
+    return out;
+  } catch (err) {
+    return { ...base, error: err instanceof Error && err.name === 'TimeoutError' ? 'The site took too long to answer' : 'Could not reach the site' };
+  }
+}
+
+/** The stored type for a file: what the server said, else what the bytes showed. */
+function fileTypeOf(f: FetchedLink): string {
+  const t = (f.contentType ?? '').split(';')[0]!.trim().toLowerCase();
+  if (f.fileKind === 'pdf') return 'application/pdf';
+  if (f.fileKind === 'image') return t.startsWith('image/') ? t : 'image/jpeg';
+  return t && t !== 'application/octet-stream' && t !== 'binary/octet-stream' ? t : 'application/octet-stream';
+}
+
 /**
  * Adds one web page to the inbox without following its site. Cloudflare tries
  * first; when it is turned away, or the page is built by JavaScript or has too
  * little text, the item goes in straight away and the PC fetches a clean copy
  * (the same job as the reader's Fetch full page).
+ *
+ * Links to files are handled by what they are: a PDF is kept and the PC reads
+ * its text; a picture is kept and shown; plain text is shown as it is; any other
+ * file (Word, zip, video) gets a short note and a link, never its bytes as text.
  */
 export async function savePage(env: Env, url: string): Promise<SavePageResult> {
   const source = await savedPagesSource(env);
@@ -741,67 +832,202 @@ export async function savePage(env: Env, url: string): Promise<SavePageResult> {
     .first<{ id: string; subject: string }>();
   if (earlier) return { itemId: earlier.id, already: true, waitingForPc: false, helperOnline: await helperOnline(env), title: earlier.subject };
 
-  const f = await fetchText(url);
-  const pageUrl = f.ok ? f.url || url : url;
-  const article = f.ok ? extractArticle(f.body, pageUrl) : null;
-  const good = article !== null && article.wordCount >= GOOD_COPY_WORDS && !looksScripted(f.body);
+  const f = await fetchLink(url);
+  const pageUrl = f.ok || f.fileKind !== 'page' ? f.url || url : url;
   const host = new URL(pageUrl).hostname.replace(/^www\./, '');
-  const title = (article?.title ?? (f.ok ? pageTitle(f.body) : null) ?? `${host}${new URL(pageUrl).pathname.replace(/\/$/, '')}`).slice(0, 500);
-
+  const fileName = fileNameFromUrl(pageUrl);
   const id = newId();
+  // Plain text reads as it is, like a page; anything else is kept as a file the reader can open.
+  const isFile = f.fileKind !== 'page' && f.fileKind !== 'text';
+  const fileType = isFile ? fileTypeOf(f) : null;
+  const fileKey = f.bytes ? `items/${id}/file` : null;
+  const fileHref = fileKey ? `/api/items/${id}/file` : pageUrl;
+
+  let article: Article | null = null;
+  let html: string;
+  let text: string | null = null;
+  let good = false;
+  let toPc = false;
+  let title: string;
+  let picture: { src: string; title: string | null; alt: string | null } | null = null;
+  if (f.fileKind === 'page') {
+    article = f.ok ? extractArticle(f.body, pageUrl) : null;
+    good = article !== null && article.wordCount >= GOOD_COPY_WORDS && !looksScripted(f.body);
+    title = article?.title ?? (f.ok ? pageTitle(f.body) : null) ?? `${host}${new URL(pageUrl).pathname.replace(/\/$/, '')}`;
+    // Until the PC's copy arrives the reader shows a short note with a link to the page.
+    html = good
+      ? article!.html
+      : `<p><em>Your PC is fetching a clean copy of this page.</em></p><p><a href="${escapeAttr(pageUrl)}">Open ${escapeAttr(host)}</a></p>`;
+    text = good ? article!.text : null;
+    toPc = !good;
+    picture = article ? leadImage(article.html, pageUrl, article.image) : null;
+  } else if (f.fileKind === 'text') {
+    html = textFileHtml(f.body);
+    text = f.body.replace(/\s+/g, ' ').trim();
+    good = countWords(text) > 0;
+    title = titleFromFileName(fileName);
+  } else if (f.fileKind === 'pdf') {
+    // The Worker has too little time to read a PDF; the PC turns it into text.
+    title = titleFromFileName(fileName);
+    html = `<p><em>Your PC is reading the text out of this PDF.</em></p><p><a href="${escapeAttr(fileHref)}">Open the PDF</a></p>`;
+    toPc = true;
+  } else if (f.fileKind === 'image') {
+    title = titleFromFileName(fileName);
+    html = `<p><img src="${escapeAttr(fileHref)}" alt="${escapeAttr(title)}"></p>`;
+    picture = { src: fileHref, title: null, alt: title };
+  } else {
+    title = titleFromFileName(fileName);
+    html = fileNoteHtml(fileTypeLabel(f.contentType, pageUrl), pageUrl);
+  }
+  title = title.slice(0, 500);
+
+  return storeSavedItem(env, source, {
+    id,
+    key,
+    title,
+    author: article?.author ?? host,
+    html,
+    text,
+    good,
+    webUrl: pageUrl,
+    jobUrl: toPc ? pageUrl : null,
+    picture,
+    fileType,
+    file: fileKey && f.bytes ? f.bytes : null,
+  });
+}
+
+interface SavedItemInput {
+  id: string;
+  /** Tells a page added twice apart from a new one (its canonical address, or the uploaded file's name and size). */
+  key: string;
+  title: string;
+  author: string | null;
+  html: string;
+  text: string | null;
+  /** The copy is readable as it is: goes to the AI straight away. */
+  good: boolean;
+  webUrl: string | null;
+  /** The PC fetches (or reads) this address to make the copy. */
+  jobUrl: string | null;
+  picture: { src: string; title: string | null; alt: string | null } | null;
+  fileType: string | null;
+  /** The file itself, kept at items/<id>/file. */
+  file: Uint8Array | null;
+}
+
+/** Stores a page or file added on its own under Saved pages, and queues the PC's job when there is one. */
+async function storeSavedItem(env: Env, source: SourceRow, it: SavedItemInput): Promise<SavePageResult> {
+  const { id, html, text, good } = it;
   const t = now();
-  // Until the PC's copy arrives the reader shows a short note with a link to the page.
-  const html = good
-    ? article!.html
-    : `<p><em>Your PC is fetching a clean copy of this page.</em></p><p><a href="${escapeAttr(pageUrl)}">Open ${escapeAttr(host)}</a></p>`;
-  const text = good ? article!.text : null;
+  const title = it.title.slice(0, 500);
   const quick = good ? quickSummary(html, text) : { preheader: null, wordCount: 0, sponsored: false };
-  const picture = article ? leadImage(article.html, pageUrl, article.image) : null;
   const settings = await loadSettings(env);
   const htmlKey = `items/${id}/body.html`;
-  await env.RAW.put(htmlKey, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
+  const fileKey = it.file ? `items/${id}/file` : null;
+  await Promise.all([
+    env.RAW.put(htmlKey, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } }),
+    fileKey && it.file ? env.RAW.put(fileKey, it.file, { httpMetadata: { contentType: it.fileType ?? 'application/octet-stream' } }) : null,
+  ]);
   const stmts = [
     env.DB.prepare(
       `INSERT INTO items (
          id, source_id, kind, status, subject, from_name, snippet, received_at, message_id, html_key, has_html,
-         web_url, created_at, preheader, word_count, category, sponsored, ai_status, lead_image, lead_image_title, lead_image_alt
-       ) VALUES (?, ?, 'site', 'inbox', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         web_url, created_at, preheader, word_count, category, sponsored, ai_status, lead_image, lead_image_title, lead_image_alt,
+         file_type, file_key
+       ) VALUES (?, ?, 'site', 'inbox', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       id,
       source.id,
       title,
-      article?.author ?? host,
+      it.author,
       text ? snippetOf(text) : null,
       // When you added it, so it sits at the top of the inbox.
       t,
-      key,
+      it.key,
       htmlKey,
-      pageUrl,
+      it.webUrl,
       t,
       quick.preheader,
       quick.wordCount,
       categoryFromRules(settings.keywordRules, title, quick.preheader),
       quick.sponsored ? 1 : 0,
-      // Waits for the PC's copy before going to the AI.
+      // Waits for the PC's copy before going to the AI; pictures and other files have no words for it.
       good ? 'pending' : null,
-      picture?.src ?? null,
-      picture?.title ?? null,
-      picture?.alt ?? null,
+      it.picture?.src ?? null,
+      it.picture?.title ?? null,
+      it.picture?.alt ?? null,
+      it.fileType,
+      fileKey,
     ),
   ];
-  if (!good) {
+  if (it.jobUrl) {
     stmts.push(
       env.DB.prepare("INSERT INTO fetch_jobs (id, kind, source_id, item_id, url, created_at, force) VALUES (?, 'article', ?, ?, ?, ?, 1)").bind(
         newId(),
         source.id,
         id,
-        pageUrl,
+        it.jobUrl,
         t,
       ),
     );
   }
   await env.DB.batch(stmts);
-  return { itemId: id, already: false, waitingForPc: !good, helperOnline: good ? true : await helperOnline(env), title };
+  const waitingForPc = it.jobUrl !== null;
+  return { itemId: id, already: false, waitingForPc, helperOnline: waitingForPc ? await helperOnline(env) : true, title };
+}
+
+/** Most an uploaded or shared file may be. */
+const UPLOAD_MAX_BYTES = 25_000_000;
+
+/**
+ * A file you uploaded or shared from the phone (a PDF, usually). The app keeps
+ * it; a PDF goes to the PC to be read into text, fetched back from the app.
+ */
+export async function saveUpload(env: Env, origin: string, file: File): Promise<SavePageResult> {
+  if (file.size > UPLOAD_MAX_BYTES) throw new Error('That file is bigger than 25 MB');
+  const source = await savedPagesSource(env);
+  const name = (file.name || 'file').slice(0, 200);
+  const key = `upload:${name}:${file.size}`;
+  const earlier = await env.DB.prepare(
+    "SELECT id, subject FROM items INDEXED BY items_source WHERE source_id = ? AND message_id = ? AND status != 'dropped' LIMIT 1",
+  )
+    .bind(source.id, key)
+    .first<{ id: string; subject: string }>();
+  if (earlier) return { itemId: earlier.id, already: true, waitingForPc: false, helperOnline: await helperOnline(env), title: earlier.subject };
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const kind = fileKind(file.type || null, bytes.subarray(0, 4096));
+  const id = newId();
+  const href = `/api/items/${id}/file`;
+  const title = titleFromFileName(name);
+  const typed = (file.type || '').toLowerCase();
+  const fileType =
+    kind === 'pdf' ? 'application/pdf' : kind === 'image' ? (typed.startsWith('image/') ? typed : 'image/jpeg') : kind === 'page' ? 'text/html' : typed || 'application/octet-stream';
+  const base = { id, key, title, author: null, webUrl: null, fileType, file: bytes, picture: null, text: null, good: false, jobUrl: null };
+  if (kind === 'pdf') {
+    return storeSavedItem(env, source, {
+      ...base,
+      html: `<p><em>Your PC is reading the text out of this PDF.</em></p><p><a href="${escapeAttr(href)}">Open the PDF</a></p>`,
+      // The PC fetches it from the app (helper-only address, with its service token).
+      jobUrl: `${origin}/api/helper/files/${id}`,
+    });
+  }
+  if (kind === 'image') {
+    return storeSavedItem(env, source, {
+      ...base,
+      html: `<p><img src="${escapeAttr(href)}" alt="${escapeAttr(title)}"></p>`,
+      picture: { src: href, title: null, alt: title },
+    });
+  }
+  if (kind === 'text' || kind === 'page') {
+    const raw = new TextDecoder().decode(bytes);
+    const article = kind === 'page' ? extractArticle(raw, `${origin}${href}`) : null;
+    const html = article ? article.html : textFileHtml(raw);
+    const text = article ? article.text : raw.replace(/\s+/g, ' ').trim();
+    return storeSavedItem(env, source, { ...base, title: article?.title ?? title, html, text, good: countWords(text) > 0 });
+  }
+  return storeSavedItem(env, source, { ...base, html: fileNoteHtml(fileTypeLabel(file.type, name), href) });
 }
 
 export function registerFeeds(app: App) {
@@ -945,6 +1171,85 @@ export function registerFeeds(app: App) {
     return c.json(await savePage(c.env, url), 201);
   });
 
+  /** Add > Upload a file: a PDF (or any file) from this device. */
+  app.post('/api/pages/file', async (c) => {
+    const form = await c.req.formData().catch(() => null);
+    const file = form?.get('file');
+    if (!file || typeof file === 'string') return c.json({ error: 'Choose a file to upload' }, 400);
+    try {
+      return c.json(await saveUpload(c.env, new URL(c.req.url).origin, file), 201);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'Upload failed' }, 400);
+    }
+  });
+
+  /**
+   * The phone's share sheet (installed app): a shared file is kept and opened in
+   * the reader; a shared link opens Add with "Just one page" filled in, as before.
+   */
+  app.post('/api/share', async (c) => {
+    const form = await c.req.formData().catch(() => null);
+    const file = form?.getAll('file').find((f): f is File => typeof f !== 'string' && f.size > 0);
+    if (file) {
+      try {
+        const saved = await saveUpload(c.env, new URL(c.req.url).origin, file);
+        return c.redirect(`/item/${saved.itemId}`, 303);
+      } catch (err) {
+        return c.redirect(`/add?share_error=${encodeURIComponent(err instanceof Error ? err.message : 'Upload failed')}`, 303);
+      }
+    }
+    const q = new URLSearchParams();
+    for (const k of ['shared_url', 'shared_text', 'shared_title']) {
+      const v = form?.get(k);
+      if (typeof v === 'string' && v) q.set(k, v);
+    }
+    return c.redirect(`/add?${q.toString()}`, 303);
+  });
+
+  /** Pictures that came with an article read from a PDF (its pictures, charts and tables). */
+  app.get('/api/items/:id/images/:n', async (c) => {
+    const id = c.req.param('id');
+    const n = c.req.param('n');
+    const obj = /^[\w-]{1,64}$/.test(id) && /^\d{1,3}$/.test(n) ? await c.env.RAW.get(`items/${id}/images/${n}`) : null;
+    if (!obj) return c.json({ error: 'not found' }, 404);
+    return new Response(obj.body, {
+      headers: { 'Content-Type': obj.httpMetadata?.contentType ?? 'image/png', 'Cache-Control': 'private, max-age=31536000, immutable' },
+    });
+  });
+
+  /** The PC's way to an uploaded file it reads (a PDF shared from the phone). */
+  app.get('/api/helper/files/:id', async (c) => {
+    const id = c.req.param('id');
+    const row = /^[\w-]{1,64}$/.test(id)
+      ? await c.env.DB.prepare('SELECT file_key, file_type FROM items WHERE id = ?').bind(id).first<{ file_key: string | null; file_type: string | null }>()
+      : null;
+    const obj = row?.file_key ? await c.env.RAW.get(row.file_key) : null;
+    if (!row || !obj) return c.json({ error: 'not found' }, 404);
+    return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType ?? row.file_type ?? 'application/octet-stream' } });
+  });
+
+  /** The app's own copy of a file added as a page (a PDF, a picture). */
+  app.get('/api/items/:id/file', async (c) => {
+    const id = c.req.param('id');
+    const row = /^[\w-]{1,64}$/.test(id)
+      ? await c.env.DB.prepare('SELECT file_key, file_type, subject, web_url FROM items WHERE id = ?')
+          .bind(id)
+          .first<{ file_key: string | null; file_type: string | null; subject: string; web_url: string | null }>()
+      : null;
+    const obj = row?.file_key ? await c.env.RAW.get(row.file_key) : null;
+    if (!row || !obj) return c.json({ error: 'not found' }, 404);
+    const name = (row.web_url ? fileNameFromUrl(row.web_url) : row.subject).replace(/["\\\r\n]/g, '').slice(0, 150) || 'file';
+    return new Response(obj.body, {
+      headers: {
+        'Content-Type': obj.httpMetadata?.contentType ?? row.file_type ?? 'application/octet-stream',
+        // Opens in the browser's own viewer (PDFs, pictures) rather than downloading straight away.
+        'Content-Disposition': `inline; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+        'Cache-Control': 'private, max-age=31536000, immutable',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
+  });
+
   app.post('/api/sources/:id/check', async (c) => {
     const row = await loadSourceRow(c.env, c.req.param('id'));
     if (!row || (row.kind !== 'feed' && row.kind !== 'site') || isSavedPages(row)) return c.json({ error: 'not found' }, 404);
@@ -1050,7 +1355,7 @@ export function registerFeeds(app: App) {
         : null;
       // Asked for from the reader: the page as it is now replaces the saved copy, whatever its length.
       const wanted =
-        job.force || comments ? Boolean(a?.html && a.wordCount > 0) : Boolean(a?.html && a.wordCount > Math.max(item?.word_count ?? 0, 50));
+        job.force || comments ? Boolean(a?.html && (a.wordCount > 0 || (a.images?.length ?? 0) > 0)) : Boolean(a?.html && a.wordCount > Math.max(item?.word_count ?? 0, 50));
       // The post's picture: a copy the PC downloaded always wins (some sites' picture links expire);
       // otherwise the feed's own picture stays, and a post with none (or only a logo) takes the page's.
       let picture: { src: string; title: string | null; alt?: string | null } | null = null;
@@ -1069,6 +1374,8 @@ export function registerFeeds(app: App) {
         const quick = quickSummary(a.html, a.text);
         const key = `items/${item.id}/body.html`;
         let html = a.picture && picture ? swapPictureSrc(a.html, a.picture.src, picture.src) : a.html;
+        // A PDF's pictures (and its charts and tables, drawn by the PC): kept here, under their own addresses.
+        if (a.images?.length) html = await keepArticleImages(c.env, item.id, html, a.images);
         if ((source?.follow_link === 1 || comments) && item.html_key) {
           // The aggregator's own summary stays on top, the linked article under it (replaced on a re-fetch).
           const feedCopy = (await (await c.env.RAW.get(item.html_key))?.text())?.split('<hr data-linked-article>')[0];
@@ -1089,6 +1396,10 @@ export function registerFeeds(app: App) {
             item.id,
           )
           .run();
+        // The link was a file the PC read the text out of (a PDF): the reader offers the file itself too.
+        if (a.fileType) {
+          await c.env.DB.prepare('UPDATE items SET file_type = COALESCE(file_type, ?) WHERE id = ?').bind(a.fileType.slice(0, 100), item.id).run();
+        }
         // A page added on its own: the PC's copy gives it its real title and author.
         if (source && isSavedPages(source) && (a.title || a.author)) {
           await c.env.DB.prepare('UPDATE items SET subject = COALESCE(?, subject), from_name = COALESCE(?, from_name) WHERE id = ?')
@@ -1104,7 +1415,9 @@ export function registerFeeds(app: App) {
           const why = r.ok ? 'The page came back with no readable article.' : error;
           await c.env.RAW.put(
             item.html_key,
-            `<p><em>Couldn't get a copy of this page: ${escapeAttr(why)}</em></p><p><a href="${escapeAttr(job.url)}">Open the page</a></p>`,
+            job.url.includes('/api/helper/files/')
+              ? `<p><em>Your PC couldn't read this file: ${escapeAttr(why)}</em></p><p><a href="/api/items/${escapeAttr(item.id)}/file">Open the file</a></p>`
+              : `<p><em>Couldn't get a copy of this page: ${escapeAttr(why)}</em></p><p><a href="${escapeAttr(job.url)}">Open the page</a></p>`,
             { httpMetadata: { contentType: 'text/html; charset=utf-8' } },
           );
           await c.env.DB.prepare('UPDATE items SET body_v = body_v + 1 WHERE id = ?').bind(item.id).run();

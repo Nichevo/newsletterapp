@@ -1,5 +1,5 @@
 import { parseRhythm } from './rhythm';
-import { DEFAULT_DAILY_CAP, EMPTY_POST_FILTER, normalizePostFilter, platformOf, type PostFilter } from '@newsletterapp/shared';
+import { DEFAULT_DAILY_CAP, EMPTY_POST_FILTER, fileTypeLabel, normalizePostFilter, platformOf, type PostFilter } from '@newsletterapp/shared';
 import type {
   AiMode,
   AiStatus,
@@ -120,6 +120,9 @@ export interface ItemRow {
   lead_image?: string | null;
   lead_image_title?: string | null;
   lead_image_alt?: string | null;
+  file_type?: string | null;
+  file_key?: string | null;
+  deleted_at?: number | null;
   archived_at: number | null;
   summary: string | null;
   key_points: string | null;
@@ -156,6 +159,8 @@ export interface ItemJoined {
   source_ai_since?: number | null;
   source_show_picture?: number | null;
   source_feed_url?: string | null;
+  source_kind?: string | null;
+  source_url?: string | null;
   run_provider?: string | null;
   run_model?: string | null;
   run_prompt_version?: number | null;
@@ -296,6 +301,8 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<Summa
         : null,
     newsId: row.news_id ?? null,
     hasNear: !row.story_id && nearestSim(row.neighbours ?? null) >= NEAR_SHOW,
+    file: row.file_type ? { type: row.file_type, label: fileTypeLabel(row.file_type, row.web_url ?? ''), kept: Boolean(row.file_key) } : null,
+    savedPage: row.source_kind != null && isSavedPages({ kind: row.source_kind, url: row.source_url }),
   };
 }
 

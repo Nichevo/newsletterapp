@@ -7,6 +7,7 @@ import { DEFAULT_SKIP_SITES, type Article, type FeedEntry } from './web';
 export * from './web';
 export * from './suggest';
 export * from './highlights';
+export * from './files';
 
 /** 'ai' = an article written by the AI from a highlight (the "AI notes" source). */
 export type ItemKind = 'newsletter' | 'feed' | 'site' | 'ai';
@@ -111,6 +112,13 @@ export interface ItemSummary {
   newsId: string | null;
   /** Not in a story, but an older item came close in meaning ("Close, but not linked" in the reader). */
   hasNear?: boolean;
+  /**
+   * The link was a file, not a web page (a PDF, a picture): its type, and whether
+   * the app keeps its own copy (served at /api/items/:id/file) or only links to it.
+   */
+  file: { type: string; label: string; kept: boolean } | null;
+  /** Added on its own (Add > Just one page): it can be deleted. */
+  savedPage: boolean;
 }
 
 /** The story an item belongs to, as shown on its inbox row. */
@@ -181,6 +189,8 @@ export interface StoryInfo {
   items: number;
   sources: number;
   followedAt: number | null;
+  /** Closed by the reader: matching adds no new articles to it. */
+  closedAt: number | null;
 }
 
 /** A story's page: its details and every item in it, newest first. */
