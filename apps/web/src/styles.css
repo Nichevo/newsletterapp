@@ -271,6 +271,14 @@ select {
   color: var(--ink);
 }
 
+/* The type of a file item: PDF, Picture, Word file */
+.chip--file {
+  background: transparent;
+  color: var(--teal-ink);
+  border: 1px solid var(--teal);
+  font-weight: 600;
+}
+
 /* Filter bar */
 .filterbar {
   padding: 0 16px 8px;

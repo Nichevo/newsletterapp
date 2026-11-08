@@ -5,6 +5,7 @@ import {
   SOURCE_TYPES,
   formatFilterSet,
   parseFilterSet,
+  FILE_FILTERS,
   type AppSettings,
   type DigestOptions,
   TOPICS_DAYS,
@@ -92,7 +93,7 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
   };
   const cleanTypes = (v: string) => {
     const set = parseFilterSet(v);
-    const ok = (t: string) => (SOURCE_TYPES as string[]).includes(t);
+    const ok = (t: string) => (SOURCE_TYPES as string[]).includes(t) || (FILE_FILTERS as readonly string[]).includes(t);
     return formatFilterSet({ include: set.include.filter(ok), exclude: set.exclude.filter(ok) });
   };
   const savedFilters: SavedFilter[] = Array.isArray(input.savedFilters)
