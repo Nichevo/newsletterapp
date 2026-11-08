@@ -546,7 +546,8 @@ export function registerHighlights(app: App) {
   // Latest questions from the Ask the AI page (item_id '' marks them), for their status there.
   app.get('/api/asks/free', async (c) => {
     const rows = await c.env.DB.prepare(
-      "SELECT * FROM asks INDEXED BY asks_item WHERE item_id = '' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 10",
+      // Story summaries go through the same queue but belong on their story page.
+      "SELECT * FROM asks INDEXED BY asks_item WHERE item_id = '' AND deleted_at IS NULL AND label NOT LIKE 'Story summary:%' ORDER BY created_at DESC LIMIT 10",
     ).all<AskRow>();
     const waiting = rows.results.some((a) => a.status === 'pending' || a.status === 'working');
     const helper = waiting ? await readJson<{ lastSeenAt?: number }>(c.env, 'helper') : null;

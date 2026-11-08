@@ -1,5 +1,7 @@
 import {
+  fillAskPrompt,
   tagKey,
+  type StoryOverview,
   type StoryBanner,
   type StoryInfo,
   type StoryList,
@@ -318,6 +320,7 @@ export async function assignStories(env: Env, max: number): Promise<number> {
   const tagN = new Map<string, number>();
   // Story and news ids set during this run, so later items in it see them.
   const changed = new Map<string, { story_id: string | null; news_id: string | null }>();
+  const grown = new Set<string>();
 
   for (const row of rows.results) {
     const t = now();
@@ -437,7 +440,9 @@ export async function assignStories(env: Env, max: number): Promise<number> {
     changed.set(row.id, { story_id: storyId, news_id: newsId });
     await env.DB.batch(stmts);
     await refreshStory(env, storyId);
+    grown.add(storyId);
   }
+  if (grown.size) await autoOverviews(env, grown).catch((err: unknown) => console.error('story summaries failed', err));
   if (looksChanged) await writeJson(env, 'story_looks', trimLooks(looks));
   return rows.results.length;
 }
@@ -566,6 +571,112 @@ async function storySteps(env: Env, storyId: string, limit = STORY_ITEMS_MAX): P
     .bind(storyId, limit)
     .all<StepRow>();
   return rows.results.map(toStep);
+}
+
+// ---------- Whole-story summary ----------
+//
+// "Summarise the whole story" on the story page: one question for the PC, sent through the
+// same queue as highlight questions, so the answer also arrives as an "AI notes" article.
+// Which question belongs to which story is kept in one settings row.
+
+const OVERVIEW_PROMPT = `You follow an ongoing news story for one reader. These are the articles in it, oldest first (date · source · headline, then what each one added):
+
+{quote}
+
+Write an overview of the whole story for the reader:
+- one short paragraph on what the story is about;
+- the key developments in order, as a bulleted list starting with the date;
+- a short paragraph on where things stand now and what to watch for next.
+Use only what the articles say.`;
+const OVERVIEW_KEEP = 200;
+
+interface OverviewRef {
+  askId: string | null;
+  /** The summary before askId, shown while askId is still being written. */
+  prevAskId?: string | null;
+  at: number;
+  /** Write a new summary each time an article joins the story. */
+  auto?: boolean;
+}
+
+async function loadOverviews(env: Env): Promise<Record<string, OverviewRef>> {
+  return (await readJson<Record<string, OverviewRef>>(env, 'story_overviews')) ?? {};
+}
+
+async function saveOverviews(env: Env, refs: Record<string, OverviewRef>) {
+  await writeJson(env, 'story_overviews', Object.fromEntries(Object.entries(refs).sort((a, b) => b[1].at - a[1].at).slice(0, OVERVIEW_KEEP)));
+}
+
+async function storyOverview(env: Env, storyId: string): Promise<StoryOverview | null> {
+  const ref = (await loadOverviews(env))[storyId];
+  if (!ref) return null;
+  const a = ref.askId
+    ? await env.DB.prepare('SELECT id, status, answer, error, model, created_at, done_at FROM asks WHERE id = ?')
+        .bind(ref.askId)
+        .first<{ id: string; status: string; answer: string | null; error: string | null; model: string | null; created_at: number; done_at: number | null }>()
+    : null;
+  // While a newer summary is being written, the last finished one is shown.
+  const prev =
+    a && a.status !== 'done' && ref.prevAskId
+      ? await env.DB.prepare("SELECT answer, model, done_at FROM asks WHERE id = ? AND status = 'done'")
+          .bind(ref.prevAskId)
+          .first<{ answer: string | null; model: string | null; done_at: number | null }>()
+      : null;
+  return {
+    auto: Boolean(ref.auto),
+    status: !a ? null : a.status === 'done' || a.status === 'failed' ? a.status : 'waiting',
+    answer: a?.answer ?? prev?.answer ?? null,
+    error: a?.error ?? null,
+    model: a?.model ?? prev?.model ?? null,
+    askedAt: a?.created_at ?? null,
+    doneAt: a?.done_at ?? prev?.done_at ?? null,
+  };
+}
+
+/**
+ * Queues a whole-story summary for the PC. If the last one is still waiting it is rewritten
+ * with the latest articles instead, so a busy story gets one summary, not one per article.
+ */
+async function requestOverview(env: Env, storyId: string, refs: Record<string, OverviewRef>): Promise<boolean> {
+  const story = await env.DB.prepare('SELECT * FROM stories WHERE id = ?').bind(storyId).first<StoryRow>();
+  if (!story) return false;
+  const steps = (await storySteps(env, story.id, 40)).reverse();
+  if (steps.length < 2) return false;
+  const timeline = steps
+    .map((s) => {
+      const added = s.note ?? s.summary;
+      return `- ${new Date(s.receivedAt).toISOString().slice(0, 10)} · ${s.sourceName ?? 'unknown'} · ${s.subject}${added ? `\n  ${added.slice(0, 500)}` : ''}`;
+    })
+    .join('\n');
+  const settings = await loadSettings(env);
+  const title = toStoryInfo(story, steps[0]?.subject).title;
+  const prompt = fillAskPrompt(OVERVIEW_PROMPT, { quote: timeline, context: '', title, source: '', interests: settings.interests });
+  const t = now();
+  const ref = refs[storyId] ?? { askId: null, at: t };
+  if (ref.askId) {
+    const upd = await env.DB.prepare("UPDATE asks SET prompt = ?, text = ? WHERE id = ? AND status = 'pending'").bind(prompt, timeline, ref.askId).run();
+    if ((upd.meta.changes ?? 0) > 0) return true;
+  }
+  const id = newId();
+  // output 'note': the summary is shown on the story page, not added to the inbox as an article.
+  await env.DB.prepare(
+    `INSERT INTO asks (id, highlight_id, item_id, preset_id, label, preset_version, question, output, lookups, prompt, text, created_at)
+     VALUES (?, '', '', NULL, ?, NULL, ?, 'note', 'none', ?, ?, ?)`,
+  )
+    .bind(id, `Story summary: ${title}`.slice(0, 120), `Summarise the whole story “${title}”`, prompt, timeline, t)
+    .run();
+  refs[storyId] = { ...ref, askId: id, prevAskId: ref.askId, at: t };
+  return true;
+}
+
+/** After articles join stories: stories set to keep their summary up to date get a new one queued. */
+async function autoOverviews(env: Env, storyIds: Iterable<string>) {
+  const ids = [...new Set(storyIds)];
+  if (!ids.length) return;
+  const refs = await loadOverviews(env);
+  let changed = false;
+  for (const id of ids) if (refs[id]?.auto) changed = (await requestOverview(env, id, refs)) || changed;
+  if (changed) await saveOverviews(env, refs);
 }
 
 // ---------- Story notes on the PC ----------
@@ -815,6 +926,7 @@ export function registerStories(app: App) {
       .map(([key, label]) => ({ key, label }));
     const sources = [...new Map([item, other].filter((r) => r.source_id).map((r) => [r.source_id!, r.source_name ?? 'Source'] as const)).entries()].map(([id, name]) => ({ id, name }));
     await recordTune(c.env, tags, sources, true);
+    await autoOverviews(c.env, [storyId]);
     return c.json({ ok: true, storyId });
   });
 
@@ -847,8 +959,29 @@ export function registerStories(app: App) {
     if (!story) return c.json({ error: 'not found' }, 404);
     const steps = await storySteps(c.env, story.id);
     const read = steps.filter((s) => s.readAt).length;
-    const body: StoryPage = { ...toStoryInfo(story, steps[steps.length - 1]?.subject), read, unread: steps.length - read, steps };
+    const overview = await storyOverview(c.env, story.id);
+    const body: StoryPage = { ...toStoryInfo(story, steps[steps.length - 1]?.subject), read, unread: steps.length - read, steps, overview };
     return c.json(body);
+  });
+
+  /** "Summarise the whole story": asks the PC for an overview of every article in the story now. */
+  app.post('/api/stories/:id/summary', async (c) => {
+    const refs = await loadOverviews(c.env);
+    if (!(await requestOverview(c.env, c.req.param('id'), refs))) return c.json({ error: 'This story needs at least two articles' }, 400);
+    await saveOverviews(c.env, refs);
+    return c.json(await storyOverview(c.env, c.req.param('id')), 201);
+  });
+
+  /** "Keep the summary up to date": a new summary each time an article joins (one queued at a time). */
+  app.post('/api/stories/:id/summary/auto', async (c) => {
+    const input = (await c.req.json().catch(() => ({}))) as { on?: boolean };
+    const id = c.req.param('id');
+    const refs = await loadOverviews(c.env);
+    refs[id] = { ...(refs[id] ?? { askId: null }), at: now(), auto: input.on !== false };
+    // Switching it on with no summary yet writes the first one now.
+    if (input.on !== false && !refs[id]!.askId) await requestOverview(c.env, id, refs);
+    await saveOverviews(c.env, refs);
+    return c.json(await storyOverview(c.env, id));
   });
 
   app.post('/api/stories/:id/follow', async (c) => {
