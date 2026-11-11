@@ -91,6 +91,14 @@ export default function App() {
         />
         <Route path="/saved/highlights" element={<HighlightsPage />} />
         <Route path="/saved/stories" element={<StoriesPage />} />
+        <Route
+          path="/saved/topics"
+          element={
+            <Suspense fallback={<div className="spinner">Loading…</div>}>
+              <TopicsPage inSaved />
+            </Suspense>
+          }
+        />
         <Route path="/item/:id" element={<ReaderPage onChanged={refreshCounts} keySentencesOn={me.keySentencesOn} />} />
         <Route path="/senders" element={<SendersPage onChanged={refreshCounts} />} />
         <Route path="/add" element={<AddPage me={me} />} />
