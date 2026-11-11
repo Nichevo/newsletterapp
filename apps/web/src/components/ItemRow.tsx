@@ -1,10 +1,11 @@
 import type { ItemSummary } from '@newsletterapp/shared';
-import { fileTag } from '@newsletterapp/shared';
+import { fileTag, KEY_KINDS } from '@newsletterapp/shared';
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useDensity, useViewOptions } from './DensityToggle';
 import { TagChip } from './TagChip';
+import { keysShown, kindDot } from '../keySentences';
 import { readingMinutes, shortTime } from '../format';
 import { IconBookmark, IconCheck, IconHighlight, IconSparkle } from '../icons';
 
@@ -150,6 +151,17 @@ export function ItemRow({
                   {item.noteCount}
                 </>
               )}
+            </span>
+          )}
+          {item.keySentences && keysShown() && (
+            <span
+              className={`ksstripe${item.keySentences === 'waiting' ? ' ksstripe--waiting' : ''}`}
+              title={item.keySentences === 'done' ? 'Key sentences coloured' : 'Key sentences: waiting for your PC'}
+              aria-label={item.keySentences === 'done' ? 'Key sentences coloured' : 'Key sentences waiting'}
+            >
+              {KEY_KINDS.map((k) => (
+                <i key={k} style={{ background: kindDot(k) }} />
+              ))}
             </span>
           )}
           <span className="row__time">

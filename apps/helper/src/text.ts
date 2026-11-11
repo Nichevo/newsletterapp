@@ -3,7 +3,53 @@ import type { AiOutput } from '@newsletterapp/shared';
 // Turning newsletter HTML into plain text for the model, and pulling the JSON
 // answer out of what the model says.
 
-const ENTITIES: Record<string, string> = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", zwnj: '', zwj: '', shy: '' };
+const ENTITIES: Record<string, string> = {
+  nbsp: ' ',
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  zwnj: '',
+  zwj: '',
+  shy: '',
+  // Typographic ones newsletters use a lot; key sentences must match the text the browser shows.
+  ldquo: '\u201c',
+  rdquo: '\u201d',
+  lsquo: '\u2018',
+  rsquo: '\u2019',
+  sbquo: '\u201a',
+  bdquo: '\u201e',
+  laquo: '\u00ab',
+  raquo: '\u00bb',
+  mdash: '\u2014',
+  ndash: '\u2013',
+  hellip: '\u2026',
+  bull: '\u2022',
+  middot: '\u00b7',
+  copy: '\u00a9',
+  reg: '\u00ae',
+  trade: '\u2122',
+  deg: '\u00b0',
+  times: '\u00d7',
+  euro: '\u20ac',
+  pound: '\u00a3',
+  cent: '\u00a2',
+  yen: '\u00a5',
+  eacute: '\u00e9',
+  egrave: '\u00e8',
+  aacute: '\u00e1',
+  agrave: '\u00e0',
+  oacute: '\u00f3',
+  uuml: '\u00fc',
+  ouml: '\u00f6',
+  auml: '\u00e4',
+  ccedil: '\u00e7',
+  ntilde: '\u00f1',
+  thinsp: ' ',
+  ensp: ' ',
+  emsp: ' ',
+};
 
 function decode(s: string): string {
   return s

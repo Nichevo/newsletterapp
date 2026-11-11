@@ -18,6 +18,8 @@ export interface Provider {
 
 export interface CompleteOptions {
   json?: boolean;
+  /** With json: the JSON schema to hold the model to, instead of the summary's. */
+  schema?: object;
 }
 
 const TIMEOUT_MS = 5 * 60_000;
@@ -52,7 +54,7 @@ export function ollama(baseUrl: string): Provider {
       const r = await postJson<{ message?: { content?: string } }>(`${baseUrl}/api/chat`, {
         model,
         stream: false,
-        ...(json ? { format: OUTPUT_SCHEMA } : {}),
+        ...(json ? { format: opts?.schema ?? OUTPUT_SCHEMA } : {}),
         options: { temperature: json ? 0.2 : 0.3, num_ctx: 16384 },
         messages: [
           { role: 'system', content: system },

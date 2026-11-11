@@ -12,6 +12,7 @@ import { log } from './log';
 import { runSuggestions } from './suggest';
 import { findProvider, providersFrom, type Provider } from './providers';
 import { currentLoad, powerMeter } from './system';
+import { articleText, KEY_SCHEMA, maxMarks, parseKeyReply, promptPieces, skipReason, splitArticle, toMarks } from './keysentences';
 import { itemText, parseOutput } from './text';
 
 // The PC helper: every minute it checks in with the app, answers any
@@ -333,6 +334,77 @@ async function storyNotes(config: HelperConfig) {
   }
 }
 
+/**
+ * Key sentences: a couple of long articles per round, after the summaries and
+ * story notes. The model gets numbered sentences and answers with numbers and
+ * kinds; long articles go in pieces.
+ */
+async function keySentences(config: HelperConfig) {
+  if (!config.keyWaiting || config.paused || config.limited) return;
+  const fallback = config.models.find((m) => findProvider(providers, m));
+  if (!fallback) return;
+  for (let round = 0; round < 3; round++) {
+    const { jobs } = await app.keyClaim(2);
+    if (jobs.length === 0) return;
+    for (const job of jobs) {
+      await checkAsks();
+      const model = job.model && findProvider(providers, job.model) ? job.model : fallback;
+      const provider = findProvider(providers, model)!;
+      const base = { itemId: job.itemId, provider: model.provider, model: model.name };
+      const title = job.subject.slice(0, 60);
+      doing(`key sentences for "${title}"`);
+      const split = splitArticle(articleText(job));
+      const skipped = skipReason(job, split);
+      if (skipped) {
+        log(`key sentences for "${title}": skipped (${skipped}, ${split.words} words)`);
+        await app.keyResult({ ...base, ok: true, seconds: 0, skipped, sentences: split.sentences.length, words: split.words });
+        continue;
+      }
+      const max = maxMarks(split.sentences.length, job.maxShare);
+      const pieces = promptPieces(split, cfg.maxChars);
+      const valid = new Set(split.sentences.map((s) => s.n));
+      let seconds = 0;
+      let watts: number | undefined;
+      try {
+        const picks: { n: number; kind: (typeof job.kinds)[number] }[] = [];
+        for (const [i, piece] of pieces.entries()) {
+          if (pieces.length > 1) doing(`key sentences for "${title}", part ${i + 1} of ${pieces.length}`);
+          // Each piece gets its share of the total, by size.
+          const share = Math.max(2, Math.round((max * piece.length) / Math.max(1, pieces.reduce((a, p) => a + p.length, 0))));
+          const user = [`Title: ${job.subject}`, `From: ${job.sourceName ?? 'unknown'}`, '', piece].join('\n');
+          const started = performance.now();
+          const meter = powerMeter();
+          let reply: string;
+          try {
+            reply = await provider.complete(model.name, job.prompt.replace('{max}', String(share)), user, { json: true, schema: KEY_SCHEMA });
+          } finally {
+            seconds += (performance.now() - started) / 1000;
+            const w = meter.stop();
+            if (w) watts = Math.max(watts ?? 0, w);
+          }
+          picks.push(...parseKeyReply(reply, valid, job.kinds).slice(0, share));
+        }
+        const marks = toMarks(split, picks.slice(0, max));
+        await app.keyResult({
+          ...base,
+          ok: true,
+          seconds,
+          watts,
+          marks,
+          sentences: split.sentences.length,
+          words: split.words,
+          ...(marks.length ? {} : { skipped: 'empty' as const }),
+        });
+        log(`key sentences for "${title}" with ${model.name} in ${seconds.toFixed(1)}s: ${marks.length} of ${split.sentences.length} sentences`);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        log(`key sentences failed for "${title}" with ${model.name}: ${error}`);
+        await app.keyResult({ ...base, ok: false, seconds, watts, error });
+      }
+    }
+  }
+}
+
 /** The note's JSON from a plain-text reply (some models wrap it in prose or code fences). */
 function parseStoryNote(reply: string): { new?: string; title?: string; so_far?: string } {
   const cleaned = stripThinking(reply).replace(/```(?:json)?/gi, '');
@@ -439,6 +511,9 @@ async function tick(): Promise<number> {
   // Story notes after embeddings, since items join stories once they're embedded.
   doing('story notes');
   await storyNotes(config).catch((err: unknown) => log('story notes failed:', err));
+  // Key sentences after the summaries: they're only for articles already summarised.
+  doing('key sentences');
+  await keySentences(config).catch((err: unknown) => log('key sentences failed:', err));
   // Feed suggestions last: weekly, and the least urgent.
   doing('feed suggestions');
   await runSuggestions(config, app, cfg, embeddings, checkAsks).catch((err: unknown) => log('feed suggestions failed:', err));

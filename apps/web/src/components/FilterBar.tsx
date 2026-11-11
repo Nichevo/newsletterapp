@@ -2,6 +2,7 @@ import {
   SOURCE_TYPES,
   FILE_FILTERS,
   FILE_FILTER_LABEL,
+  KEY_FILTER_TOKEN,
   type FileFilter,
   cycleFilterValue,
   filterState,
@@ -15,6 +16,7 @@ import {
 } from '@newsletterapp/shared';
 import { useState } from 'react';
 import { IconChevron, IconFilter } from '../icons';
+import { keysShown } from '../keySentences';
 
 export interface Filters {
   view: ItemView;
@@ -124,7 +126,7 @@ export function FilterBar({
   // rules or the AI, not their source); until the server has said, sources set to that category.
   const inCategory = categorySources ? new Set(categorySources) : null;
   // File types pick items, not sources, so they leave the source list alone.
-  const isFileToken = (k: string) => (FILE_FILTERS as readonly string[]).includes(k);
+  const isFileToken = (k: string) => (FILE_FILTERS as readonly string[]).includes(k) || k === KEY_FILTER_TOKEN;
   const allKinds = parseFilterSet(filters.kind);
   const kindSet = { include: allKinds.include.filter((k) => !isFileToken(k)), exclude: allKinds.exclude.filter((k) => !isFileToken(k)) };
   const catSet = parseFilterSet(filters.category);
@@ -147,7 +149,7 @@ export function FilterBar({
     : matchingSources;
   const summary = [
     fixedView ? null : VIEW_LABEL[filters.view],
-    setLabel(filters.kind, (k) => KIND_LABEL[k as SourceType] ?? FILE_FILTER_LABEL[k as FileFilter] ?? k),
+    setLabel(filters.kind, (k) => (k === KEY_FILTER_TOKEN ? 'Key sentences' : (KIND_LABEL[k as SourceType] ?? FILE_FILTER_LABEL[k as FileFilter] ?? k))),
     setLabel(filters.category, (c) => c),
     sourceName,
     SORT_LABEL[filters.sort],
@@ -211,6 +213,16 @@ export function FilterBar({
                 {FILE_FILTERS.map((k) => (
                   <TriPill key={k} value={filters.kind} token={k} label={FILE_FILTER_LABEL[k]} onChange={(v) => onChange({ ...filters, kind: v })} />
                 ))}
+              </div>
+            )}
+            {(keysShown() || filterState(filters.kind, KEY_FILTER_TOKEN) !== null) && (
+              <div className="pills">
+                <TriPill
+                  value={filters.kind}
+                  token={KEY_FILTER_TOKEN}
+                  label="Key sentences"
+                  onChange={(v) => onChange({ ...filters, kind: v })}
+                />
               </div>
             )}
             <span className="hint">Types, categories and sources: tap once to show only that, again to hide it (✕), once more to clear. Pick as many as you like.</span>

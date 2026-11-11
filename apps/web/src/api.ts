@@ -18,6 +18,10 @@ import type {
   HighlightListQuery,
   HighlightStats,
   ItemHighlights,
+  ItemKeySentences,
+  KeyFixInput,
+  KeyMark,
+  KeySentenceSettings,
   NewAskInput,
   NewFreeAskInput,
   NewAskResult,
@@ -251,6 +255,12 @@ export const api = {
 
   // Highlights and questions to the AI about them
   highlights: (itemId: string) => get<ItemHighlights>(`/api/items/${itemId}/highlights`),
+  keySentences: (itemId: string) => get<ItemKeySentences>(`/api/items/${itemId}/key-sentences`),
+  findKeySentences: (itemId: string) => post<{ ok: boolean }>(`/api/items/${itemId}/key-sentences`),
+  fixKeySentence: (itemId: string, fix: KeyFixInput) => post<{ marks: KeyMark[] }>(`/api/items/${itemId}/key-sentences/fix`, fix),
+  keySettings: () => get<KeySentenceSettings>('/api/key-sentences/settings'),
+  saveKeySettings: (s: Partial<KeySentenceSettings>) => put<KeySentenceSettings>('/api/key-sentences/settings', s),
+  keyBackdate: (days: number) => post<{ queued: number }>('/api/key-sentences/backdate', { days }),
   addHighlight: (itemId: string, anchor: HighlightAnchor) => post<Highlight>(`/api/items/${itemId}/highlights`, anchor),
   deleteHighlight: (id: string) => request<{ ok: boolean }>(`/api/highlights/${id}`, { method: 'DELETE' }),
   ask: (input: NewAskInput) => post<NewAskResult>('/api/asks', input),

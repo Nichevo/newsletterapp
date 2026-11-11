@@ -179,6 +179,12 @@ function MoreLinks({ usage }: { usage: AiUsageView | null }) {
             <span className="cardrow__sub">Brave search for highlight questions and, if you want, summaries; monthly budget</span>
           </div>
         </Link>
+        <Link to="/settings/ai/key-sentences" className="cardrow">
+          <div className="cardrow__main">
+            <span className="cardrow__title">Key sentences</span>
+            <span className="cardrow__sub">Colour the sentences that carry long articles: main point, evidence, example, caveat, takeaway</span>
+          </div>
+        </Link>
         <Link to="/settings/ai/highlights" className="cardrow">
           <div className="cardrow__main">
             <span className="cardrow__title">Highlight prompts</span>

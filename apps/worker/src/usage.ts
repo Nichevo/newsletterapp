@@ -119,7 +119,9 @@ const RUNS_SINCE = `SELECT at, seconds, watts FROM ai_runs WHERE at >= ?1 AND se
   UNION ALL
   SELECT done_at AS at, seconds, watts FROM asks WHERE done_at >= ?1 AND seconds > 0 AND provider != ${HOSTED}
   UNION ALL
-  SELECT at, seconds, watts FROM story_runs WHERE at >= ?1 AND seconds > 0 AND provider != ${HOSTED}`;
+  SELECT at, seconds, watts FROM story_runs WHERE at >= ?1 AND seconds > 0 AND provider != ${HOSTED}
+  UNION ALL
+  SELECT at, seconds, watts FROM ks_runs WHERE at >= ?1 AND seconds > 0 AND provider != ${HOSTED}`;
 
 export interface LimitState {
   hourSeconds: number;
