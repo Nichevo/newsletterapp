@@ -106,6 +106,10 @@ export function ItemRow({
   const showTags = hasTags && (expanded ? opts.expandedTags : density === 'card' && opts.cardTags);
   const showPreview = preview && (expanded ? true : density === 'card' && opts.cardLines > 0);
   const previewLines = expanded ? (opts.expandedFullSummary ? 'unset' : 4) : opts.cardLines;
+  const keyKinds: readonly string[] =
+    opts.inboxKeyKinds === 'main' ? ['main'] : opts.inboxKeyKinds === 'main-takeaway' ? ['main', 'takeaway'] : KEY_KINDS;
+  const keyLines =
+    opts.inboxKeys && density !== 'compact' && keysShown() ? (item.keyLines ?? []).filter((k) => keyKinds.includes(k.kind)).slice(0, opts.inboxKeyCount) : [];
 
   return (
     <div className={`row row--${density}${item.readAt ? ' row--read' : ''}${nested ? ' row--grouped' : ''}`} style={{ background: bg }}>
@@ -204,6 +208,15 @@ export function ItemRow({
             {preview}
           </span>
         ) : null}
+        {keyLines.length > 0 && (
+          <ul className="row__keys" aria-label="Key sentences">
+            {keyLines.map((k, i) => (
+              <li key={i} style={{ borderColor: kindDot(k.kind) }}>
+                {k.quote}
+              </li>
+            ))}
+          </ul>
+        )}
         {expanded && opts.expandedPoints > 0 && item.keyPoints.length > 0 && (
           <ul className="row__points">
             {item.keyPoints.slice(0, opts.expandedPoints).map((k) => (

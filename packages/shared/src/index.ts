@@ -1,7 +1,7 @@
 // Types shared between the Worker API and the web app.
 // Timestamps are Unix milliseconds.
 
-import type { IndexType, KeyMode, StudySummary } from './keysentences';
+import type { IndexType, KeyKind, KeyMode, StudySummary } from './keysentences';
 import type { AiLimitHit } from './usage';
 import { DEFAULT_SKIP_SITES, type Article, type FeedEntry } from './web';
 
@@ -123,6 +123,8 @@ export interface ItemSummary {
   savedPage: boolean;
   /** Key sentences: done (coloured in the reader), waiting for the PC, or null. */
   keySentences: 'done' | 'waiting' | null;
+  /** The key sentences, in reading order, when the list was asked for them (keys=1). */
+  keyLines?: { kind: KeyKind; quote: string }[];
 }
 
 /** The story an item belongs to, as shown on its inbox row. */

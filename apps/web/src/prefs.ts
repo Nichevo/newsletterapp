@@ -174,7 +174,15 @@ export interface ViewOptions {
   expandedPoints: 0 | 3 | 5 | 99;
   expandedWhy: boolean;
   expandedTags: boolean;
+  /** Key sentences under the summary in Card and Expanded rows (switched from the list's top bar). */
+  inboxKeys: boolean;
+  /** Which colours show there. */
+  inboxKeyKinds: InboxKeyKinds;
+  /** How many show per row; 99 = all. */
+  inboxKeyCount: 3 | 5 | 99;
 }
+
+export type InboxKeyKinds = 'main' | 'main-takeaway' | 'all';
 
 export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
   cardLines: 2,
@@ -183,6 +191,9 @@ export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
   expandedPoints: 5,
   expandedWhy: true,
   expandedTags: true,
+  inboxKeys: false,
+  inboxKeyKinds: 'main-takeaway',
+  inboxKeyCount: 5,
 };
 
 let viewCache: { raw: string | null; value: ViewOptions } | null = null;

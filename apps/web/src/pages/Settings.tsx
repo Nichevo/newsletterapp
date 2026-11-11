@@ -1,3 +1,4 @@
+import { keysShown } from '../keySentences';
 import type { AppSettings, DigestOptions, Me, Source, SummaryKind } from '@newsletterapp/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
@@ -413,6 +414,39 @@ function ReadingSection() {
           <OptionSwitch label="Show tags and category" value={opts.expandedTags} onChange={(v) => setViewOptions({ expandedTags: v })} />
           <span className="hint">Key points and “why it matters” come from the AI summary, so they show once the PC helper has done an issue.</span>
         </div>
+        {keysShown() && (
+          <div className="field">
+            <label>Key sentences in the lists</label>
+            <OptionSwitch label="Show under the summary (Card and Expanded)" value={opts.inboxKeys} onChange={(v) => setViewOptions({ inboxKeys: v })} />
+            <div className="switchrow">
+              <span style={{ fontSize: 14 }}>Colours</span>
+              <div className="segmented" role="group" aria-label="Which key sentences" style={{ width: 240 }}>
+                {(
+                  [
+                    ['main', 'Main'],
+                    ['main-takeaway', 'Main + takeaway'],
+                    ['all', 'All'],
+                  ] as const
+                ).map(([k, label]) => (
+                  <button key={k} aria-pressed={opts.inboxKeyKinds === k} onClick={() => setViewOptions({ inboxKeyKinds: k })}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="switchrow">
+              <span style={{ fontSize: 14 }}>How many</span>
+              <div className="segmented" role="group" aria-label="How many key sentences" style={{ width: 200 }}>
+                {([3, 5, 99] as const).map((n) => (
+                  <button key={n} aria-pressed={opts.inboxKeyCount === n} onClick={() => setViewOptions({ inboxKeyCount: n })}>
+                    {n === 99 ? 'All' : n}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <span className="hint">The coloured button at the top of Inbox, Saved and Interesting switches them on and off.</span>
+          </div>
+        )}
         <div className="field">
           <span className="label">Swipe to mark read</span>
           <div className="segmented" role="group" aria-label="Swipe to mark read">

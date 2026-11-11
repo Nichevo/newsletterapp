@@ -1,16 +1,17 @@
 import { SavedTabs } from './Highlights';
 import type { ItemListResponse, ItemSummary, ItemView, Me, SavedFilter, Source } from '@newsletterapp/shared';
-import { FILE_FILTERS } from '@newsletterapp/shared';
+import { FILE_FILTERS, KEY_KINDS } from '@newsletterapp/shared';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { rememberList } from '../readingList';
 import { api, isPhone } from '../api';
 import { UNDO_SHOW_MS, takeDeleted } from '../deleted';
 import type { Counts } from '../App';
-import { DensityToggle } from '../components/DensityToggle';
+import { DensityToggle, useDensity, useViewOptions } from '../components/DensityToggle';
+import { keysShown, kindDot } from '../keySentences';
 import { FilterBar, type Filters } from '../components/FilterBar';
 import { ItemRow, type RowGroup, type SwipeAction } from '../components/ItemRow';
-import { getSwipeReadSide } from '../prefs';
+import { getSwipeReadSide, setViewOptions } from '../prefs';
 import { todayLabel } from '../format';
 import { IconPlus, IconRefresh, IconSearch, IconSparkle } from '../icons';
 
@@ -124,12 +125,17 @@ export function InboxPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Key sentences under the rows: switched from the top bar, not in Compact view.
+  const viewOpts = useViewOptions();
+  const density = useDensity();
+  const wantKeys = viewOpts.inboxKeys && keysShown() && density !== 'compact';
+
   const load = useCallback(
     async (append: boolean) => {
       setLoading(true);
       setError(null);
       try {
-        const res = await api.listItems({ ...filters, cursor: append ? cursor : null });
+        const res = await api.listItems({ ...filters, cursor: append ? cursor : null, keys: wantKeys });
         setItems((prev) => (append ? [...prev, ...res.items] : res.items));
         setCursor(res.nextCursor);
         if (!append) setListCounts(res.counts ?? null);
@@ -140,14 +146,14 @@ export function InboxPage({
         setLoading(false);
       }
     },
-    [filters, cursor],
+    [filters, cursor, wantKeys],
   );
 
   useEffect(() => {
     saveFilters(mode, filters);
     void load(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+  }, [filters, wantKeys]);
 
   useEffect(() => {
     if (searchParams.has('source') || searchParams.has('kind')) setSearchParams({}, { replace: true });
@@ -342,6 +348,21 @@ export function InboxPage({
           <h1>{mode === 'inbox' ? 'Inbox' : 'Saved'}</h1>
         </div>
         <div className="topbar__actions">
+          {keysShown() && (
+            <button
+              className="iconbtn kstoggle"
+              aria-pressed={viewOpts.inboxKeys}
+              aria-label={viewOpts.inboxKeys ? 'Hide key sentences under the rows' : 'Show key sentences under the rows'}
+              title={viewOpts.inboxKeys ? 'Key sentences shown · tap to hide' : 'Show key sentences under the rows'}
+              onClick={() => setViewOptions({ inboxKeys: !viewOpts.inboxKeys })}
+            >
+              <span className="ksbar__swatch" aria-hidden="true">
+                {KEY_KINDS.map((k) => (
+                  <i key={k} style={{ background: kindDot(k) }} />
+                ))}
+              </span>
+            </button>
+          )}
           <DensityToggle />
           <button className="iconbtn" aria-label="Refresh" onClick={() => void load(false)}>
             <IconRefresh />
