@@ -108,8 +108,12 @@ export function ItemRow({
   const previewLines = expanded ? (opts.expandedFullSummary ? 'unset' : 4) : opts.cardLines;
   const keyKinds: readonly string[] =
     opts.inboxKeyKinds === 'main' ? ['main'] : opts.inboxKeyKinds === 'main-takeaway' ? ['main', 'takeaway'] : KEY_KINDS;
-  const keyLines =
-    opts.inboxKeys && density !== 'compact' && keysShown() ? (item.keyLines ?? []).filter((k) => keyKinds.includes(k.kind)).slice(0, opts.inboxKeyCount) : [];
+  const keysOnRow = opts.inboxKeys && density !== 'compact' && keysShown();
+  const allKeys = keysOnRow ? (item.keyLines ?? []) : [];
+  const pickedKeys = allKeys.filter((k) => keyKinds.includes(k.kind));
+  // 99 is "All": no limit.
+  const keyLines = opts.inboxKeyCount === 99 ? pickedKeys : pickedKeys.slice(0, opts.inboxKeyCount);
+  const keysHidden = allKeys.length - keyLines.length;
 
   return (
     <div className={`row row--${density}${item.readAt ? ' row--read' : ''}${nested ? ' row--grouped' : ''}`} style={{ background: bg }}>
@@ -216,6 +220,11 @@ export function ItemRow({
               </li>
             ))}
           </ul>
+        )}
+        {keyLines.length > 0 && keysHidden > 0 && (
+          <span className="row__keysmore">
+            {keyLines.length} of {allKeys.length} key sentences shown · the rest are in the article (Settings › Reading to show more)
+          </span>
         )}
         {expanded && opts.expandedPoints > 0 && item.keyPoints.length > 0 && (
           <ul className="row__points">
