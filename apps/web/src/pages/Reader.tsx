@@ -71,7 +71,9 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
         // A copy fetched again since: ask for that version (rare, so the first request stays parallel).
         if (i.bodyVersion > 0) b = await api.itemBody(id, i.bodyVersion);
         if (cancelled) return;
-        setItem(i);
+        // Opening it marks it read on the server (the 'open' event), so show it read here
+        // too, or the button keeps offering "Mark read".
+        setItem(i.readAt ? i : { ...i, readAt: Date.now(), readVia: 'reader', readDevice: isPhone() });
         setBody(b);
         // Images in feed posts and web articles can't tell anyone you opened an email, so they just load.
         setLoadImages(i.kind !== 'newsletter' || imagesAllowed(i.sourceId));
