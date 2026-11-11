@@ -122,8 +122,11 @@ export const api = {
     category?: string | null;
     kind?: string | null;
     cursor?: string | null;
+    /** Include each row's key sentences. */
+    keys?: boolean;
   }) => {
     const q = new URLSearchParams({ view: params.view, sort: params.sort });
+    if (params.keys) q.set('keys', '1');
     if (params.kind) q.set('kind', params.kind);
     if (params.source) q.set('source', params.source);
     if (params.category) q.set('category', params.category);

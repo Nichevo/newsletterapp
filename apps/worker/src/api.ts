@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { registerDeleting } from './deleting';
-import { isKeyKind, KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, SAVE_LOCAL_PART, type FileFilter, type SaveAddressInfo } from '@newsletterapp/shared';
+import { isKeyKind, KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, SAVE_LOCAL_PART, type FileFilter, type KeyMark, type SaveAddressInfo } from '@newsletterapp/shared';
 import type {
   Platform,
   AiMode,
@@ -284,8 +284,33 @@ app.get('/api/items', async (c) => {
 
   const page = rows.results.slice(0, limit);
   const last = page[page.length - 1];
+  const summaries = page.map((r) => toItemSummary(r, settings.aiByKind, settings.aiOffCategories));
+  // Key sentences under the rows (inbox switch): one read per article that has them.
+  if (c.req.query('keys') === '1') {
+    const done = page.filter((r) => r.ks_status === 'done').map((r) => r.id);
+    if (done.length && (await loadKeySettings(c.env)).enabled) {
+      const ks = await c.env.DB.prepare(`SELECT item_id, marks FROM key_sentences WHERE item_id IN (${done.map(() => '?').join(',')})`)
+        .bind(...done)
+        .all<{ item_id: string; marks: string }>();
+      const byId = new Map(ks.results.map((r) => [r.item_id, r.marks]));
+      for (const s of summaries) {
+        const raw = byId.get(s.id);
+        if (!raw) continue;
+        try {
+          const marks = JSON.parse(raw) as KeyMark[];
+          s.keyLines = marks
+            .filter((m) => m.fix !== 'removed' && isKeyKind(m.kind) && typeof m.quote === 'string')
+            .sort((a, b) => a.textOffset - b.textOffset)
+            .slice(0, 30)
+            .map((m) => ({ kind: m.kind, quote: m.quote }));
+        } catch {
+          // Unreadable row: the item shows without them.
+        }
+      }
+    }
+  }
   const body: ItemListResponse = {
-    items: page.map((r) => toItemSummary(r, settings.aiByKind, settings.aiOffCategories)),
+    items: summaries,
     nextCursor:
       rows.results.length > limit && last
         ? sort === 'top'

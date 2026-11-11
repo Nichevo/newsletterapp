@@ -3103,3 +3103,36 @@ a.chip { text-decoration: none; }
   margin-right: 5px;
   border-radius: 50%;
 }
+
+/* Key sentences under an inbox row, each with its colour down the side. */
+.row__keys {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.row__keys li {
+  padding-left: 8px;
+  border-left: 3px solid;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.kstoggle .ksbar__swatch i {
+  height: 14px;
+}
+
+.kstoggle:not([aria-pressed='true']) .ksbar__swatch {
+  opacity: 0.4;
+}
+
+.kstoggle[aria-pressed='true'] {
+  background: var(--teal-tint);
+}
