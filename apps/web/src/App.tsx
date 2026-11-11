@@ -18,6 +18,7 @@ import { ReaderPage } from './pages/Reader';
 import { KeySentencesPage } from './pages/KeySentences';
 import { setKeysShown } from './keySentences';
 import { SendersPage } from './pages/Senders';
+import { SendPagesPage } from './pages/SendPages';
 import { SettingsPage } from './pages/Settings';
 import { SourcePage } from './pages/Source';
 import { ExportPage } from './pages/Export';
@@ -121,6 +122,7 @@ export default function App() {
           }
         />
         <Route path="/settings/ai/sites" element={<PcSitesPage />} />
+        <Route path="/settings/send" element={<SendPagesPage />} />
         <Route path="/settings/sources" element={<SourcesPage />} />
         <Route path="/settings/sources/suggested" element={<SuggestedPage />} />
         <Route path="/settings/sources/suggested/learnt" element={<SuggestedLearntPage />} />

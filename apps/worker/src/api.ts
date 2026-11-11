@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { registerDeleting } from './deleting';
-import { KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, type FileFilter } from '@newsletterapp/shared';
+import { KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, SAVE_LOCAL_PART, type FileFilter, type SaveAddressInfo } from '@newsletterapp/shared';
 import type {
   Platform,
   AiMode,
@@ -50,6 +50,7 @@ import {
   type SenderRow,
   type SourceRow,
 } from './db';
+import { isSaveAddress, readSaveLog, signInEmails } from './saveinbox';
 import { buildDigestIfDue } from './digest';
 import { registerKeySentences, loadKeySettings } from './keysentences';
 import { registerRefs } from './refs';
@@ -721,7 +722,8 @@ app.post('/api/addresses', async (c) => {
   // Keep the slug unique: money-matters, money-matters-2, ...
   const base = localPart;
   for (let n = 2; n < 50; n++) {
-    const taken = await c.env.DB.prepare('SELECT 1 FROM addresses WHERE local_part = ?').bind(localPart).first();
+    // save@ is the save address, never a newsletter's.
+    const taken = isSaveAddress(localPart) || (await c.env.DB.prepare('SELECT 1 FROM addresses WHERE local_part = ?').bind(localPart).first());
     if (!taken) break;
     localPart = `${base}-${n}`;
   }
@@ -1032,6 +1034,17 @@ app.post('/api/sources/:id', async (c) => {
 // ---------- Settings ----------
 
 app.get('/api/settings', async (c) => c.json(await loadSettings(c.env)));
+
+/** Settings > Send pages from anywhere: the save address, who may always use it, and the last emails it got. */
+app.get('/api/save-address', async (c) => {
+  const domain = c.env.MAIL_DOMAIN?.trim();
+  const info: SaveAddressInfo = {
+    address: domain ? `${SAVE_LOCAL_PART}@${domain}` : null,
+    signInEmails: signInEmails(c.env),
+    log: await readSaveLog(c.env),
+  };
+  return c.json(info);
+});
 
 app.put('/api/settings', async (c) => {
   const input = (await c.req.json().catch(() => null)) as Partial<AppSettings> | null;

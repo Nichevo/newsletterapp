@@ -52,6 +52,7 @@ import type {
   AiUsageSettings,
   AiUsageView,
   AppSettings,
+  SaveAddressInfo,
   PcHoldsView,
   ModelInfo,
   ModelMode,
@@ -223,6 +224,7 @@ export const api = {
   tags: (days: number) => get<TagList>(`/api/tags?days=${days}`),
   topics: (days: number, fresh = false) => get<TopicsData>(`/api/topics?days=${days}${fresh ? '&fresh=1' : ''}`),
   saveSettings: (settings: Partial<AppSettings>) => put<AppSettings>('/api/settings', settings),
+  saveAddressInfo: () => get<SaveAddressInfo>('/api/save-address'),
 
   // AI summaries (written by the PC helper)
   aiStatus: () => get<AiStatusView>('/api/ai/status'),
