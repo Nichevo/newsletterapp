@@ -150,6 +150,10 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
           )
         : (bs.categories ?? {}),
   };
+  // Plain email addresses only, lower-case, no duplicates.
+  const saveSenders = Array.isArray(input.saveSenders)
+    ? [...new Set(input.saveSenders.map((x) => str(x, 200).toLowerCase()).filter((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x)))].slice(0, 20)
+    : (base.saveSenders ?? []);
   return {
     categories,
     keywordRules,
@@ -164,5 +168,6 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     pcSkipAllowCategories,
     topicFilters,
     stories,
+    saveSenders,
   };
 }

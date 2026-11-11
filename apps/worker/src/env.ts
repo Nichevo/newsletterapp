@@ -12,6 +12,8 @@ export interface Env {
   AUTO_ALLOW_DAYS: string;
   /** The domain newsletters are sent to, e.g. "example.com". Shown in the app when creating addresses. */
   MAIL_DOMAIN: string;
+  /** The app's own address, e.g. "app.example.com" (set by the deploy); used where there is no request to read it from. */
+  APP_HOSTNAME?: string;
   /** Client ID of the Cloudflare Access service token the PC helper signs in with. */
   HELPER_CLIENT_ID: string;
   /** Local development only (.dev.vars). */

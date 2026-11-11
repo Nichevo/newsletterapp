@@ -408,6 +408,31 @@ export interface SavePageInput {
   url: string;
 }
 
+/** The address that saves the links (or the email) sent to it: save@<mail domain>. */
+export const SAVE_LOCAL_PART = 'save';
+
+/** One email that reached the save address, kept so you can see why one didn't save. */
+export interface SaveEmailLogEntry {
+  at: number;
+  from: string;
+  subject: string;
+  /** saved: pages or the email went in; refused: sender not on the list or failed the checks. */
+  outcome: 'saved' | 'refused';
+  /** A short line for people: what was saved, or why not. */
+  detail: string;
+  /** The saved items, newest first. */
+  itemIds: string[];
+}
+
+/** Settings > Send pages from anywhere. */
+export interface SaveAddressInfo {
+  /** save@<mail domain>, or null while the mail domain isn't set. */
+  address: string | null;
+  /** The sign-in addresses, always allowed. */
+  signInEmails: string[];
+  log: SaveEmailLogEntry[];
+}
+
 export interface SavePageResult {
   itemId: string;
   /** The page was saved before; this is the earlier copy. */
@@ -644,6 +669,11 @@ export interface AppSettings {
   topicFilters: TopicFilter[];
   /** Stories: related reading grouped by chain of events. */
   stories: StorySettings;
+  /**
+   * Extra email addresses allowed to send links to the save address (e.g. a work
+   * address). They can only save pages; they never get into the app.
+   */
+  saveSenders: string[];
 }
 
 export interface SavedFilter {
@@ -698,6 +728,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   pcSkipAllowCategories: [],
   topicFilters: [],
   stories: DEFAULT_STORY_SETTINGS,
+  saveSenders: [],
 };
 
 // ---------- Daily digest ----------

@@ -3,6 +3,7 @@ import type { Env } from './env';
 import { findWebVersionUrl, htmlToText, snippetOf } from './html';
 import { localPartOf, newId, normalizeEmail, now } from './ids';
 import { categoryFromRules, quickSummary } from './quick';
+import { handleSaveEmail, isSaveAddress } from './saveinbox';
 import { parseAuthResults, screen } from './screening';
 import { loadSettings } from './settings';
 
@@ -34,6 +35,9 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
   if (!fromEmail) return;
   const fromName = parsed?.from?.name?.trim() || null;
   const localPart = localPartOf(envelopeTo);
+
+  // save@: links and forwarded emails from you go under Saved pages, never through screening.
+  if (isSaveAddress(localPart)) return handleSaveEmail(env, message.headers, parsed, envelopeFrom);
 
   const decision = await screen(env, localPart, fromEmail, fromName, auth);
   if (decision.action === 'drop') {
