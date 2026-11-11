@@ -67,6 +67,7 @@ const hostname = process.env.APP_HOSTNAME?.trim();
 if (hostname) {
   config.routes = [{ pattern: hostname, custom_domain: true }];
   config.workers_dev = false;
+  config.vars.APP_HOSTNAME = hostname;
   console.log(`Serving at https://${hostname}`);
 } else {
   console.log('APP_HOSTNAME not set; serving on the workers.dev subdomain');

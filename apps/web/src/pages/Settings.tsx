@@ -111,6 +111,11 @@ export function SettingsPage({
             }
           />
           <MenuRow to="/add" title="Add a source" sub="Follow a site or feed, import from Feedly, or create a newsletter address" />
+          <MenuRow
+            to="/settings/send"
+            title="Send pages from anywhere"
+            sub="Save address for emailing links in, and bookmarks that send the page you're on"
+          />
           <MenuRow to="/senders" title="Senders" sub="Allow or block who can reach your inbox" />
           <MenuRow
             to="/settings/ai"

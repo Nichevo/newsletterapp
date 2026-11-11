@@ -977,6 +977,38 @@ async function storeSavedItem(env: Env, source: SourceRow, it: SavedItemInput): 
   return { itemId: id, already: false, waitingForPc, helperOnline: waitingForPc ? await helperOnline(env) : true, title };
 }
 
+/**
+ * An email sent to the save address that is worth keeping as it is (a forwarded
+ * email, or a note with no link in it). Kept under Saved pages like a page.
+ */
+export async function saveEmailCopy(
+  env: Env,
+  email: { key: string; title: string; author: string | null; html: string; text: string | null },
+): Promise<SavePageResult> {
+  const source = await savedPagesSource(env);
+  const key = email.key.slice(0, 500);
+  const earlier = await env.DB.prepare(
+    "SELECT id, subject FROM items INDEXED BY items_source WHERE source_id = ? AND message_id = ? AND status != 'dropped' LIMIT 1",
+  )
+    .bind(source.id, key)
+    .first<{ id: string; subject: string }>();
+  if (earlier) return { itemId: earlier.id, already: true, waitingForPc: false, helperOnline: true, title: earlier.subject };
+  return storeSavedItem(env, source, {
+    id: newId(),
+    key,
+    title: email.title,
+    author: email.author,
+    html: email.html,
+    text: email.text,
+    good: email.text !== null && countWords(email.text) > 0,
+    webUrl: null,
+    jobUrl: null,
+    picture: null,
+    fileType: null,
+    file: null,
+  });
+}
+
 /** Most an uploaded or shared file may be. */
 const UPLOAD_MAX_BYTES = 25_000_000;
 

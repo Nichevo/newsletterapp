@@ -163,6 +163,21 @@ function PageSection() {
   const fileInput = useRef<HTMLInputElement>(null);
   // A file shared from the phone that could not be kept comes back here with the reason.
   const shareError = params.get('share_error');
+  // The "Save to Reader" bookmark opens /add?save=1&shared_url=… in a small window: save straight away, then close.
+  const autoSave = params.get('save') === '1' && Boolean(shared);
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!autoSave || autoStarted.current) return;
+    autoStarted.current = true;
+    void add();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSave]);
+  useEffect(() => {
+    // Only a window the bookmark opened can close itself; a normal tab just stays on the result.
+    if (!autoSave || !done || !window.opener) return;
+    const t = window.setTimeout(() => window.close(), 2500);
+    return () => window.clearTimeout(t);
+  }, [autoSave, done]);
 
   async function upload(file: File | undefined) {
     if (!file) return;
@@ -199,6 +214,16 @@ function PageSection() {
   return (
     <div className="section">
       <span className="label">Just one page</span>
+      {autoSave && (
+        // The bookmark's small window: the outcome first, where it can be seen.
+        <div className={error ? 'error' : 'card'} style={{ marginBottom: 12 }} role="status">
+          {error
+            ? `Couldn't save: ${error}`
+            : done
+              ? `${done.already ? '✓ Already in the app' : '✓ Saved'}: ${done.title}`
+              : 'Saving this page…'}
+        </div>
+      )}
       <form className="card" onSubmit={(e) => void add(e)}>
         <div className="field">
           <label htmlFor="page-url">Page address</label>
