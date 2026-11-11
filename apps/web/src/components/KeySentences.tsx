@@ -6,6 +6,7 @@ import {
   type ItemSummary,
   type KeyKind,
   type KeyMark,
+  type KeyUseEvent,
 } from '@newsletterapp/shared';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
@@ -66,6 +67,13 @@ export function useKeySentences({
       .catch(() => null);
   }, []);
   const itemIdRef = useRef<string | null>(null);
+  // Statistics: each use counted once per article.
+  const usedRef = useRef(new Set<KeyUseEvent>());
+  const used = useCallback((event: KeyUseEvent) => {
+    if (usedRef.current.has(event)) return;
+    usedRef.current.add(event);
+    api.keyUse(event).catch(() => undefined);
+  }, []);
 
   const load = useCallback(
     (id: string) =>
@@ -90,6 +98,7 @@ export function useKeySentences({
     step.current = -1;
     setRefs(null);
     itemIdRef.current = itemId;
+    usedRef.current = new Set();
     if (!itemId || !enabled) return;
     loadRefs(itemId);
     void load(itemId).then((d) => d && setSkim(d.status === 'done' && d.skimDefault));
@@ -126,6 +135,11 @@ export function useKeySentences({
     if (root && enabled && data.status === 'done') setKeyView(root, { on, skim, hidden });
   }, [root, drawn, data, enabled, on, skim, hidden]);
 
+  // An article with key sentences was opened (the base for the other counts).
+  useEffect(() => {
+    if (enabled && data.status === 'done' && data.marks.length) used('open');
+  }, [enabled, data.status, data.marks.length, used]);
+
   const onDrawn = useCallback(() => setDrawn((n) => n + 1), []);
   const onKeyTap = useCallback((i: number) => setSheet(i), []);
 
@@ -139,6 +153,7 @@ export function useKeySentences({
 
   function go(dir: 1 | -1) {
     if (!root) return;
+    used('step');
     const order = drawnKeys(root, hidden);
     if (!order.length) return;
     step.current = (step.current + dir + order.length) % order.length;
@@ -147,6 +162,7 @@ export function useKeySentences({
 
   async function find() {
     if (!itemId) return;
+    used('find');
     setAsked(true);
     try {
       await api.findKeySentences(itemId);
@@ -170,6 +186,7 @@ export function useKeySentences({
 
   async function keep(index: number) {
     if (!itemId || !root) return;
+    used('keep');
     setSheet(null);
     const spans = keySpans(root, index);
     if (!spans.length) return;
@@ -201,14 +218,15 @@ export function useKeySentences({
             key={k}
             className="kschip"
             aria-pressed={!hidden.has(k)}
-            onClick={() =>
+            onClick={() => {
+              used('legend');
               setHidden((h) => {
                 const next = new Set(h);
                 if (next.has(k)) next.delete(k);
                 else next.add(k);
                 return next;
-              })
-            }
+              });
+            }}
           >
             <i style={{ background: kindDot(k) }} aria-hidden="true" />
             {kindName(k)}
@@ -219,7 +237,10 @@ export function useKeySentences({
     ) : null;
     bar = (
       <div className="ksbar" role="toolbar" aria-label="Key sentences">
-        <button className="ksbar__switch" aria-pressed={on} title={on ? 'Hide the colours' : 'Show the colours'} onClick={() => setOn((v) => !v)}>
+        <button className="ksbar__switch" aria-pressed={on} title={on ? 'Hide the colours' : 'Show the colours'} onClick={() => {
+            if (on) used('off');
+            setOn((v) => !v);
+          }}>
           <span className="ksbar__swatch" aria-hidden="true">
             {shownKinds.map((k) => (
               <i key={k} style={{ background: kindDot(k) }} />
@@ -233,7 +254,10 @@ export function useKeySentences({
         </span>
         {on && (
           <>
-            <button className="ksbar__switch" aria-pressed={skim} title="Fade everything but the key sentences" onClick={() => setSkim((v) => !v)}>
+            <button className="ksbar__switch" aria-pressed={skim} title="Fade everything but the key sentences" onClick={() => {
+                if (!skim) used('skim');
+                setSkim((v) => !v);
+              }}>
               Skim
             </button>
             <span className="ksbar__nav">
@@ -313,7 +337,7 @@ export function useKeySentences({
   );
 
   const below =
-    enabled && item && item.kind !== 'ai' ? <KeyTabs data={data} refs={refs} root={root} onRefs={() => itemId && loadRefs(itemId)} /> : null;
+    enabled && item && item.kind !== 'ai' ? <KeyTabs data={data} refs={refs} root={root} onRefs={() => itemId && loadRefs(itemId)} onUse={used} /> : null;
 
   return { bar, legend, line, overlays, below, onDrawn, onKeyTap };
 }

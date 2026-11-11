@@ -1,4 +1,4 @@
-import type { ItemSummary, SearchResponse, SearchState, Source } from '@newsletterapp/shared';
+import { INDEX_TYPE_NAMES, KEY_KINDS, type IndexType, type ItemSummary, type KeyKind, type SearchResponse, type SearchState, type Source } from '@newsletterapp/shared';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
@@ -6,6 +6,7 @@ import { ItemRow, type SwipeAction } from '../components/ItemRow';
 import { IconBack } from '../icons';
 import { getSwipeReadSide } from '../prefs';
 import { rememberList } from '../readingList';
+import { keysShown, kindDot } from '../keySentences';
 
 // Search everything ever received: words in the subject, sender, preview, AI
 // summary, key points and tags (a full-text index, ranked), narrowed by date,
@@ -27,6 +28,7 @@ const STATES: { key: SearchState | ''; label: string }[] = [
   { key: 'archived', label: 'Archived' },
 ];
 const RECENT_KEY = 'search:recent';
+const KIND_LABEL: Record<KeyKind, string> = { main: 'Main point', evidence: 'Evidence', example: 'Example', caveat: 'Caveat', takeaway: 'Takeaway' };
 
 function recentSearches(): string[] {
   try {
@@ -54,6 +56,8 @@ export function SearchPage() {
   const category = params.get('category') ?? '';
   const source = params.get('source') ?? '';
   const sort = params.get('sort') === 'newest' ? 'newest' : 'relevance';
+  // Key sentences on: "In key sentences", by colour, or Index names only.
+  const ks = keysShown() ? (params.get('ks') ?? '') : '';
 
   const [text, setText] = useState(q);
   const [items, setItems] = useState<ItemSummary[]>([]);
@@ -64,6 +68,8 @@ export function SearchPage() {
   const [sources, setSources] = useState<Source[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [recent, setRecent] = useState(recentSearches);
+  const [extras, setExtras] = useState<Pick<SearchResponse, 'studies' | 'names'>>({});
+  const [keyHits, setKeyHits] = useState<NonNullable<SearchResponse['keyHits']>>({});
   const inputRef = useRef<HTMLInputElement>(null);
   const readSide = getSwipeReadSide();
 
@@ -99,6 +105,7 @@ export function SearchPage() {
     if (state) sp.set('state', state);
     if (category) sp.set('category', category);
     if (source) sp.set('source', source);
+    if (ks && q) sp.set('ks', ks);
     const since = WHEN.find((w) => w.key === when)?.since() ?? 0;
     if (since) sp.set('since', String(since));
     sp.set('sort', sort);
@@ -116,6 +123,8 @@ export function SearchPage() {
       setItems(all);
       if (r.total !== undefined) setTotal(r.total);
       setNext(r.nextOffset);
+      setKeyHits((cur) => ({ ...(offset === 0 ? {} : cur), ...(r.keyHits ?? {}) }));
+      if (offset === 0) setExtras({ studies: r.studies, names: r.names });
       rememberList(all.map((i) => i.id));
       if (offset === 0 && q && r.items.length) {
         remember(q);
@@ -137,7 +146,7 @@ export function SearchPage() {
     }
     void run(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, when, state, category, source, sort]);
+  }, [q, when, state, category, source, sort, ks]);
 
   function patch(updated: ItemSummary) {
     setItems((list) => list.map((i) => (i.id === updated.id ? updated : i)));
@@ -228,6 +237,25 @@ export function SearchPage() {
             </button>
           </div>
         )}
+        {q && keysShown() && (
+          <div className="pills" role="group" aria-label="Where the words are">
+            <button className="pill" aria-pressed={!ks} onClick={() => setParam('ks', '')}>
+              Anywhere
+            </button>
+            <button className="pill" aria-pressed={ks === 'any'} onClick={() => setParam('ks', ks === 'any' ? '' : 'any')}>
+              In key sentences
+            </button>
+            {KEY_KINDS.map((k: KeyKind) => (
+              <button key={k} className="pill kspill" aria-pressed={ks === k} onClick={() => setParam('ks', ks === k ? '' : k)}>
+                <i style={{ background: kindDot(k) }} aria-hidden="true" />
+                {KIND_LABEL[k]}
+              </button>
+            ))}
+            <button className="pill" aria-pressed={ks === 'names'} onClick={() => setParam('ks', ks === 'names' ? '' : 'names')}>
+              Names in the Index
+            </button>
+          </div>
+        )}
       </div>
 
       {!active && recent.length > 0 && (
@@ -251,7 +279,8 @@ export function SearchPage() {
       )}
       {!active && (
         <p className="hint" style={{ padding: '0 16px' }}>
-          Searches subjects, senders, previews, AI summaries, key points and tags, including archived items. Words match their beginnings
+          Searches subjects, senders, previews, AI summaries, key points and tags, including archived items
+          {keysShown() ? ', plus key sentences and the names in each Index (a word in a key sentence counts double)' : ''}. Words match their beginnings
           ("rate" finds "rates"); put words in quotes to find them together. Or <Link to="/tags">browse all tags</Link>.
         </p>
       )}
@@ -263,14 +292,69 @@ export function SearchPage() {
         </p>
       )}
 
+      {active && q && ((extras.studies?.length ?? 0) > 0 || (extras.names?.length ?? 0) > 0) && (
+        <div className="section">
+          {extras.studies && extras.studies.length > 0 && (
+            <>
+              <span className="label">Studies</span>
+              <div className="card card--list">
+                {extras.studies.map((st) => (
+                  <Link key={st.id} className="cardrow" to={`/study/${st.id}`}>
+                    <div className="cardrow__main">
+                      <span className="cardrow__title">{st.title}</span>
+                      <span className="cardrow__sub">
+                        {[st.publisher, st.year].filter(Boolean).join(', ')}
+                        {st.publisher || st.year ? ' · ' : ''}cited in {st.cites} article{st.cites === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    {st.differs && <span className="chip chip--warn">Differs</span>}
+                  </Link>
+                ))}
+              </div>
+            </>
+          )}
+          {extras.names && extras.names.length > 0 && (
+            <>
+              <span className="label">Names in your articles</span>
+              <div className="pills">
+                {extras.names.map((n) => (
+                  <button
+                    key={`${n.type}:${n.term}`}
+                    className="pill"
+                    title={INDEX_TYPE_NAMES[n.type as IndexType] ?? ''}
+                    onClick={() => {
+                      const nextParams = new URLSearchParams(params);
+                      nextParams.set('q', `"${n.term}"`);
+                      nextParams.set('ks', 'names');
+                      setText(`"${n.term}"`);
+                      setParams(nextParams, { replace: true });
+                    }}
+                  >
+                    {n.term}
+                    <span className="ksindex__count">{n.articles}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="list">
         {items.map((item) => (
-          <ItemRow
-            key={item.id}
-            item={item}
-            left={readSide === 'left' ? readAction(item) : saveAction(item)}
-            right={readSide === 'right' ? readAction(item) : saveAction(item)}
-          />
+          <div key={item.id}>
+            <ItemRow
+              item={item}
+              left={readSide === 'left' ? readAction(item) : saveAction(item)}
+              right={readSide === 'right' ? readAction(item) : saveAction(item)}
+            />
+            {keyHits[item.id] && (
+              <p className="kshit">
+                <i style={{ background: kindDot(keyHits[item.id]!.kind as KeyKind) }} aria-hidden="true" />
+                <span>{keyHits[item.id]!.quote}</span>
+              </p>
+            )}
+          </div>
         ))}
       </div>
       {loading && <div className="spinner">Searching…</div>}

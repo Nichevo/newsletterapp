@@ -310,3 +310,43 @@ export const KEY_COLOURS: Record<KeyKind, { light: [string, string]; dark: [stri
   caveat: { light: ['#fde2e2', '#c23b3b'], dark: ['#3d1f22', '#f08a8a'] },
   takeaway: { light: ['#ffe6cc', '#c8650f'], dark: ['#3d2a15', '#f5a85c'] },
 };
+
+// ----- Statistics -----
+
+/** What the reader counts (once per article each), for Statistics > Key sentences. */
+export const KEY_USE_EVENTS = ['open', 'off', 'skim', 'step', 'legend', 'outline', 'index', 'refs', 'jump', 'keep', 'find'] as const;
+export type KeyUseEvent = (typeof KEY_USE_EVENTS)[number];
+
+export interface KeyStats {
+  days: number;
+  enabled: boolean;
+  /** Articles given key sentences in the period, and how many of them by hand. */
+  treated: number;
+  manual: number;
+  skipped: { short: number; roundup: number; empty: number };
+  failed: number;
+  avgMarks: number | null;
+  avgSeconds: number | null;
+  totalSeconds: number;
+  /** One point a day: articles treated. */
+  daily: { at: number; treated: number }[];
+  /** How often each colour appears. */
+  kinds: { kind: KeyKind; count: number; per1000: number | null }[];
+  bySource: { name: string; articles: number; marks: number; kinds: Partial<Record<KeyKind, number>> }[];
+  byCategory: { name: string; articles: number; marks: number; kinds: Partial<Record<KeyKind, number>> }[];
+  /** Your Not key / Wrong colour per kind (as the model chose it) and per model. */
+  corrections: { kind: KeyKind; marks: number; removed: number; recoloured: number }[];
+  byModel: { model: string; articles: number; marks: number; removed: number; recoloured: number; avgSeconds: number | null }[];
+  /** Counted in the reader, per article opened. */
+  use: Partial<Record<KeyUseEvent, number>>;
+  /** Long articles opened in the period, with and without key sentences. */
+  readThrough: { with: ReadThrough; without: ReadThrough };
+  studies: { seen: number; citedTwice: number; differs: number; links: number };
+}
+
+export interface ReadThrough {
+  opened: number;
+  /** Scrolled to 90% or more. */
+  finished: number;
+  avgMinutes: number | null;
+}

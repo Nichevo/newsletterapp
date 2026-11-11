@@ -20,6 +20,8 @@ import type {
   ItemHighlights,
   ItemKeySentences,
   ItemReferences,
+  KeyStats,
+  KeyUseEvent,
   LinkDetail,
   LinkSummary,
   StudyDetail,
@@ -206,6 +208,8 @@ export const api = {
   checkAllSources: () => post<{ due: number; cloud: number; queued: number; added: number }>('/api/sources/check-all'),
   exportMeta: () => get<{ exportedAt: number; sources: unknown[]; settings: unknown; highlights: unknown[] }>('/api/export/meta'),
   exportItems: (after: number) => get<{ items: Record<string, unknown>[]; next: number | null }>(`/api/export/items?after=${after}`),
+  exportTable: (name: string, after: number) =>
+    get<{ rows: Record<string, unknown>[]; next: number | null }>(`/api/export/table/${name}?after=${after}`),
   exportEvents: (after: number) => get<{ events: Record<string, unknown>[]; next: number | null }>(`/api/export/events?after=${after}`),
   search: (query: string) => get<SearchResponse>(`/api/search?${query}`),
   sourceActivity: () => get<SourceActivity[]>('/api/sources/activity'),
@@ -268,6 +272,8 @@ export const api = {
   keySettings: () => get<KeySentenceSettings>('/api/key-sentences/settings'),
   saveKeySettings: (s: Partial<KeySentenceSettings>) => put<KeySentenceSettings>('/api/key-sentences/settings', s),
   keyBackdate: (days: number) => post<{ queued: number; refs?: number }>('/api/key-sentences/backdate', { days }),
+  keyStats: (days: number) => get<KeyStats>(`/api/key-sentences/stats?days=${days}`),
+  keyUse: (event: KeyUseEvent) => post<{ ok: boolean }>('/api/key-sentences/use', { event }),
   references: (itemId: string) => get<ItemReferences>(`/api/items/${itemId}/references`),
   studies: (q: { sort?: 'cited' | 'recent'; min?: 1 | 2; q?: string; differs?: boolean; page?: number }) => {
     const p = new URLSearchParams();
