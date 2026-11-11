@@ -31,6 +31,7 @@ import { TagPagePage } from './pages/Tag';
 import { TagsPage } from './pages/Tags';
 import { StoriesPage, StoryPagePage } from './pages/Story';
 import { StoryStatsPage } from './pages/StoryStats';
+import { LinkPage, StudiesPage, StudyPage } from './pages/Studies';
 
 // The Topics map pulls in the chart layout code, so it loads only when opened.
 const TopicsPage = lazy(() => import('./pages/Topics').then((m) => ({ default: m.TopicsPage })));
@@ -138,6 +139,9 @@ export default function App() {
         />
         <Route path="/tags" element={<TagsPage />} />
         <Route path="/story/:id" element={<StoryPagePage />} />
+        <Route path="/studies" element={<StudiesPage />} />
+        <Route path="/study/:id" element={<StudyPage />} />
+        <Route path="/link/:id" element={<LinkPage />} />
         <Route path="/stats/stories" element={<StoryStatsPage />} />
         <Route path="/tag/*" element={<TagPagePage />} />
         <Route path="*" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />

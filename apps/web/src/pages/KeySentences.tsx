@@ -61,7 +61,11 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
     setBackdated('Queuing…');
     try {
       const r = await api.keyBackdate(days);
-      setBackdated(r.queued ? `${r.queued} article${r.queued === 1 ? '' : 's'} from the last ${days} day${days === 1 ? '' : 's'} sent to your PC.` : 'Nothing older to do.');
+      const parts = [
+        r.queued ? `${r.queued} long article${r.queued === 1 ? '' : 's'} for key sentences` : '',
+        r.refs ? `${r.refs} article${r.refs === 1 ? '' : 's'} for studies and links` : '',
+      ].filter(Boolean);
+      setBackdated(parts.length ? `Sent to your PC from the last ${days} day${days === 1 ? '' : 's'}: ${parts.join(', ')}.` : 'Nothing older to do.');
     } catch (err) {
       setBackdated(err instanceof Error ? err.message : "Couldn't queue them");
     }
@@ -194,6 +198,30 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
                     <input type="checkbox" checked={s.skimDefault} onChange={(e) => void save({ skimDefault: e.target.checked })} />
                   </label>
                   <span className="hint">Skim fades everything except the key sentences. You can switch it in the reader either way.</span>
+                </section>
+              </div>
+
+              <div className="section">
+                <span className="label">Index, studies and links</span>
+                <section className="card">
+                  <label className="switchrow">
+                    <span style={{ fontSize: 14 }}>Index under long articles</span>
+                    <input type="checkbox" checked={s.index} onChange={(e) => void save({ index: e.target.checked })} />
+                  </label>
+                  <span className="hint">People, organisations, places and terms the article names. Tap one to jump to each mention.</span>
+                  <label className="switchrow">
+                    <span style={{ fontSize: 14 }}>Collect studies and source links</span>
+                    <input type="checkbox" checked={s.studies} onChange={(e) => void save({ studies: e.target.checked })} />
+                  </label>
+                  <span className="hint">
+                    From every article your PC summarises, long or short: one short extra step that only looks at sentences mentioning a study, report or survey.
+                    They go into <Link to="/studies">Studies</Link>, where you can see the same study across articles and spot ones quoted differently.
+                  </span>
+                  <label className="switchrow">
+                    <span style={{ fontSize: 14 }}>Show links only one article uses</span>
+                    <input type="checkbox" checked={s.linksAll} onChange={(e) => void save({ linksAll: e.target.checked })} />
+                  </label>
+                  <span className="hint">Off: a source link shows under an article only once another article links to the same page, to keep the clutter down.</span>
                 </section>
               </div>
 

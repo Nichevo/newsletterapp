@@ -12,7 +12,24 @@ import { log } from './log';
 import { runSuggestions } from './suggest';
 import { findProvider, providersFrom, type Provider } from './providers';
 import { currentLoad, powerMeter } from './system';
-import { articleText, KEY_SCHEMA, maxMarks, parseKeyReply, promptPieces, skipReason, splitArticle, toMarks } from './keysentences';
+import {
+  articleText,
+  citeCandidates,
+  countTerms,
+  htmlLinks,
+  KEY_SCHEMA,
+  KEY_TERMS_SCHEMA,
+  maxMarks,
+  parseKeyReply,
+  parseRefsReply,
+  parseTermsReply,
+  promptPieces,
+  REFS_SCHEMA,
+  refsPromptText,
+  skipReason,
+  splitArticle,
+  toMarks,
+} from './keysentences';
 import { itemText, parseOutput } from './text';
 
 // The PC helper: every minute it checks in with the app, answers any
@@ -367,6 +384,7 @@ async function keySentences(config: HelperConfig) {
       let watts: number | undefined;
       try {
         const picks: { n: number; kind: (typeof job.kinds)[number] }[] = [];
+        const named: ReturnType<typeof parseTermsReply> = [];
         for (const [i, piece] of pieces.entries()) {
           if (pieces.length > 1) doing(`key sentences for "${title}", part ${i + 1} of ${pieces.length}`);
           // Each piece gets its share of the total, by size.
@@ -376,21 +394,27 @@ async function keySentences(config: HelperConfig) {
           const meter = powerMeter();
           let reply: string;
           try {
-            reply = await provider.complete(model.name, job.prompt.replace('{max}', String(share)), user, { json: true, schema: KEY_SCHEMA });
+            reply = await provider.complete(model.name, job.prompt.replace('{max}', String(share)), user, {
+              json: true,
+              schema: job.index ? KEY_TERMS_SCHEMA : KEY_SCHEMA,
+            });
           } finally {
             seconds += (performance.now() - started) / 1000;
             const w = meter.stop();
             if (w) watts = Math.max(watts ?? 0, w);
           }
           picks.push(...parseKeyReply(reply, valid, job.kinds).slice(0, share));
+          if (job.index) named.push(...parseTermsReply(reply));
         }
         const marks = toMarks(split, picks.slice(0, max));
+        const terms = job.index ? countTerms(split.text, named) : [];
         await app.keyResult({
           ...base,
           ok: true,
           seconds,
           watts,
           marks,
+          terms,
           sentences: split.sentences.length,
           words: split.words,
           ...(marks.length ? {} : { skipped: 'empty' as const }),
@@ -400,6 +424,52 @@ async function keySentences(config: HelperConfig) {
         const error = err instanceof Error ? err.message : String(err);
         log(`key sentences failed for "${title}" with ${model.name}: ${error}`);
         await app.keyResult({ ...base, ok: false, seconds, watts, error });
+      }
+    }
+  }
+}
+
+/** Studies and source links for every summarised article: one short model call, only on sentences that might cite something. */
+async function studiesAndLinks(config: HelperConfig) {
+  if (!config.refsWaiting || config.paused || config.limited) return;
+  const fallback = config.models.find((m) => findProvider(providers, m));
+  if (!fallback) return;
+  for (let round = 0; round < 3; round++) {
+    const { jobs } = await app.refsClaim(3);
+    if (jobs.length === 0) return;
+    for (const job of jobs) {
+      await checkAsks();
+      const model = job.model && findProvider(providers, job.model) ? job.model : fallback;
+      const provider = findProvider(providers, model)!;
+      const base = { itemId: job.itemId, provider: model.provider, model: model.name };
+      const title = job.subject.slice(0, 60);
+      const split = splitArticle(articleText(job));
+      const links = htmlLinks(job.html);
+      const cands = citeCandidates(split);
+      let seconds = 0;
+      let watts: number | undefined;
+      try {
+        let studies: ReturnType<typeof parseRefsReply> = [];
+        if (cands.length) {
+          doing(`studies in "${title}"`);
+          const user = [`Title: ${job.subject}`, `From: ${job.sourceName ?? 'unknown'}`, '', refsPromptText(cands).slice(0, cfg.maxChars)].join('\n');
+          const started = performance.now();
+          const meter = powerMeter();
+          let reply: string;
+          try {
+            reply = await provider.complete(model.name, job.prompt, user, { json: true, schema: REFS_SCHEMA });
+          } finally {
+            seconds += (performance.now() - started) / 1000;
+            watts = meter.stop() ?? undefined;
+          }
+          studies = parseRefsReply(reply, split, new Set(cands.map((s) => s.n)), links);
+        }
+        await app.refsResult({ ...base, ok: true, seconds, watts, studies, links });
+        log(`studies in "${title}"${cands.length ? ` with ${model.name} in ${seconds.toFixed(1)}s` : ''}: ${studies.length} studies, ${links.length} links`);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        log(`studies failed for "${title}" with ${model.name}: ${error}`);
+        await app.refsResult({ ...base, ok: false, seconds, watts, error });
       }
     }
   }
@@ -514,6 +584,7 @@ async function tick(): Promise<number> {
   // Key sentences after the summaries: they're only for articles already summarised.
   doing('key sentences');
   await keySentences(config).catch((err: unknown) => log('key sentences failed:', err));
+  await studiesAndLinks(config).catch((err: unknown) => log('studies failed:', err));
   // Feed suggestions last: weekly, and the least urgent.
   doing('feed suggestions');
   await runSuggestions(config, app, cfg, embeddings, checkAsks).catch((err: unknown) => log('feed suggestions failed:', err));

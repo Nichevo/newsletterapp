@@ -52,6 +52,7 @@ import {
 } from './db';
 import { buildDigestIfDue } from './digest';
 import { registerKeySentences, loadKeySettings } from './keysentences';
+import { registerRefs } from './refs';
 import { registerStories, toStoryInfo } from './stories';
 import { registerEmbed } from './embed';
 import { recordLinkClick, registerSuggest } from './suggest';
@@ -118,6 +119,7 @@ registerTopics(app);
 registerTagList(app);
 registerStories(app);
 registerKeySentences(app);
+registerRefs(app);
 registerDeleting(app);
 
 // ---------- Items ----------
