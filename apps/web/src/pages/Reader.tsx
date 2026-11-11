@@ -280,6 +280,7 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
         ) : (
           !error && <div className="spinner">Loading…</div>
         )}
+        {keys.below}
         {item && !item.story && item.hasNear && (
           <NearLinks
             itemId={item.id}

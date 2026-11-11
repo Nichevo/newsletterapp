@@ -46,6 +46,12 @@ export interface KeySentenceSettings {
   promptVersion: number;
   /** When it was last switched on: only items summarised after this are done automatically. */
   since: number | null;
+  /** Index of people, organisations, places and terms under articles with key sentences. */
+  index: boolean;
+  /** Collect studies and source links from every summarised article (not only long ones). */
+  studies: boolean;
+  /** Under an article, also list source links no other article has linked to. */
+  linksAll: boolean;
 }
 
 export const DEFAULT_KEY_KINDS: KeyKindSetting[] = [
@@ -70,6 +76,9 @@ export const DEFAULT_KEY_SETTINGS: KeySentenceSettings = {
   extraPrompt: '',
   promptVersion: 1,
   since: null,
+  index: true,
+  studies: true,
+  linksAll: false,
 };
 
 /** One coloured sentence. Found again in the article the way highlights are (the text, with a little either side). */
@@ -83,6 +92,19 @@ export interface KeyMark {
   /** Your corrections: 'removed' (Not key) hides it; a changed kind keeps the model's in `was`. */
   fix?: 'removed' | 'kind';
   was?: KeyKind;
+  /** The article's own heading this sentence sits under, for the Outline (null = before the first heading). */
+  section?: string | null;
+}
+
+export const INDEX_TYPES = ['person', 'org', 'place', 'term'] as const;
+export type IndexType = (typeof INDEX_TYPES)[number];
+export const INDEX_TYPE_NAMES: Record<IndexType, string> = { person: 'People', org: 'Organisations', place: 'Places', term: 'Terms' };
+
+/** One Index entry: named in the article this many times. */
+export interface IndexTerm {
+  term: string;
+  type: IndexType;
+  count: number;
 }
 
 /** null = never looked at; none = checked and skipped (too short, a link roundup, nothing found). */
@@ -101,6 +123,8 @@ export interface ItemKeySentences {
   skimDefault: boolean;
   /** When the PC last checked in; shown while waiting. */
   helperLastSeenAt: number | null;
+  /** The Index (empty when switched off or not done). */
+  terms: IndexTerm[];
 }
 
 /** POST /api/items/:id/key-sentences/fix */
@@ -135,6 +159,8 @@ export interface KeyJob {
   maxShare: number;
   /** The model the settings ask for, if any. */
   model: { provider: string; name: string } | null;
+  /** Ask for Index terms too. */
+  index?: boolean;
 }
 
 export interface KeyResult {
@@ -150,6 +176,130 @@ export interface KeyResult {
   marks?: KeyMark[];
   sentences?: number;
   words?: number;
+  terms?: IndexTerm[];
+}
+
+// ----- Studies and source links -----
+// Studies, reports and surveys an article cites go into one shared collection,
+// so the same study can be seen across articles (and when they quote it
+// differently). Source links are collected quietly and only shown once two or
+// more articles point to the same one.
+
+/** A study as one article cites it, from the PC. */
+export interface StudyCiteIn {
+  title: string;
+  publisher: string | null;
+  year: number | null;
+  doi: string | null;
+  url: string | null;
+  /** What the article says the study found, in a few words. */
+  claim: string | null;
+  /** The sentence that cites it, anchored like key sentences. */
+  quote: string;
+  prefix: string;
+  suffix: string;
+  textOffset: number;
+  /** Numbers in that sentence ("40%", "1.2 million"), for spotting articles that quote it differently. */
+  numbers: string[];
+}
+
+export interface LinkIn {
+  url: string;
+  text: string;
+}
+
+export interface RefJob {
+  itemId: string;
+  subject: string;
+  sourceName: string | null;
+  /** The article's own web address, so links back to the same site are left out. */
+  url: string | null;
+  html: string | null;
+  text: string | null;
+  prompt: string;
+  model: { provider: string; name: string } | null;
+}
+
+export interface RefResult {
+  itemId: string;
+  ok: boolean;
+  provider: string;
+  model: string;
+  seconds: number;
+  watts?: number;
+  error?: string;
+  studies?: StudyCiteIn[];
+  links?: LinkIn[];
+}
+
+export interface StudySummary {
+  id: string;
+  title: string;
+  publisher: string | null;
+  year: number | null;
+  url: string | null;
+  doi: string | null;
+  /** How many articles cite it. */
+  cites: number;
+  /** Articles quote it with different numbers. */
+  differs: boolean;
+  lastSeen: number;
+}
+
+/** A study under one article (References tab). */
+export interface ItemStudy extends StudySummary {
+  citeId: string;
+  claim: string | null;
+  quote: string;
+  prefix: string;
+  suffix: string;
+  textOffset: number;
+  /** This article's numbers differ from another article's. */
+  citeDiffers: boolean;
+  /** A study that may be the same one, waiting for Same / Different. */
+  maybe: { id: string; title: string; cites: number } | null;
+}
+
+export interface LinkSummary {
+  id: string;
+  url: string;
+  host: string;
+  title: string | null;
+  cites: number;
+  lastSeen: number;
+}
+
+/** GET /api/items/:id/references */
+export interface ItemReferences {
+  status: KeyStatus | null;
+  studies: ItemStudy[];
+  /** Links 2+ articles point to (all of them when "show links seen once" is on). */
+  links: LinkSummary[];
+  /** Links only this article points to, left out to avoid clutter. */
+  hiddenLinks: number;
+}
+
+export interface StudyCite {
+  id: string;
+  itemId: string;
+  subject: string;
+  sourceName: string | null;
+  receivedAt: number;
+  claim: string | null;
+  quote: string;
+  numbers: string[];
+  /** The other cite this one disagrees with. */
+  differsFrom: string | null;
+}
+
+/** GET /api/studies/:id */
+export interface StudyDetail extends StudySummary {
+  citedBy: StudyCite[];
+  maybe: { id: string; title: string; publisher: string | null; year: number | null; cites: number }[];
+}
+
+export interface LinkDetail extends LinkSummary {
+  items: { itemId: string; subject: string; sourceName: string | null; receivedAt: number; text: string }[];
 }
 
 /** CSS colour for each kind: [tint, line] in light and dark. Yellow is left for your own highlights. */

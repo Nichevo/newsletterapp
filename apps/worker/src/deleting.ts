@@ -61,12 +61,19 @@ export async function tidyDeleted(env: Env): Promise<number> {
       env.DB.prepare('DELETE FROM item_tags WHERE item_id = ?').bind(row.id),
       env.DB.prepare('UPDATE highlights SET deleted_at = ? WHERE item_id = ? AND deleted_at IS NULL').bind(t, row.id),
       env.DB.prepare('DELETE FROM fetch_jobs WHERE item_id = ?').bind(row.id),
+      // Key sentences, and its cites of studies and links (their counts go down with it).
+      env.DB.prepare('DELETE FROM key_sentences WHERE item_id = ?').bind(row.id),
+      env.DB.prepare('UPDATE studies SET cites = MAX(cites - 1, 0) WHERE id IN (SELECT study_id FROM study_cites WHERE item_id = ?)').bind(row.id),
+      env.DB.prepare('UPDATE study_cites SET differs_from = NULL WHERE differs_from IN (SELECT id FROM study_cites WHERE item_id = ?)').bind(row.id),
+      env.DB.prepare('DELETE FROM study_cites WHERE item_id = ?').bind(row.id),
+      env.DB.prepare('UPDATE links SET cites = MAX(cites - 1, 0) WHERE id IN (SELECT link_id FROM link_cites WHERE item_id = ?)').bind(row.id),
+      env.DB.prepare('DELETE FROM link_cites WHERE item_id = ?').bind(row.id),
       env.DB.prepare(
         `UPDATE items SET html_key = NULL, text_key = NULL, raw_key = NULL, file_key = NULL, has_html = 0, snippet = NULL, preheader = NULL,
            summary = NULL, key_points = NULL, why_it_matters = NULL, tags = NULL, background = NULL, coverage = NULL,
            lead_image = NULL, lead_image_title = NULL, lead_image_alt = NULL, neighbours = NULL,
            story_id = NULL, news_id = NULL, story_split = 1, story_note = NULL, story_note_status = NULL,
-           highlight_count = 0, note_count = 0, deleted_at = 0
+           highlight_count = 0, note_count = 0, ks_status = NULL, refs_status = NULL, deleted_at = 0
          WHERE id = ?`,
       ).bind(row.id),
     ]);

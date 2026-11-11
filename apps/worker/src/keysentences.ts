@@ -1,7 +1,10 @@
 import {
   DEFAULT_KEY_KINDS,
   DEFAULT_KEY_SETTINGS,
+  INDEX_TYPES,
   isKeyKind,
+  type IndexTerm,
+  type IndexType,
   type ItemKeySentences,
   type KeyFixInput,
   type KeyJob,
@@ -16,6 +19,7 @@ import type { Hono } from 'hono';
 import { loadState, readJson, writeJson } from './ai';
 import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
+import { backdateRefs, clearRefsQueue, queueRefs, refsWaiting } from './refs';
 import { limitState } from './usage';
 
 // Key sentences: long articles get the sentences that carry them marked by
@@ -73,6 +77,9 @@ export function normalizeKeySettings(input: Partial<KeySentenceSettings>, base: 
     extraPrompt: typeof input.extraPrompt === 'string' ? str(input.extraPrompt, 1500) : base.extraPrompt,
     promptVersion: clampInt(input.promptVersion, 1, 1_000_000, base.promptVersion),
     since: typeof input.since === 'number' || input.since === null ? input.since : base.since,
+    index: typeof input.index === 'boolean' ? input.index : base.index,
+    studies: typeof input.studies === 'boolean' ? input.studies : base.studies,
+    linksAll: typeof input.linksAll === 'boolean' ? input.linksAll : base.linksAll,
   };
 }
 
@@ -92,15 +99,24 @@ export function keyPrompt(s: KeySentenceSettings): string {
     'Label each pick with one of these kinds:',
     ...kinds.map((k) => `- ${k.id}: ${k.name}. ${k.meaning}`),
     '',
-    'Reply with JSON only, no other text: {"marks": [{"s": 12, "k": "main"}, ...]} where s is the sentence number and k is the kind.',
-    'If the text is not really an article (a list of links, an advert, a sign-up page), reply {"marks": []}.',
+    ...(s.index
+      ? [
+          'Also list, under "terms", the people, organisations, places and important terms the text names (at most 15, the ones a reader might look up), spelt exactly as in the text, each with t (the name) and y (person, org, place or term).',
+          '',
+          'Reply with JSON only, no other text: {"marks": [{"s": 12, "k": "main"}, ...], "terms": [{"t": "World Health Organization", "y": "org"}, ...]} where s is the sentence number and k is the kind.',
+          'If the text is not really an article (a list of links, an advert, a sign-up page), reply {"marks": [], "terms": []}.',
+        ]
+      : [
+          'Reply with JSON only, no other text: {"marks": [{"s": 12, "k": "main"}, ...]} where s is the sentence number and k is the kind.',
+          'If the text is not really an article (a list of links, an advert, a sign-up page), reply {"marks": []}.',
+        ]),
     ...(s.extraPrompt ? ['', s.extraPrompt] : []),
   ].join('\n');
 }
 
 // ---------- Queueing ----------
 
-const LIVE = "items.status != 'dropped' AND items.kind != 'ai'";
+export const LIVE = "items.status != 'dropped' AND items.kind != 'ai'";
 
 /**
  * Called when an item's AI summary comes in: queues it when key sentences are
@@ -110,6 +126,8 @@ const LIVE = "items.status != 'dropped' AND items.kind != 'ai'";
 export async function queueAfterSummary(env: Env, itemId: string): Promise<void> {
   const s = await loadKeySettings(env);
   if (!s.enabled) return;
+  // Studies and links: every summarised article, whatever its length.
+  await queueRefs(env, itemId, s);
   const row = await env.DB.prepare(
     `SELECT items.ks_status, items.word_count, items.received_at, items.created_at, items.kind, items.status,
        COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]')) AS category, sources.key_sentences
@@ -128,7 +146,7 @@ export async function queueAfterSummary(env: Env, itemId: string): Promise<void>
 }
 
 /** Source setting first (Always / Never), then the category's, else Auto. */
-function modeFor(s: KeySentenceSettings, sourceMode: string | null, category: string | null): KeyMode {
+export function modeFor(s: KeySentenceSettings, sourceMode: string | null, category: string | null): KeyMode {
   if (sourceMode === 'always' || sourceMode === 'never') return sourceMode;
   return (category && s.categories[category]) || 'auto';
 }
@@ -144,11 +162,13 @@ async function keyWaiting(env: Env): Promise<boolean> {
   return Boolean(row);
 }
 
-export async function keyHeartbeat(env: Env, paused: boolean): Promise<{ keyWaiting: boolean }> {
-  if (paused) return { keyWaiting: false };
+export async function keyHeartbeat(env: Env, paused: boolean): Promise<{ keyWaiting: boolean; refsWaiting: boolean }> {
+  if (paused) return { keyWaiting: false, refsWaiting: false };
   const s = await loadKeySettings(env);
   // Off means no PC work at all, even for articles asked for by hand earlier.
-  return { keyWaiting: s.enabled && (await keyWaiting(env)) };
+  if (!s.enabled) return { keyWaiting: false, refsWaiting: false };
+  const [key, refs] = await Promise.all([keyWaiting(env), s.studies ? refsWaiting(env) : false]);
+  return { keyWaiting: key, refsWaiting: refs };
 }
 
 // ---------- Cleaning what the PC sends ----------
@@ -169,10 +189,38 @@ function cleanMarks(input: unknown): KeyMark[] {
       prefix: typeof v.prefix === 'string' ? v.prefix.slice(-40) : '',
       suffix: typeof v.suffix === 'string' ? v.suffix.slice(0, 40) : '',
       textOffset: typeof v.textOffset === 'number' && Number.isFinite(v.textOffset) ? Math.max(0, Math.round(v.textOffset)) : 0,
+      section: typeof v.section === 'string' && v.section.trim() ? v.section.trim().slice(0, 200) : null,
     });
   }
   return out;
 }
+
+function cleanTerms(input: unknown): IndexTerm[] {
+  if (!Array.isArray(input)) return [];
+  const out: IndexTerm[] = [];
+  const seen = new Set<string>();
+  for (const t of input.slice(0, 200)) {
+    if (!t || typeof t !== 'object') continue;
+    const v = t as Record<string, unknown>;
+    const term = typeof v.term === 'string' ? v.term.replace(/\s+/g, ' ').trim().slice(0, 80) : '';
+    const type = INDEX_TYPES.includes(v.type as IndexType) ? (v.type as IndexType) : null;
+    const count = typeof v.count === 'number' && Number.isFinite(v.count) ? Math.max(1, Math.round(v.count)) : 1;
+    if (term.length < 2 || !type || seen.has(term.toLowerCase())) continue;
+    seen.add(term.toLowerCase());
+    out.push({ term, type, count });
+  }
+  return out;
+}
+
+export const parseTerms = (raw: string | null): IndexTerm[] => {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return Array.isArray(v) ? (v as IndexTerm[]) : [];
+  } catch {
+    return [];
+  }
+};
 
 const SKIP_NOTE: Record<NonNullable<KeyResult['skipped']>, string> = {
   short: 'Shorter than the length set in Settings.',
@@ -214,6 +262,7 @@ export function registerKeySentences(app: App) {
         `UPDATE items SET ks_status = NULL WHERE id IN (
            SELECT id FROM items INDEXED BY items_ks_queue WHERE ks_status IN ('pending', 'working') LIMIT 5000)`,
       ).run();
+      await clearRefsQueue(c.env);
     }
     return c.json(next);
   });
@@ -237,16 +286,17 @@ export function registerKeySentences(app: App) {
     )
       .bind(now() - days * 86_400_000, s.minWords)
       .run();
-    return c.json({ queued: r.meta.changes ?? 0 });
+    const refs = s.studies ? await backdateRefs(c.env, now() - days * 86_400_000) : 0;
+    return c.json({ queued: r.meta.changes ?? 0, refs });
   });
 
   app.get('/api/items/:id/key-sentences', async (c) => {
     const id = c.req.param('id');
     const [item, row, s] = await Promise.all([
       c.env.DB.prepare('SELECT ks_status FROM items WHERE id = ?').bind(id).first<{ ks_status: KeyStatus | null }>(),
-      c.env.DB.prepare('SELECT model, marks, sentences, note FROM key_sentences WHERE item_id = ?')
+      c.env.DB.prepare('SELECT model, marks, sentences, note, terms FROM key_sentences WHERE item_id = ?')
         .bind(id)
-        .first<{ model: string | null; marks: string; sentences: number | null; note: string | null }>(),
+        .first<{ model: string | null; marks: string; sentences: number | null; note: string | null; terms: string | null }>(),
       loadKeySettings(c.env),
     ]);
     if (!item) return c.json({ error: 'not found' }, 404);
@@ -261,6 +311,7 @@ export function registerKeySentences(app: App) {
       kinds: s.kinds,
       skimDefault: s.skimDefault,
       helperLastSeenAt: helper?.lastSeenAt ?? null,
+      terms: item.ks_status === 'done' && s.index ? parseTerms(row?.terms ?? null) : [],
     };
     return c.json(body);
   });
@@ -372,6 +423,7 @@ export function registerKeySentences(app: App) {
         perSection: s.perSection,
         maxShare: s.maxShare,
         model,
+        index: s.index,
       });
     }
     return c.json({ jobs });
@@ -387,6 +439,7 @@ export function registerKeySentences(app: App) {
     if (!item) return c.json({ error: 'not found' }, 404);
     const t = now();
     const marks = r.ok && !r.skipped ? cleanMarks(r.marks) : [];
+    const terms = r.ok && !r.skipped ? cleanTerms(r.terms) : [];
     const skipped = r.ok ? (r.skipped ?? (marks.length === 0 ? 'empty' : undefined)) : undefined;
     const done = r.ok && !skipped;
     const status: KeyStatus = done ? 'done' : skipped ? 'none' : item.ks_attempts >= MAX_ATTEMPTS ? 'failed' : 'pending';
@@ -419,9 +472,9 @@ export function registerKeySentences(app: App) {
     if (done || skipped || status === 'failed') {
       stmts.push(
         c.env.DB.prepare(
-          `INSERT INTO key_sentences (item_id, provider, model, prompt_version, marks, sentences, words, note, created_at, updated_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
-           ON CONFLICT(item_id) DO UPDATE SET provider = ?2, model = ?3, prompt_version = ?4, marks = ?5, sentences = ?6, words = ?7, note = ?8, updated_at = ?9`,
+          `INSERT INTO key_sentences (item_id, provider, model, prompt_version, marks, sentences, words, note, terms, created_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?10, ?9, ?9)
+           ON CONFLICT(item_id) DO UPDATE SET provider = ?2, model = ?3, prompt_version = ?4, marks = ?5, sentences = ?6, words = ?7, note = ?8, terms = ?10, updated_at = ?9`,
         ).bind(
           item.id,
           String(r.provider ?? '').slice(0, 40),
@@ -432,6 +485,7 @@ export function registerKeySentences(app: App) {
           num(r.words),
           note,
           t,
+          terms.length ? JSON.stringify(terms) : null,
         ),
       );
     }

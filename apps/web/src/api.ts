@@ -19,6 +19,11 @@ import type {
   HighlightStats,
   ItemHighlights,
   ItemKeySentences,
+  ItemReferences,
+  LinkDetail,
+  LinkSummary,
+  StudyDetail,
+  StudySummary,
   KeyFixInput,
   KeyMark,
   KeySentenceSettings,
@@ -260,7 +265,21 @@ export const api = {
   fixKeySentence: (itemId: string, fix: KeyFixInput) => post<{ marks: KeyMark[] }>(`/api/items/${itemId}/key-sentences/fix`, fix),
   keySettings: () => get<KeySentenceSettings>('/api/key-sentences/settings'),
   saveKeySettings: (s: Partial<KeySentenceSettings>) => put<KeySentenceSettings>('/api/key-sentences/settings', s),
-  keyBackdate: (days: number) => post<{ queued: number }>('/api/key-sentences/backdate', { days }),
+  keyBackdate: (days: number) => post<{ queued: number; refs?: number }>('/api/key-sentences/backdate', { days }),
+  references: (itemId: string) => get<ItemReferences>(`/api/items/${itemId}/references`),
+  studies: (q: { sort?: 'cited' | 'recent'; min?: 1 | 2; q?: string; differs?: boolean; page?: number }) => {
+    const p = new URLSearchParams();
+    if (q.sort) p.set('sort', q.sort);
+    if (q.min === 2) p.set('min', '2');
+    if (q.q) p.set('q', q.q);
+    if (q.differs) p.set('differs', '1');
+    if (q.page) p.set('page', String(q.page));
+    return get<{ studies: StudySummary[]; more: boolean }>(`/api/studies?${p}`);
+  },
+  study: (id: string) => get<StudyDetail>(`/api/studies/${id}`),
+  sameStudy: (id: string, other: string, same: boolean) => post<{ ok: boolean; id: string }>(`/api/studies/${id}/same`, { other, same }),
+  links: (page = 0) => get<{ links: LinkSummary[]; more: boolean }>(`/api/links${page ? `?page=${page}` : ''}`),
+  link: (id: string) => get<LinkDetail>(`/api/links/${id}`),
   addHighlight: (itemId: string, anchor: HighlightAnchor) => post<Highlight>(`/api/items/${itemId}/highlights`, anchor),
   deleteHighlight: (id: string) => request<{ ok: boolean }>(`/api/highlights/${id}`, { method: 'DELETE' }),
   ask: (input: NewAskInput) => post<NewAskResult>('/api/asks', input),

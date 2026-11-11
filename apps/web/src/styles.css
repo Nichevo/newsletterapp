@@ -2782,3 +2782,163 @@ a.chip { text-decoration: none; }
   border-radius: 4px;
   flex: none;
 }
+
+/* Under an article: Outline, Index, References (key sentences part 2) */
+.kstabs {
+  margin: 28px 0 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 12px;
+}
+.kstabs h4 {
+  margin: 14px 0 6px;
+  font: 600 12px var(--font);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+.ksoutline ol,
+.ksrefs__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.ksoutline__row {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: 400 14px/1.45 var(--font);
+  text-align: left;
+  cursor: pointer;
+}
+.ksoutline__row:hover:not(:disabled) {
+  background: var(--surface-2, var(--border));
+}
+.ksoutline__row:disabled {
+  color: var(--quiet);
+  cursor: default;
+}
+.ksoutline__row i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  transform: translateY(1px);
+}
+.ksindex .pills {
+  gap: 6px;
+}
+.ksindex__count {
+  margin-left: 6px;
+  color: var(--quiet);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ksstudy {
+  display: grid;
+  gap: 3px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ksstudy:last-child {
+  border-bottom: none;
+}
+.ksstudy__title {
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+}
+.ksstudy__title:hover {
+  text-decoration: underline;
+}
+.ksstudy__claim {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--ink-2, var(--ink));
+}
+.ksstudy__badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 4px;
+}
+.ksstudy__badges .chip {
+  text-decoration: none;
+}
+.ksstudy__maybe {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--amber-tint);
+  font-size: 13px;
+}
+.ksrefs__link {
+  display: grid;
+  gap: 2px;
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+}
+.ksdiffer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 8px;
+}
+.ksdiffer figure {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.ksdiffer figcaption {
+  margin-top: 6px;
+  font-size: 13px;
+}
+@media (max-width: 560px) {
+  .ksdiffer {
+    grid-template-columns: 1fr;
+  }
+}
+.ksciting {
+  display: grid;
+  gap: 10px;
+}
+.ksciting__row {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.ksciting__row--differs {
+  border-color: var(--amber-deep);
+}
+.ksciting__title {
+  justify-self: start;
+  font-weight: 600;
+  text-align: left;
+}
+.kstabs a.linkbtn {
+  text-decoration: none;
+}
+.kstabs .linkbtn,
+.kstabs .hint {
+  font-size: 13px;
+}

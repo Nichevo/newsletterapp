@@ -2,6 +2,7 @@ import {
   KEY_KINDS,
   type Highlight,
   type ItemKeySentences,
+  type ItemReferences,
   type ItemSummary,
   type KeyKind,
   type KeyMark,
@@ -11,6 +12,7 @@ import { api } from '../api';
 import { anchorFor } from '../highlight';
 import { applyKeyMarks, clearKeyMarks, clearKeyView, drawnKeys, keySpans, kindDot, revealKey, setKeyView } from '../keySentences';
 import { IconChevron } from '../icons';
+import { KeyTabs } from './KeyTabs';
 
 // Key sentences in the reader: the bar under the article's header (colour
 // chips that double as the legend, Skim, step through), the coloured
@@ -29,6 +31,7 @@ const EMPTY: ItemKeySentences = {
   kinds: [],
   skimDefault: false,
   helperLastSeenAt: null,
+  terms: [],
 };
 
 
@@ -53,7 +56,16 @@ export function useKeySentences({
   const [drawn, setDrawn] = useState(0);
   const [asked, setAsked] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [refs, setRefs] = useState<ItemReferences | null>(null);
   const step = useRef(-1);
+
+  const loadRefs = useCallback((id: string) => {
+    api
+      .references(id)
+      .then((r) => setRefs((cur) => (id === itemIdRef.current ? r : cur)))
+      .catch(() => null);
+  }, []);
+  const itemIdRef = useRef<string | null>(null);
 
   const load = useCallback(
     (id: string) =>
@@ -76,9 +88,12 @@ export function useKeySentences({
     setOn(true);
     setAsked(false);
     step.current = -1;
+    setRefs(null);
+    itemIdRef.current = itemId;
     if (!itemId || !enabled) return;
+    loadRefs(itemId);
     void load(itemId).then((d) => d && setSkim(d.status === 'done' && d.skimDefault));
-  }, [itemId, enabled, load]);
+  }, [itemId, enabled, load, loadRefs]);
 
   // Waiting for the PC: look again every 10 seconds while the app is on screen.
   const waiting = data.status === 'pending' || data.status === 'working';
@@ -297,7 +312,10 @@ export function useKeySentences({
     </>
   );
 
-  return { bar, legend, line, overlays, onDrawn, onKeyTap };
+  const below =
+    enabled && item && item.kind !== 'ai' ? <KeyTabs data={data} refs={refs} root={root} onRefs={() => itemId && loadRefs(itemId)} /> : null;
+
+  return { bar, legend, line, overlays, below, onDrawn, onKeyTap };
 }
 
 function KeySheet({

@@ -150,6 +150,7 @@ export function keyCss(host: (attr: string) => string): string {
     `.ks { border-radius: 2px; cursor: pointer; -webkit-box-decoration-break: clone; box-decoration-break: clone; }`,
     `@keyframes ksflash { 0%, 100% { outline-color: transparent; } 40% { outline-color: var(--teal, #0b6b66); } }`,
     `.ks--flash { outline: 2px solid transparent; outline-offset: 2px; animation: ksflash 1.2s ease 2; }`,
+    `::highlight(ks-term) { background-color: var(--teal, #0b6b66); color: #fff; }`,
   ];
   const dark: string[] = [];
   for (const k of KEY_KINDS) {
@@ -211,3 +212,70 @@ export const setKeysShown = (on: boolean) => {
   keysOn = on;
 };
 export const keysShown = () => keysOn;
+
+// ----- Index: jumping to a name in the article -----
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Every place a name appears in the article (whole words; any spacing), as ranges in reading order. */
+export function termRanges(root: Root, term: string, caseless: boolean): Range[] {
+  const index = indexText(root);
+  const pattern = term.trim().split(/\s+/).map(escapeRe).join('\\s+');
+  if (!pattern) return [];
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])${pattern}(?![\\p{L}\\p{N}])`, caseless ? 'giu' : 'gu');
+  const out: Range[] = [];
+  const point = (pos: number): [Text, number] | null => {
+    // The last text node starting at or before pos.
+    let lo = 0;
+    let hi = index.starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (index.starts[mid]! <= pos) lo = mid;
+      else hi = mid - 1;
+    }
+    const node = index.nodes[lo];
+    return node ? [node, Math.min(pos - index.starts[lo]!, node.data.length)] : null;
+  };
+  for (const m of index.text.matchAll(re)) {
+    const a = point(m.index);
+    const b = point(m.index + m[0].length - 1);
+    if (!a || !b) continue;
+    const r = document.createRange();
+    r.setStart(a[0], a[1]);
+    r.setEnd(b[0], b[1] + 1);
+    out.push(r);
+    if (out.length >= 200) break;
+  }
+  return out;
+}
+
+/** Scrolls to a range and shows it briefly (CSS Custom Highlights where the browser has them). */
+export function flashRange(range: Range) {
+  const rect = range.getBoundingClientRect();
+  window.scrollTo({ top: window.scrollY + rect.top - window.innerHeight / 3, behavior: 'smooth' });
+  const css = (globalThis as { CSS?: { highlights?: Map<string, unknown> } }).CSS;
+  const H = (globalThis as { Highlight?: new (...r: Range[]) => unknown }).Highlight;
+  if (!css?.highlights || !H) return;
+  css.highlights.set('ks-term', new H(range));
+  window.setTimeout(() => css.highlights?.delete('ks-term'), 2400);
+}
+
+/** The range of a sentence stored with its anchor (a study's citing sentence), or null when this copy hasn't got it. */
+export function rangeForQuote(root: Root, m: Pick<KeyMark, 'quote' | 'prefix' | 'suffix' | 'textOffset'>): Range | null {
+  const index = indexText(root);
+  const at = findSentence(index.text, compactText(index.text), { ...m, kind: 'main' });
+  if (!at) return null;
+  const point = (pos: number): [Text, number] | null => {
+    for (let n = index.nodes.length - 1; n >= 0; n--) {
+      if (index.starts[n]! <= pos) return [index.nodes[n]!, Math.min(pos - index.starts[n]!, index.nodes[n]!.data.length)];
+    }
+    return null;
+  };
+  const a = point(at[0]);
+  const b = point(at[1] - 1);
+  if (!a || !b) return null;
+  const r = document.createRange();
+  r.setStart(a[0], a[1]);
+  r.setEnd(b[0], b[1] + 1);
+  return r;
+}

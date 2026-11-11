@@ -988,7 +988,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.6.0';
+export const HELPER_VERSION = '0.7.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -1021,6 +1021,8 @@ export interface HelperConfig {
   suggestDue?: boolean;
   /** Articles waiting for their key sentences (helpers from 0.6.0). */
   keyWaiting?: boolean;
+  /** Articles waiting for their studies and source links to be collected. */
+  refsWaiting?: boolean;
 }
 
 /** One item for the helper to embed: its text and when it arrived. */

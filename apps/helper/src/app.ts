@@ -16,7 +16,7 @@ import type {
   HelperJob,
   HelperResult,
   KeyJob,
-  KeyResult,
+  KeyResult, RefJob, RefResult,
   StoryJob,
   StoryResult,
   TrialJob,
@@ -65,6 +65,8 @@ export class AppClient {
   storyResult = (r: StoryResult) => this.call<{ ok: boolean }>('POST', '/api/helper/story/result', r);
   keyClaim = (max: number) => this.call<{ jobs: KeyJob[] }>('POST', '/api/helper/key/claim', { max });
   keyResult = (r: KeyResult) => this.call<{ ok: boolean; status: string }>('POST', '/api/helper/key/result', r);
+  refsClaim = (max: number) => this.call<{ jobs: RefJob[] }>('POST', '/api/helper/refs/claim', { max });
+  refsResult = (r: RefResult) => this.call<{ ok: boolean; status: string; studies: number }>('POST', '/api/helper/refs/result', r);
   likelyState = () => this.call<LikelyState>('GET', '/api/helper/likely');
   likelySave = (set: string[], unset: string[]) => this.call<{ ok: boolean }>('POST', '/api/helper/likely', { set, unset });
   linksClaim = (max: number) => this.call<{ jobs: LinkJob[] }>('POST', '/api/helper/suggest/links/claim', { max });
