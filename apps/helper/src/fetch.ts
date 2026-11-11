@@ -317,7 +317,7 @@ async function pageJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult>
     return { jobId: job.id, ok: false, error: `No article links found on the page.${tip}` };
   }
   const known = new Set(job.knownKeys);
-  const fresh = links.filter((l) => !known.has(l.url)).slice(0, job.firstRun ? FIRST_RUN_ARTICLES : ARTICLES_PER_CHECK);
+  const fresh = links.filter((l) => !known.has(l.url)).slice(0, job.firstRun ? (job.startCount ?? FIRST_RUN_ARTICLES) : ARTICLES_PER_CHECK);
   const entries: FeedEntry[] = [];
   // One at a time, to be polite to the site.
   for (const link of fresh) {

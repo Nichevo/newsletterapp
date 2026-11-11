@@ -7,6 +7,7 @@ import { useVisiblePolling } from '../poll';
 import { relativeTime } from '../format';
 import { IconBack, IconThumbDown, IconThumbUp } from '../icons';
 import { LimitNotice, minutesLabel } from './AiUsage';
+import { Help } from '../components/Help';
 
 const HELPER_STALE_MS = 5 * 60_000;
 
@@ -255,7 +256,10 @@ function ModelsSection({
     <div className="section">
       <span className="label">Models</span>
       <section className="card">
-        <strong style={{ fontSize: 14 }}>Everyday summaries use</strong>
+        <strong style={{ fontSize: 14 }}>
+          Everyday summaries use
+          <Help topic="modelsMode" />
+        </strong>
         <div className="segmented" role="group" aria-label="Which models write everyday summaries">
           <button aria-pressed={mode === 'first'} onClick={() => void changeMode('first')}>
             The first model
@@ -364,7 +368,7 @@ function PromptsSection() {
 
   return (
     <div className="section">
-      <span className="label">Summary prompts</span>
+      <span className="label">Summary prompts<Help topic="summaryPrompts" /></span>
       {error && <div className="error">{error}</div>}
       <section className="card">
         {editing ? (
@@ -474,7 +478,7 @@ function TrialSection({ models }: { models: ModelInfo[] }) {
 
   return (
     <div className="section">
-      <span className="label">Test models side by side</span>
+      <span className="label">Test models side by side<Help topic="testModels" /></span>
       {error && <div className="error">{error}</div>}
       <section className="card">
         <span className="hint">

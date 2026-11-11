@@ -7,6 +7,7 @@ import { activityView, nextTime, rhythmText, shortTime } from '../format';
 import { IconBack } from '../icons';
 import { StartWithPicker } from './Add';
 import { DailyCapPicker } from './AddBuilders';
+import { Help } from '../components/Help';
 
 const AI_LABEL: Record<AiMode, string> = { default: 'Default', on: 'On', off: 'Off' };
 
@@ -167,7 +168,7 @@ export function SourcePage() {
           </div>
 
           <div className="section">
-            <span className="label">Category</span>
+            <span className="label">Category<Help topic="srcCategory" /></span>
             <section className="card">
               <select
                 className="input"
@@ -185,7 +186,7 @@ export function SourcePage() {
           </div>
 
           <div className="section">
-            <span className="label">AI summaries</span>
+            <span className="label">AI summaries<Help topic="srcAi" /></span>
             <section className="card">
               <div className="segmented" role="group" aria-label="AI summaries">
                 {(Object.keys(AI_LABEL) as AiMode[]).map((m) => (
@@ -240,7 +241,7 @@ export function SourcePage() {
 
           {keysShown() && source.kind !== 'ai' && (
             <div className="section">
-              <span className="label">Key sentences</span>
+              <span className="label">Key sentences<Help topic="srcKeys" /></span>
               <section className="card">
                 <div className="segmented" role="group" aria-label="Key sentences">
                   {(['auto', 'always', 'never'] as const).map((m) => (
@@ -310,7 +311,7 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
       </section>
 
       <section className="card">
-        <span className="label">Check every</span>
+        <span className="label">Check every<Help topic="srcCheckEvery" /></span>
         <div className="segmented" role="group" aria-label="Check every">
           {source.kind === 'feed' && (
             <button aria-pressed={source.checkMinutes === null} onClick={() => onUpdate({ checkMinutes: null })}>
@@ -330,7 +331,7 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
         {source.kind === 'feed' && <RhythmNote source={source} />}
         {source.kind === 'feed' && (
           <>
-            <span className="label">Fetched by</span>
+            <span className="label">Fetched by<Help topic="srcFetchedBy" /></span>
             <div className="segmented" role="group" aria-label="Fetched by">
               <button aria-pressed={source.fetchVia === 'cloud'} onClick={() => onUpdate({ fetchVia: 'cloud' })}>
                 Cloudflare
@@ -343,7 +344,7 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
               Cloudflare checks feeds even when your PC is off. Use your PC for sites that turn Cloudflare away (the app switches
               on its own after three refusals in a row).
             </span>
-            <span className="label">Full articles</span>
+            <span className="label">Full articles<Help topic="srcFullText" /></span>
             <div className="segmented" role="group" aria-label="Full articles">
               {(Object.keys(FULL_TEXT_LABEL) as FullTextMode[]).map((m) => (
                 <button key={m} aria-pressed={source.fullText === m} onClick={() => onUpdate({ fullText: m })}>
@@ -359,7 +360,7 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
         {source.kind === 'site' && (
           <>
             <div className="field">
-              <label htmlFor="src-hint">Only links containing</label>
+              <label htmlFor="src-hint">Only links containing<Help topic="srcLinkHint" /></label>
               <input
                 id="src-hint"
                 className="input"
@@ -375,12 +376,12 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
           </>
         )}
         <label className="switchrow">
-          <span style={{ fontSize: 15 }}>Needs a browser (page built by JavaScript)</span>
+          <span style={{ fontSize: 15 }}>Needs a browser (page built by JavaScript)<Help topic="srcBrowser" /></span>
           <input type="checkbox" checked={source.render} onChange={(e) => onUpdate({ render: e.target.checked })} />
         </label>
         <span className="hint" style={{ margin: 0 }}>Your PC opens these pages in a hidden Edge or Chrome window. Slower, so only when needed.</span>
         <label className="switchrow">
-          <span style={{ fontSize: 15 }}>Show the picture in the inbox</span>
+          <span style={{ fontSize: 15 }}>Show the picture in the inbox<Help topic="srcPicture" /></span>
           <input type="checkbox" checked={source.showPicture} onChange={(e) => onUpdate({ showPicture: e.target.checked })} />
         </label>
         <span className="hint" style={{ margin: 0 }}>
@@ -388,7 +389,7 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
           opening it.
         </span>
         <label className="switchrow">
-          <span style={{ fontSize: 15 }}>Group new posts into one item</span>
+          <span style={{ fontSize: 15 }}>Group new posts into one item<Help topic="srcBundle" /></span>
           <input type="checkbox" checked={source.bundle} onChange={(e) => onUpdate({ bundle: e.target.checked })} />
         </label>
         <span className="hint" style={{ margin: 0 }}>
@@ -398,7 +399,7 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
         {source.kind === 'feed' && (
           <>
             <label className="switchrow">
-              <span style={{ fontSize: 15 }}>Fetch the article it links to</span>
+              <span style={{ fontSize: 15 }}>Fetch the article it links to<Help topic="srcFollowLink" /></span>
               <input type="checkbox" checked={source.followLink} onChange={(e) => onUpdate({ followLink: e.target.checked })} />
             </label>
             <span className="hint" style={{ margin: 0 }}>
@@ -423,7 +424,7 @@ function PostFilterSection({ source, onUpdate }: { source: Source; onUpdate: (p:
   const flooded = source.floodAt !== null && source.floodAt > Date.now() - 86_400_000 && source.floodCount > 0;
   return (
     <div className="section">
-      <span className="label">Which posts get in</span>
+      <span className="label">Which posts get in<Help topic="srcPostFilter" /></span>
       <section className="card">
         {flooded && (
           <div className="notice notice--amber" style={{ margin: 0 }}>
@@ -488,7 +489,10 @@ function PostFilterSection({ source, onUpdate }: { source: Source; onUpdate: (p:
           </label>
         )}
         <label className="inline" style={{ flexWrap: 'wrap', gap: 8 }}>
-          <span className="hint" style={{ margin: 0 }}>Bring new posts in</span>
+          <span className="hint" style={{ margin: 0 }}>
+            Bring new posts in
+            <Help topic="srcWait" />
+          </span>
           <select className="input" style={{ flex: '1 1 160px' }} value={source.waitHours} onChange={(e) => onUpdate({ waitHours: Number(e.target.value) })}>
             {[0, 2, 6, 12, 24].map((h) => (
               <option key={h} value={h}>
@@ -500,7 +504,10 @@ function PostFilterSection({ source, onUpdate }: { source: Source; onUpdate: (p:
             Waiting lets votes and comments build up first (handy for Reddit, where the top comments come with each post).
           </span>
         </label>
-        <span className="label" style={{ marginTop: 8 }}>Flood guard</span>
+        <span className="label" style={{ marginTop: 8 }}>
+          Flood guard
+          <Help topic="srcFloodGuard" />
+        </span>
         <DailyCapPicker value={source.dailyCap} onChange={(n) => onUpdate({ dailyCap: n })} />
         {source.dailyCap > 0 && (
           <>

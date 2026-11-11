@@ -1350,6 +1350,7 @@ export function registerFeeds(app: App) {
         lastModified: j.kind === 'feed' && s?.last_ok_at ? s.last_modified : null,
         knownKeys: known.results.map((r) => r.key),
         firstRun: s ? s.last_ok_at === null : false,
+        startCount: s && s.last_ok_at === null ? (s.start_count ?? null) : null,
         wantPicture: s?.show_picture === 1,
         postUrl: s?.follow_link === 1 ? (post?.web_url ?? null) : null,
         skipSites,

@@ -25,6 +25,8 @@ import {
   type OpenIn,
 } from '../prefs';
 import { useDensity, useViewOptions } from '../components/DensityToggle';
+import { Help } from '../components/Help';
+import type { HelpTopic } from '../help';
 
 /** Loads the app settings and saves changes optimistically; shared by Settings and its sub-pages. */
 export function useAppSettings() {
@@ -179,7 +181,7 @@ export function CategoriesSection({ settings, onSave }: { settings: AppSettings;
 
   return (
     <div className="section">
-      <span className="label">Categories</span>
+      <span className="label">Categories<Help topic="categories" /></span>
       <section className="card">
         <div className="chipedit">
           {settings.categories.map((c) => (
@@ -205,7 +207,7 @@ export function CategoriesSection({ settings, onSave }: { settings: AppSettings;
         </span>
       </section>
 
-      <span className="label">Keyword rules</span>
+      <span className="label">Keyword rules<Help topic="keywordRules" /></span>
       <section className="card">
         {settings.keywordRules.length === 0 && <span className="hint">No rules yet.</span>}
         {settings.keywordRules.map((r, i) => (
@@ -252,7 +254,7 @@ export function AiSummariesSection({ settings, onSave }: { settings: AppSettings
 
   return (
     <div className="section">
-      <span className="label">AI summaries</span>
+      <span className="label">AI summaries<Help topic="aiByKind" /></span>
       <section className="card">
         {(Object.keys(KIND_LABEL) as SummaryKind[]).map((kind) => (
           <label key={kind} className="switchrow">
@@ -271,7 +273,7 @@ export function AiSummariesSection({ settings, onSave }: { settings: AppSettings
         </span>
         {settings.categories.length > 0 && (
           <div className="field">
-            <label>Categories without AI</label>
+            <label>Categories without AI<Help topic="aiOffCategories" /></label>
             <div className="chipedit">
               {settings.categories.map((c) => {
                 const off = settings.aiOffCategories.includes(c);
@@ -297,7 +299,7 @@ export function AiSummariesSection({ settings, onSave }: { settings: AppSettings
           </div>
         )}
         <div className="field">
-          <label htmlFor="interests">Your interests</label>
+          <label htmlFor="interests">Your interests<Help topic="interests" /></label>
           <input
             id="interests"
             className="input"
@@ -319,7 +321,7 @@ function OpenInPicker({ site }: { site: AppSite }) {
   const name = site === 'reddit' ? 'Reddit' : 'YouTube';
   return (
     <div className="field">
-      <span className="label">Live page for {name} posts</span>
+      <span className="label">Live page for {name} posts<Help topic="openIn" /></span>
       <div className="segmented" role="group" aria-label={`Live page for ${name} posts`}>
         {(['app', 'browser'] as OpenIn[]).map((w) => (
           <button
@@ -355,10 +357,10 @@ function ReadingSection() {
 
   return (
     <div className="section">
-      <span className="label">Reading</span>
+      <span className="label">Reading<Help topic="readingTime" /></span>
       <section className="card">
         <div className="field">
-          <label>Text size</label>
+          <label>Text size<Help topic="textSize" /></label>
           <div className="segmented" role="group" aria-label="Text size">
             {TEXT_SIZES.map((t) => (
               <button key={t.id} aria-pressed={size === t.id} onClick={() => pick(t.id)} style={{ fontSize: t.px - 3 }}>
@@ -369,7 +371,7 @@ function ReadingSection() {
           <span className="hint">Applies to newsletter text in the reader on this device.</span>
         </div>
         <div className="field">
-          <label>Inbox view</label>
+          <label>Inbox view<Help topic="inboxView" /></label>
           <div className="segmented" role="group" aria-label="Inbox view">
             {DENSITIES.map((d) => (
               <button key={d.id} aria-pressed={density === d.id} onClick={() => setDensity(d.id)}>
@@ -380,7 +382,7 @@ function ReadingSection() {
           <span className="hint">{DENSITIES.find((d) => d.id === density)?.hint}. The icon at the top of the inbox switches too.</span>
         </div>
         <div className="field">
-          <label>Card view</label>
+          <label>Card view<Help topic="cardView" /></label>
           <div className="switchrow">
             <span style={{ fontSize: 14 }}>Preview lines</span>
             <div className="segmented" role="group" aria-label="Preview lines" style={{ width: 200 }}>
@@ -394,7 +396,7 @@ function ReadingSection() {
           <OptionSwitch label="Show tags and category" value={opts.cardTags} onChange={(v) => setViewOptions({ cardTags: v })} />
         </div>
         <div className="field">
-          <label>Expanded view</label>
+          <label>Expanded view<Help topic="expandedView" /></label>
           <OptionSwitch
             label="Whole summary (off: first 4 lines)"
             value={opts.expandedFullSummary}
@@ -416,7 +418,7 @@ function ReadingSection() {
         </div>
         {keysShown() && (
           <div className="field">
-            <label>Key sentences in the lists</label>
+            <label>Key sentences in the lists<Help topic="inboxKeys" /></label>
             <OptionSwitch label="Show under the summary (Card and Expanded)" value={opts.inboxKeys} onChange={(v) => setViewOptions({ inboxKeys: v })} />
             <div className="switchrow">
               <span style={{ fontSize: 14 }}>Colours</span>
@@ -448,7 +450,7 @@ function ReadingSection() {
           </div>
         )}
         <div className="field">
-          <span className="label">Swipe to mark read</span>
+          <span className="label">Swipe to mark read<Help topic="swipe" /></span>
           <div className="segmented" role="group" aria-label="Swipe to mark read">
             {(['right', 'left'] as SwipeReadSide[]).map((side) => (
               <button
@@ -469,7 +471,7 @@ function ReadingSection() {
           <OpenInPicker key={site} site={site} />
         ))}
         <div className="field">
-          <span className="label">AI notes card</span>
+          <span className="label">AI notes card<Help topic="notesPlace" /></span>
           <div className="segmented" role="group" aria-label="AI notes card">
             {(['top', 'bottom'] as NotesPlace[]).map((place) => (
               <button
@@ -490,7 +492,10 @@ function ReadingSection() {
           </span>
         </div>
         <label className="switchrow">
-          <span style={{ fontSize: 15 }}>Hide sponsored sections</span>
+          <span style={{ fontSize: 15 }}>
+            Hide sponsored sections
+            <Help topic="hideSponsored" />
+          </span>
           <input
             type="checkbox"
             checked={hideSponsored}
@@ -538,7 +543,7 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
     <div className="section">
       <span className="label">Daily digest</span>
       <section className="card">
-        <OptionSwitch label="Build a daily digest" value={d.enabled} onChange={(v) => void saveDigest({ enabled: v })} />
+        <OptionSwitch label="Build a daily digest" help="digestOn" value={d.enabled} onChange={(v) => void saveDigest({ enabled: v })} />
         {!d.enabled && (
           <span className="hint">Off: no digest is built and the Digest tab is hidden. Your earlier digests are kept.</span>
         )}
@@ -546,7 +551,7 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
           <>
             <div className="inline">
               <div className="field" style={{ flex: 1, minWidth: 130 }}>
-                <label htmlFor="digest-hour">Build at</label>
+                <label htmlFor="digest-hour">Build at<Help topic="digestWhen" /></label>
                 <select
                   id="digest-hour"
                   className="input"
@@ -581,7 +586,7 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
               sent to the AI.
             </span>
             <div className="switchrow">
-              <span style={{ fontSize: 14 }}>Lead stories</span>
+              <span style={{ fontSize: 14 }}>Lead stories<Help topic="digestStories" /></span>
               <div className="segmented" role="group" aria-label="Lead stories" style={{ width: 180 }}>
                 {([6, 12, 20] as const).map((n) => (
                   <button key={n} aria-pressed={d.stories === n} onClick={() => void saveDigest({ stories: n })}>
@@ -591,7 +596,7 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
               </div>
             </div>
             <div className="switchrow">
-              <span style={{ fontSize: 14 }}>Covers</span>
+              <span style={{ fontSize: 14 }}>Covers<Help topic="digestWindow" /></span>
               <div className="segmented" role="group" aria-label="Window" style={{ width: 240 }}>
                 {([0, 24, 48] as const).map((h) => (
                   <button key={h} aria-pressed={d.windowHours === h} onClick={() => void saveDigest({ windowHours: h })}>
@@ -601,7 +606,7 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
               </div>
             </div>
             <div className="switchrow">
-              <span style={{ fontSize: 14 }}>Group by</span>
+              <span style={{ fontSize: 14 }}>Group by<Help topic="digestGroup" /></span>
               <div className="segmented" role="group" aria-label="Group by" style={{ width: 200 }}>
                 {(['category', 'source'] as const).map((g) => (
                   <button key={g} aria-pressed={d.groupBy === g} onClick={() => void saveDigest({ groupBy: g })}>
@@ -610,11 +615,11 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
                 ))}
               </div>
             </div>
-            <OptionSwitch label="Include issues you've already read" value={d.includeRead} onChange={(v) => void saveDigest({ includeRead: v })} />
-            <OptionSwitch label="Include sponsored-heavy issues" value={d.includeSponsored} onChange={(v) => void saveDigest({ includeSponsored: v })} />
-            <OptionSwitch label="Done marks stories read by default (changeable per digest)" value={d.doneMarksRead} onChange={(v) => void saveDigest({ doneMarksRead: v })} />
+            <OptionSwitch label="Include issues you've already read" help="digestRead" value={d.includeRead} onChange={(v) => void saveDigest({ includeRead: v })} />
+            <OptionSwitch label="Include sponsored-heavy issues" help="digestSponsored" value={d.includeSponsored} onChange={(v) => void saveDigest({ includeSponsored: v })} />
+            <OptionSwitch label="Done marks stories read by default (changeable per digest)" help="digestDone" value={d.doneMarksRead} onChange={(v) => void saveDigest({ doneMarksRead: v })} />
             <div className="field">
-              <label>Leave out categories</label>
+              <label>Leave out categories<Help topic="digestSkip" /></label>
               <div className="chipedit">
                 {settings.categories.map((c) => {
                   const off = d.skipCategories.includes(c);
@@ -664,16 +669,19 @@ function StoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (
         </p>
         <OptionSwitch
           label="Show the same news from several sources as one inbox row"
+          help="storyGroup"
           value={st.groupSameNews}
           onChange={(v) => void onSave({ stories: { ...st, groupSameNews: v } })}
         />
         <OptionSwitch
           label="Your PC writes what each new article adds to its story"
+          help="storyNotes"
           value={st.notes}
           onChange={(v) => void onSave({ stories: { ...st, notes: v } })}
         />
         <OptionSwitch
           label="Summarise every story automatically"
+          help="storyAuto"
           value={st.autoSummaries}
           onChange={(v) => void onSave({ stories: { ...st, autoSummaries: v } })}
         />
@@ -683,7 +691,7 @@ function StoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (
         </span>
         {settings.categories.length > 0 && (
           <div className="field">
-            <label>Stories by category</label>
+            <label>Stories by category<Help topic="storyCategories" /></label>
             {settings.categories.map((c) => {
               const mode = st.categories[c] ?? 'normal';
               return (
@@ -724,10 +732,13 @@ function StoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (
   );
 }
 
-function OptionSwitch({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+function OptionSwitch({ label, value, onChange, help }: { label: string; value: boolean; onChange: (v: boolean) => void; help?: HelpTopic }) {
   return (
     <label className="switchrow">
-      <span style={{ fontSize: 14 }}>{label}</span>
+      <span style={{ fontSize: 14 }}>
+        {label}
+        {help && <Help topic={help} />}
+      </span>
       <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
     </label>
   );

@@ -3139,3 +3139,50 @@ a.chip { text-decoration: none; }
   font-size: 12px;
   color: var(--muted);
 }
+
+/* "?" beside a setting's name, and the note it opens. */
+.help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--quiet);
+  font: 600 12px/1 var(--font);
+  vertical-align: middle;
+  cursor: pointer;
+  /* A bigger tap target than it looks. */
+  position: relative;
+}
+
+.help::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+}
+
+.help:hover,
+.help:focus-visible {
+  border-color: var(--teal);
+  color: var(--teal);
+}
+
+.helpsheet p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.helpsheet__fixed {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--teal-tint);
+  color: var(--teal-ink);
+  font-size: 14px !important;
+}

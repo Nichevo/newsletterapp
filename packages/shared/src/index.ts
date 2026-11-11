@@ -890,6 +890,8 @@ export interface FetchJob {
   knownKeys: string[];
   /** First check of a source: learn what is there and bring in only the latest few. */
   firstRun: boolean;
+  /** First check only: how many of the latest posts to bring in (the "Start with" choice); null = the usual few. */
+  startCount?: number | null;
   /** The source shows pictures in the inbox: pick each post's picture from its page and download it. */
   wantPicture?: boolean;
   /** Follow-link sources: the aggregator's own page for the post, to list its other links for the story. */
@@ -1027,7 +1029,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.7.0';
+export const HELPER_VERSION = '0.7.1';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
