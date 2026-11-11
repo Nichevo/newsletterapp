@@ -8,6 +8,8 @@ import { now } from './ids';
 // single request has to build a big file within the free plan's CPU limit.
 
 const PAGE = 500;
+/** Tables of the key sentences feature that go into the full export as they are. */
+export const EXPORT_TABLES = ['key_sentences', 'studies', 'study_cites', 'study_maybe', 'links', 'link_cites', 'ks_runs', 'ks_daily'] as const;
 
 type App = Hono<{ Bindings: Env; Variables: AppVariables }>;
 
@@ -117,6 +119,22 @@ ${body}
       .all<{ n: number } & Record<string, unknown>>();
     const last = rows.results[rows.results.length - 1];
     return c.json({ items: rows.results.map(({ n: _n, ...r }) => r), next: rows.results.length === PAGE && last ? last.n : null });
+  });
+
+  /**
+   * Key sentences (with your corrections and the Index), studies, their cites,
+   * source links and PC runs, a page at a time by rowid. Search's own index
+   * (ks_fts) isn't exported: it is rebuilt from key_sentences.
+   */
+  app.get('/api/export/table/:name', async (c) => {
+    const name = c.req.param('name');
+    if (!EXPORT_TABLES.includes(name as (typeof EXPORT_TABLES)[number])) return c.json({ error: 'unknown table' }, 404);
+    const after = Number(c.req.query('after') ?? 0) || 0;
+    const rows = await c.env.DB.prepare(`SELECT rowid AS n, * FROM ${name} WHERE rowid > ? ORDER BY rowid LIMIT ${PAGE}`)
+      .bind(after)
+      .all<{ n: number } & Record<string, unknown>>();
+    const last = rows.results[rows.results.length - 1];
+    return c.json({ rows: rows.results.map(({ n: _n, ...r }) => r), next: rows.results.length === PAGE && last ? last.n : null });
   });
 
   app.get('/api/export/events', async (c) => {

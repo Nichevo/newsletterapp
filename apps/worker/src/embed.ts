@@ -16,8 +16,16 @@ import { assignStories } from './stories';
 
 type App = Hono<{ Bindings: Env; Variables: AppVariables }>;
 
-/** Items waiting to be embedded: not yet done, and not about to get a summary (which changes the text). */
-const WAITING = "items.embedded_at IS NULL AND (items.ai_status IS NULL OR items.ai_status NOT IN ('pending', 'working'))";
+/**
+ * Items waiting to be embedded: not yet done, and not about to get a summary or
+ * key sentences (both change the text). Waiting for key sentences means a long
+ * article is matched into stories once, with its main points in, so nothing
+ * already linked is ever moved. After 6 hours it goes anyway (PC off, limits).
+ */
+const WAITING =
+  "items.embedded_at IS NULL AND (items.ai_status IS NULL OR items.ai_status NOT IN ('pending', 'working')) AND (items.ks_status IS NULL OR items.ks_status NOT IN ('pending', 'working') OR items.received_at < (unixepoch() - 21600) * 1000)";
+/** Main points and takeaways added to the text, at most this long. */
+const POINTS_CHARS = 700;
 const MAX_CLAIM = 64;
 const TEXT_CHARS = 2000;
 
@@ -43,12 +51,22 @@ export async function embedHeartbeat(env: Env, hb: HelperHeartbeat): Promise<{ e
 }
 
 /** The text an item is embedded from: what it is about, without the full body. */
-function embedText(r: { subject: string; summary: string | null; key_points: string | null; tags: string | null; preheader: string | null; snippet: string | null; source_name: string | null }) {
+function embedText(r: {
+  subject: string;
+  summary: string | null;
+  key_points: string | null;
+  tags: string | null;
+  preheader: string | null;
+  snippet: string | null;
+  source_name: string | null;
+  ks_marks: string | null;
+}) {
   const points = parseList(r.key_points);
   const tags = parseList(r.tags);
   return [
     r.subject,
     r.summary ?? r.preheader ?? r.snippet ?? '',
+    mainPoints(r.ks_marks),
     points.length ? points.join('; ') : '',
     tags.length ? `Topics: ${tags.join(', ')}` : '',
     r.source_name ? `From: ${r.source_name}` : '',
@@ -58,6 +76,24 @@ function embedText(r: { subject: string; summary: string | null; key_points: str
     .slice(0, TEXT_CHARS);
 }
 
+/** The article's own main-point and takeaway sentences (key sentences), in order, for what it's about. */
+export function mainPoints(raw: string | null): string {
+  if (!raw) return '';
+  let marks: { kind?: string; quote?: string; fix?: string; textOffset?: number }[];
+  try {
+    marks = JSON.parse(raw) as typeof marks;
+  } catch {
+    return '';
+  }
+  if (!Array.isArray(marks)) return '';
+  const text = marks
+    .filter((m) => (m.kind === 'main' || m.kind === 'takeaway') && m.fix !== 'removed' && typeof m.quote === 'string')
+    .sort((a, b) => (a.textOffset ?? 0) - (b.textOffset ?? 0))
+    .map((m) => m.quote)
+    .join(' ');
+  return text ? `Main points: ${text}`.slice(0, POINTS_CHARS) : '';
+}
+
 export function registerEmbed(app: App) {
   /** The next items to embed, oldest first, so each one's older neighbours are already in the store. */
   app.post('/api/helper/embed/claim', async (c) => {
@@ -65,7 +101,8 @@ export function registerEmbed(app: App) {
     const max = Math.min(Math.max(Number(input.max) || 32, 1), MAX_CLAIM);
     const rows = await c.env.DB.prepare(
       `SELECT items.id, items.subject, items.summary, items.key_points, items.tags, items.preheader, items.snippet, items.received_at,
-         sources.name AS source_name
+         sources.name AS source_name,
+         CASE WHEN items.ks_status = 'done' THEN (SELECT marks FROM key_sentences WHERE key_sentences.item_id = items.id) END AS ks_marks
        FROM items LEFT JOIN sources ON sources.id = items.source_id
        WHERE ${WAITING} ORDER BY items.received_at ASC LIMIT ?`,
     )
@@ -80,6 +117,7 @@ export function registerEmbed(app: App) {
         snippet: string | null;
         received_at: number;
         source_name: string | null;
+        ks_marks: string | null;
       }>();
     const jobs: EmbedJob[] = rows.results.map((r) => ({ itemId: r.id, receivedAt: r.received_at, text: embedText(r) }));
     return c.json({ jobs });

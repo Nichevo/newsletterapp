@@ -1,7 +1,7 @@
 // Types shared between the Worker API and the web app.
 // Timestamps are Unix milliseconds.
 
-import type { KeyMode } from './keysentences';
+import type { KeyMode, StudySummary } from './keysentences';
 import type { AiLimitHit } from './usage';
 import { DEFAULT_SKIP_SITES, type Article, type FeedEntry } from './web';
 
@@ -423,6 +423,12 @@ export interface SearchResponse {
   /** Matches in all, on the first page only. */
   total?: number;
   nextOffset: number | null;
+  /** The best matching key sentence per item (by id), shown as its snippet. */
+  keyHits?: Record<string, { kind: string; quote: string }>;
+  /** Studies whose name or publisher has the words (first page only). */
+  studies?: StudySummary[];
+  /** Index names (people, places...) with the words, and how many articles name them (first page only). */
+  names?: { term: string; type: string; articles: number }[];
 }
 
 /** Where a feed or website is fetched from: Cloudflare, or the helper on your PC. */

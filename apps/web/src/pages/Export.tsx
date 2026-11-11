@@ -45,6 +45,44 @@ function itemsCsv(items: Record<string, unknown>[]): string {
   return [ITEM_COLUMNS.join(','), ...rows].join('\n') + '\n';
 }
 
+const KEY_TABLES = ['key_sentences', 'studies', 'study_cites', 'study_maybe', 'links', 'link_cites', 'ks_runs', 'ks_daily'];
+
+const parseJson = (v: unknown): unknown[] => {
+  try {
+    const x = typeof v === 'string' ? (JSON.parse(v) as unknown) : [];
+    return Array.isArray(x) ? x : [];
+  } catch {
+    return [];
+  }
+};
+
+/** One line per key sentence: the article, its colour, the sentence, and your correction if any. */
+function keySentencesCsv(rows: Record<string, unknown>[], items: Record<string, unknown>[]): string {
+  const subject = new Map(items.map((i) => [i.id, i.subject]));
+  const lines = ['item_id,subject,kind,model_kind,correction,section,sentence'];
+  for (const r of rows) {
+    for (const m of parseJson(r.marks) as { kind?: string; was?: string; fix?: string; section?: string | null; quote?: string }[]) {
+      lines.push([r.item_id, subject.get(r.item_id), m.kind, m.was ?? m.kind, m.fix ?? '', m.section ?? '', m.quote].map(csvCell).join(','));
+    }
+  }
+  return lines.join('\n') + '\n';
+}
+
+/** One line per study cited by an article: the study, the article, and the sentence. */
+function studiesCsv(studies: Record<string, unknown>[], cites: Record<string, unknown>[], items: Record<string, unknown>[]): string {
+  const byId = new Map(studies.map((s) => [s.id, s]));
+  const subject = new Map(items.map((i) => [i.id, i.subject]));
+  const lines = ['study,publisher,year,doi,url,cited_in,quoted_differently,article,claim,sentence'];
+  for (const c of cites) {
+    const s = byId.get(c.study_id);
+    if (!s) continue;
+    lines.push(
+      [s.title, s.publisher, s.year, s.doi, s.url, s.cites, c.differs_from ? 'yes' : '', subject.get(c.item_id), c.claim, c.quote].map(csvCell).join(','),
+    );
+  }
+  return lines.join('\n') + '\n';
+}
+
 function download(content: string, type: string, name: string) {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const a = document.createElement('a');
@@ -82,10 +120,28 @@ export function ExportPage() {
         if (page.next === null) break;
         after = page.next;
       }
+      // Key sentences (with your corrections and the Index), studies and source links.
+      const tables: Record<string, Record<string, unknown>[]> = {};
+      for (const name of KEY_TABLES) {
+        tables[name] = [];
+        for (let after = 0; ; ) {
+          const page = await api.exportTable(name, after);
+          tables[name].push(...page.rows);
+          setProgress(`${items.length} items, ${events.length} reading events, ${name.replace(/_/g, ' ')}…`);
+          if (page.next === null) break;
+          after = page.next;
+        }
+      }
       const day = new Date().toISOString().slice(0, 10);
-      download(JSON.stringify({ ...meta, items, events }, null, 1), 'application/json', `newsletter-app-${day}.json`);
+      download(JSON.stringify({ ...meta, items, events, ...tables }, null, 1), 'application/json', `newsletter-app-${day}.json`);
       download(itemsCsv(items), 'text/csv', `newsletter-app-items-${day}.csv`);
-      setProgress(`Done: ${items.length} items, ${meta.sources.length} sources, ${events.length} reading events, ${meta.highlights.length} highlights.`);
+      const ks = tables.key_sentences ?? [];
+      if (ks.length) download(keySentencesCsv(ks, items), 'text/csv', `newsletter-app-key-sentences-${day}.csv`);
+      const studies = tables.studies ?? [];
+      if (studies.length) download(studiesCsv(studies, tables.study_cites ?? [], items), 'text/csv', `newsletter-app-studies-${day}.csv`);
+      setProgress(
+        `Done: ${items.length} items, ${meta.sources.length} sources, ${events.length} reading events, ${meta.highlights.length} highlights, ${ks.length} articles with key sentences, ${studies.length} studies, ${(tables.links ?? []).length} links.`,
+      );
     } catch (err) {
       setProgress(err instanceof Error ? `Stopped: ${err.message}` : 'Stopped');
     } finally {
@@ -133,9 +189,10 @@ export function ExportPage() {
           </div>
           {progress && <span className="hint">{progress}</span>}
           <span className="hint">
-            Two files: a JSON file with every item (dates, read, saved and starred, category, tags, AI summary), your sources, settings,
-            highlights and reading history, and a CSV of the items for a spreadsheet. The emails and saved pages themselves are not included;
-            the nightly backup from your PC will cover those.
+            A JSON file with every item (dates, read, saved and starred, category, tags, AI summary), your sources, settings, highlights,
+            reading history, key sentences (with your corrections, outline and index), studies and source links, plus CSVs of the items, the
+            key sentences and the studies for a spreadsheet. The emails and saved pages themselves are not included; the nightly backup from
+            your PC will cover those.
           </span>
         </section>
       </div>

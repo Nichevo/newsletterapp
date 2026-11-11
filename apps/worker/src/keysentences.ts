@@ -238,6 +238,27 @@ const parseMarks = (raw: string | null): KeyMark[] => {
   }
 };
 
+// ---------- Search index ----------
+
+/**
+ * Statements that replace an article's rows in ks_fts (its key sentences and
+ * Index names), for Search. Row ids are the item's rowid * 1024 + position, so
+ * the old rows go by a rowid range rather than a scan of the table.
+ */
+export function keyFtsStatements(env: Env, itemId: string, marks: KeyMark[], terms: IndexTerm[]): D1PreparedStatement[] {
+  const stmts = [
+    env.DB.prepare(
+      `DELETE FROM ks_fts WHERE rowid BETWEEN (SELECT rowid * 1024 FROM items WHERE id = ?1) AND (SELECT rowid * 1024 + 1023 FROM items WHERE id = ?1)`,
+    ).bind(itemId),
+  ];
+  const insert = 'INSERT INTO ks_fts (rowid, item_id, kind, quote) SELECT rowid * 1024 + ?, ?, ?, ? FROM items WHERE id = ?';
+  marks.slice(0, 512).forEach((m, i) => {
+    if (m.fix !== 'removed') stmts.push(env.DB.prepare(insert).bind(i, itemId, m.kind, m.quote, itemId));
+  });
+  terms.slice(0, 512).forEach((t, i) => stmts.push(env.DB.prepare(insert).bind(512 + i, itemId, `term:${t.type}`, t.term, itemId)));
+  return stmts;
+}
+
 // ---------- Routes ----------
 
 export function registerKeySentences(app: App) {
@@ -358,7 +379,15 @@ export function registerKeySentences(app: App) {
     } else {
       return c.json({ error: 'bad fix' }, 400);
     }
-    await c.env.DB.prepare('UPDATE key_sentences SET marks = ?, updated_at = ? WHERE item_id = ?').bind(JSON.stringify(marks), now(), id).run();
+    // Search: only this sentence's row changes (taken out, or put back with its kind).
+    const ftsRow = '(SELECT rowid * 1024 + ?1 FROM items WHERE id = ?2)';
+    await c.env.DB.batch([
+      c.env.DB.prepare('UPDATE key_sentences SET marks = ?, updated_at = ? WHERE item_id = ?').bind(JSON.stringify(marks), now(), id),
+      c.env.DB.prepare(`DELETE FROM ks_fts WHERE rowid = ${ftsRow}`).bind(input.index, id),
+      ...(m.fix === 'removed'
+        ? []
+        : [c.env.DB.prepare(`INSERT INTO ks_fts (rowid, item_id, kind, quote) VALUES (${ftsRow}, ?2, ?3, ?4)`).bind(input.index, id, m.kind, m.quote)]),
+    ]);
     return c.json({ marks });
   });
 
@@ -489,7 +518,10 @@ export function registerKeySentences(app: App) {
         ),
       );
     }
+    // Search: the new key sentences and names (or none, when it wasn't done).
     await c.env.DB.batch(stmts);
+    const fts = keyFtsStatements(c.env, item.id, done ? marks : [], done ? terms : []);
+    for (let i = 0; i < fts.length; i += 90) await c.env.DB.batch(fts.slice(i, i + 90));
     return c.json({ ok: done, status });
   });
 }

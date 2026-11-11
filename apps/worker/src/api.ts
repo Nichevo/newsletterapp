@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { registerDeleting } from './deleting';
-import { KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, type FileFilter } from '@newsletterapp/shared';
+import { isKeyKind, KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, type FileFilter } from '@newsletterapp/shared';
 import type {
   Platform,
   AiMode,
@@ -53,6 +53,7 @@ import {
 import { buildDigestIfDue } from './digest';
 import { registerKeySentences, loadKeySettings } from './keysentences';
 import { registerRefs } from './refs';
+import { registerKeyStats } from './keystats';
 import { registerStories, toStoryInfo } from './stories';
 import { registerEmbed } from './embed';
 import { recordLinkClick, registerSuggest } from './suggest';
@@ -120,6 +121,7 @@ registerTagList(app);
 registerStories(app);
 registerKeySentences(app);
 registerRefs(app);
+registerKeyStats(app);
 registerDeleting(app);
 
 // ---------- Items ----------
@@ -310,6 +312,67 @@ export function ftsQuery(q: string): string | null {
   return parts.length ? parts.slice(0, 12).join(' ') : null;
 }
 
+/** The words typed, for the plainer LIKE search over study names. */
+function ftsWords(q: string): string[] {
+  return q
+    .replace(/[^\p{L}\p{N}\s'-]+/gu, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 1)
+    .slice(0, 6);
+}
+
+/** Search results' key-sentence snippets, plus (first page) matching studies and Index names. */
+async function keySearchExtras(env: Env, match: string, words: string[], ids: string[], first: boolean, kind: string): Promise<Partial<SearchResponse>> {
+  const [hits, studies, names] = await Promise.all([
+    ids.length
+      ? env.DB.prepare(
+          `SELECT item_id, kind, quote FROM ks_fts WHERE ks_fts MATCH ? AND item_id IN (${ids.map(() => '?').join(',')}) ORDER BY bm25(ks_fts) LIMIT 300`,
+        )
+          .bind(match, ...ids)
+          .all<{ item_id: string; kind: string; quote: string }>()
+      : null,
+    first && words.length
+      ? env.DB.prepare(
+          `SELECT * FROM studies WHERE cites > 0 AND ${words.map(() => "(title LIKE ? ESCAPE '\\' OR publisher LIKE ? ESCAPE '\\')").join(' AND ')} ORDER BY cites DESC, last_seen DESC LIMIT 5`,
+        )
+          .bind(...words.flatMap((w) => [`%${w.replace(/[\\%_]/g, (m) => `\\${m}`)}%`, `%${w.replace(/[\\%_]/g, (m) => `\\${m}`)}%`]))
+          .all<{ id: string; title: string; publisher: string | null; year: number | null; url: string | null; doi: string | null; cites: number; differs: number; last_seen: number }>()
+      : null,
+    first
+      ? env.DB.prepare(
+          `SELECT MIN(quote) AS term, kind, COUNT(DISTINCT item_id) AS articles FROM ks_fts WHERE ks_fts MATCH ? AND kind LIKE 'term:%'
+           GROUP BY lower(quote), kind ORDER BY articles DESC LIMIT 8`,
+        )
+          .bind(match)
+          .all<{ term: string; kind: string; articles: number }>()
+      : null,
+  ]);
+  const keyHits: NonNullable<SearchResponse['keyHits']> = {};
+  // A sentence beats a bare name as the snippet.
+  // With a colour picked, a sentence of that colour.
+  const wanted = (k: string) => !k.startsWith('term:') && (!kind || kind === 'any' || kind === 'names' || k === kind);
+  for (const h of hits?.results ?? []) if (wanted(h.kind) && !keyHits[h.item_id]) keyHits[h.item_id] = { kind: h.kind, quote: h.quote };
+  return {
+    keyHits,
+    ...(studies
+      ? {
+          studies: studies.results.map((r) => ({
+            id: r.id,
+            title: r.title,
+            publisher: r.publisher,
+            year: r.year,
+            url: r.url,
+            doi: r.doi,
+            cites: r.cites,
+            differs: r.differs === 1,
+            lastSeen: r.last_seen,
+          })),
+        }
+      : {}),
+    ...(names ? { names: names.results.map((n) => ({ term: n.term, type: n.kind.slice(5), articles: n.articles })) } : {}),
+  };
+}
+
 const SEARCH_STATE: Record<SearchState, string> = {
   unread: "items.status = 'inbox' AND items.read_at IS NULL",
   read: 'items.read_at IS NOT NULL',
@@ -330,13 +393,18 @@ app.get('/api/search', async (c) => {
   const sort = c.req.query('sort') === 'newest' || !match ? 'newest' : 'relevance';
   const offset = Math.min(Math.max(Number(c.req.query('offset') ?? 0) || 0, 0), 600);
   if (!match && !category && !sourceId && !state && !since) return c.json({ items: [], total: 0, nextOffset: null } satisfies SearchResponse);
+  // Key sentences on: words in an article's key sentences (or its Index names) find it too, and rank it higher.
+  const keysOn = Boolean(match) && (await loadKeySettings(c.env)).enabled;
+  const ksParam = c.req.query('ks') ?? '';
+  const ksKind = keysOn && (ksParam === 'any' || ksParam === 'names' || isKeyKind(ksParam)) ? ksParam : '';
 
   const where: string[] = ["items.status IN ('inbox', 'archived')"];
   const binds: unknown[] = [];
-  if (match) {
+  if (match && !keysOn) {
     where.push('items_fts MATCH ?');
     binds.push(match);
   }
+  if (keysOn) where.push(ksKind ? 'k.kid IS NOT NULL' : '(f.fr IS NOT NULL OR k.kid IS NOT NULL)');
   if (sourceId) where.push(...sourceWhere(sourceId, binds));
   if (kind) where.push(...typeWhere(kind, binds));
   if (category) where.push(...categoryWhere(category, binds));
@@ -349,30 +417,46 @@ app.get('/api/search', async (c) => {
     where.push('items.received_at < ?');
     binds.push(until);
   }
-  const from = match ? `${ITEM_SELECT} JOIN items_fts ON items_fts.rowid = items.rowid` : ITEM_SELECT;
   // Subject counts most, then the AI summary, tags and key points.
+  const BM25 = 'bm25(items_fts, 10, 3, 2, 2, 4, 3, 2, 3)';
+  // With key sentences: the two indexes are matched separately and joined, so an article can be found by either.
+  const ksWhere = ksKind === 'names' ? " AND kind LIKE 'term:%'" : ksKind && ksKind !== 'any' ? ' AND kind = ?' : '';
+  // (The LIMITs keep SQLite from folding the subqueries into the outer query, where bm25 can't run.)
+  const keyJoins = `LEFT JOIN (SELECT rowid AS fr, ${BM25} AS r FROM items_fts WHERE items_fts MATCH ? LIMIT 5000) f ON f.fr = items.rowid
+    LEFT JOIN (SELECT item_id AS kid, MIN(r) AS kr FROM (SELECT item_id, bm25(ks_fts) AS r FROM ks_fts WHERE ks_fts MATCH ?${ksWhere} LIMIT 5000) GROUP BY item_id) k ON k.kid = items.id`;
+  const keyBinds = keysOn ? [match, match, ...(ksKind && ksKind !== 'any' && ksKind !== 'names' ? [ksKind] : [])] : [];
+  const from = keysOn ? `${ITEM_SELECT} ${keyJoins}` : match ? `${ITEM_SELECT} JOIN items_fts ON items_fts.rowid = items.rowid` : ITEM_SELECT;
+  // A word in a key sentence weighs about twice one elsewhere (bm25 is lower for better matches).
   const orderBy =
-    sort === 'relevance' ? 'bm25(items_fts, 10, 3, 2, 2, 4, 3, 2, 3), items.received_at DESC' : 'items.received_at DESC, items.id DESC';
-  const countFrom = match
-    ? 'FROM items JOIN items_fts ON items_fts.rowid = items.rowid LEFT JOIN sources ON sources.id = items.source_id'
-    : 'FROM items LEFT JOIN sources ON sources.id = items.source_id';
+    sort !== 'relevance'
+      ? 'items.received_at DESC, items.id DESC'
+      : keysOn
+        ? 'COALESCE(f.r, 0) + 2 * COALESCE(k.kr, 0), items.received_at DESC'
+        : `${BM25}, items.received_at DESC`;
+  const countFrom = keysOn
+    ? `FROM items LEFT JOIN sources ON sources.id = items.source_id ${keyJoins}`
+    : match
+      ? 'FROM items JOIN items_fts ON items_fts.rowid = items.rowid LEFT JOIN sources ON sources.id = items.source_id'
+      : 'FROM items LEFT JOIN sources ON sources.id = items.source_id';
   try {
     const [rows, settings, counted] = await Promise.all([
       c.env.DB.prepare(`${from} WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
-        .bind(...binds, SEARCH_PAGE + 1, offset)
+        .bind(...keyBinds, ...binds, SEARCH_PAGE + 1, offset)
         .all<ItemSelectRow>(),
       loadSettings(c.env),
       offset === 0
         ? c.env.DB.prepare(`SELECT COUNT(*) AS n ${countFrom} WHERE ${where.join(' AND ')}`)
-            .bind(...binds)
+            .bind(...keyBinds, ...binds)
             .first<{ n: number }>()
         : null,
     ]);
+    const page = rows.results.slice(0, SEARCH_PAGE);
     const body: SearchResponse = {
-      items: rows.results.slice(0, SEARCH_PAGE).map((r) => toItemSummary(r, settings.aiByKind, settings.aiOffCategories)),
+      items: page.map((r) => toItemSummary(r, settings.aiByKind, settings.aiOffCategories)),
       ...(counted ? { total: counted.n } : {}),
       nextOffset: rows.results.length > SEARCH_PAGE && offset + SEARCH_PAGE <= 600 ? offset + SEARCH_PAGE : null,
     };
+    if (keysOn && match) Object.assign(body, await keySearchExtras(c.env, match, ftsWords(c.req.query('q') ?? ''), page.map((r) => r.id), offset === 0, ksKind));
     return c.json(body);
   } catch (err) {
     console.error('search failed', match, err);

@@ -1,4 +1,4 @@
-import { INDEX_TYPE_NAMES, INDEX_TYPES, type IndexTerm, type ItemKeySentences, type ItemReferences, type ItemStudy } from '@newsletterapp/shared';
+import { INDEX_TYPE_NAMES, INDEX_TYPES, type IndexTerm, type ItemKeySentences, type ItemReferences, type ItemStudy, type KeyUseEvent } from '@newsletterapp/shared';
 import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
@@ -18,11 +18,14 @@ export function KeyTabs({
   refs,
   root,
   onRefs,
+  onUse,
 }: {
   data: ItemKeySentences;
   refs: ItemReferences | null;
   root: Root | null;
   onRefs: () => void;
+  /** Counted for Statistics. */
+  onUse: (e: KeyUseEvent) => void;
 }) {
   const live = useMemo(() => data.marks.map((m, i) => ({ m, i })).filter((x) => x.m.fix !== 'removed'), [data.marks]);
   const hasOutline = data.status === 'done' && live.length > 0;
@@ -43,7 +46,10 @@ export function KeyTabs({
     <section className="kstabs" id="key-tabs" aria-label="Outline, index and references">
       <div className="segmented segmented--small" role="tablist">
         {tabs.map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} aria-pressed={tab === t} onClick={() => setPicked(t)}>
+          <button key={t} role="tab" aria-selected={tab === t} aria-pressed={tab === t} onClick={() => {
+              setPicked(t);
+              onUse(t === 'refs' ? 'refs' : t);
+            }}>
             {label[t]}
           </button>
         ))}
@@ -53,14 +59,24 @@ export function KeyTabs({
           {elsewhere === 1 ? 'One study here is' : `${elsewhere} studies here are`} also cited by other articles.
         </p>
       )}
-      {tab === 'outline' && <Outline data={data} live={live} root={root} />}
-      {tab === 'index' && <Index terms={data.terms} root={root} />}
+      {tab === 'outline' && <Outline data={data} live={live} root={root} onJump={() => onUse('jump')} />}
+      {tab === 'index' && <Index terms={data.terms} root={root} onJump={() => onUse('jump')} />}
       {tab === 'refs' && refs && <References refs={refs} root={root} onRefs={onRefs} />}
     </section>
   );
 }
 
-function Outline({ data, live, root }: { data: ItemKeySentences; live: { m: ItemKeySentences['marks'][number]; i: number }[]; root: Root | null }) {
+function Outline({
+  data,
+  live,
+  root,
+  onJump,
+}: {
+  data: ItemKeySentences;
+  live: { m: ItemKeySentences['marks'][number]; i: number }[];
+  root: Root | null;
+  onJump: () => void;
+}) {
   // Grouped under the article's own headings, in reading order.
   const groups: { section: string | null; rows: typeof live }[] = [];
   for (const x of [...live].sort((a, b) => a.m.textOffset - b.m.textOffset)) {
@@ -80,7 +96,11 @@ function Outline({ data, live, root }: { data: ItemKeySentences; live: { m: Item
               const shown = root ? keySpans(root, i).length > 0 : false;
               return (
                 <li key={i}>
-                  <button className="ksoutline__row" disabled={!shown} title={kindName(m.kind)} onClick={() => root && revealKey(root, i)}>
+                  <button className="ksoutline__row" disabled={!shown} title={kindName(m.kind)} onClick={() => {
+                      if (!root) return;
+                      onJump();
+                      revealKey(root, i);
+                    }}>
                     <i style={{ background: kindDot(m.kind) }} aria-hidden="true" />
                     <span>{m.quote}</span>
                   </button>
@@ -94,12 +114,13 @@ function Outline({ data, live, root }: { data: ItemKeySentences; live: { m: Item
   );
 }
 
-function Index({ terms, root }: { terms: IndexTerm[]; root: Root | null }) {
+function Index({ terms, root, onJump }: { terms: IndexTerm[]; root: Root | null; onJump: () => void }) {
   // Which mention each term is on, so a second tap goes to the next one.
   const at = useRef(new Map<string, number>());
   const [active, setActive] = useState<{ term: string; n: number; of: number } | null>(null);
   function jump(t: IndexTerm) {
     if (!root) return;
+    onJump();
     const ranges = termRanges(root, t.term, t.type === 'term');
     if (!ranges.length) return setActive({ term: t.term, n: 0, of: 0 });
     const next = ((at.current.get(t.term) ?? -1) + 1) % ranges.length;

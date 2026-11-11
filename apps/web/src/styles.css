@@ -2942,3 +2942,51 @@ a.chip { text-decoration: none; }
 .kstabs .hint {
   font-size: 13px;
 }
+
+/* Search: the matching key sentence under a result, and colour chips */
+.kshit {
+  display: grid;
+  grid-template-columns: 8px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  margin: -4px 16px 10px 16px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.kshit i,
+.kspill i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.kspill i {
+  margin-right: 6px;
+}
+
+/* Statistics > Key sentences: share of each colour */
+.kscolourbar {
+  display: flex;
+  height: 12px;
+  margin: 4px 0 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  gap: 2px;
+}
+.kscolourbar i {
+  display: block;
+  min-width: 3px;
+}
+.kscolourbar--small {
+  width: 120px;
+  height: 8px;
+  margin: 0;
+}
+.table .kskind__dot {
+  display: inline-block;
+  vertical-align: -1px;
+}

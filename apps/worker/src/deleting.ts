@@ -63,6 +63,7 @@ export async function tidyDeleted(env: Env): Promise<number> {
       env.DB.prepare('DELETE FROM fetch_jobs WHERE item_id = ?').bind(row.id),
       // Key sentences, and its cites of studies and links (their counts go down with it).
       env.DB.prepare('DELETE FROM key_sentences WHERE item_id = ?').bind(row.id),
+      env.DB.prepare('DELETE FROM ks_fts WHERE rowid BETWEEN (SELECT rowid * 1024 FROM items WHERE id = ?1) AND (SELECT rowid * 1024 + 1023 FROM items WHERE id = ?1)').bind(row.id),
       env.DB.prepare('UPDATE studies SET cites = MAX(cites - 1, 0) WHERE id IN (SELECT study_id FROM study_cites WHERE item_id = ?)').bind(row.id),
       env.DB.prepare('UPDATE study_cites SET differs_from = NULL WHERE differs_from IN (SELECT id FROM study_cites WHERE item_id = ?)').bind(row.id),
       env.DB.prepare('DELETE FROM study_cites WHERE item_id = ?').bind(row.id),
