@@ -1,10 +1,11 @@
-import { TOPICS_DAYS, type SourceType, type TopicFilter, type TopicsData, type TopicsDays } from '@newsletterapp/shared';
+import { INDEX_TYPE_NAMES, INDEX_TYPES, TOPICS_DAYS, type IndexType, type SourceType, type TopicFilter, type TopicsData, type TopicsDays } from '@newsletterapp/shared';
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationNodeDatum } from 'd3-force';
 import { sankey, sankeyLinkHorizontal, type SankeyLink, type SankeyNode } from 'd3-sankey';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { StatsTabs } from '../components/StatsTabs';
+import { SavedTabs } from './Highlights';
 import { tagPath } from '../components/TagChip';
 import { IconBack } from '../icons';
 
@@ -12,6 +13,7 @@ import { IconBack } from '../icons';
 // Flow = sources → categories → tags (band width = items); Web = tags joined by the
 // items they share, plus the sources that write about them. The period's data loads
 // once; every filter below is worked out here, so changing them costs no reads.
+// Names from key-sentence Indexes can be shown alongside the AI's tags, by kind.
 
 const TYPE_LABEL: Record<SourceType, string> = {
   newsletter: 'Newsletter',
@@ -22,7 +24,7 @@ const TYPE_LABEL: Record<SourceType, string> = {
   site: 'Website',
   ai: 'AI notes',
 };
-const READ_LABEL: Record<TopicFilter['read'], string> = { all: 'All', unread: 'Unread', read: 'Read', starred: '★ Interesting' };
+const READ_LABEL: Record<TopicFilter['read'], string> = { all: 'All', unread: 'Unread', read: 'Read', starred: '★ Interesting', saved: 'Saved' };
 const TOPS = [5, 8, 15, 30, 0];
 const MINS = [1, 2, 3, 5];
 const MAX_SOURCES = 15; // more fold into "Other sources" on the flow
@@ -30,9 +32,16 @@ const OTHER_TAGS = 'Other tags';
 const OTHER_SOURCES = 'Other sources';
 const NO_CATEGORY = 'No category';
 const PREFS_KEY = 'topics:filters';
+/** Index names get their own colour so they stand apart from the AI's tags. */
+const INDEX_COLOUR = 'var(--green-ink)';
+const isIndexKey = (key: string) => key.startsWith('idx:');
+/** Where tapping through from a tag goes: its tag page, or a search for an Index name. */
+export function topicPath(key: string, label: string) {
+  return isIndexKey(key) ? `/search?q=${encodeURIComponent(`"${label}"`)}&ks=names` : tagPath(label);
+}
 
 type Filters = Omit<TopicFilter, 'name'>;
-const DEFAULTS: Filters = { days: 30, categories: [], sources: [], types: [], read: 'all', top: 8, min: 1, showSources: true };
+const DEFAULTS: Filters = { days: 30, categories: [], sources: [], types: [], read: 'all', top: 8, min: 1, showSources: true, aiTags: true, index: [] };
 
 function loadPrefs(): { filters: Filters; view: 'flow' | 'web' } {
   try {
@@ -48,7 +57,7 @@ function applyFilters(data: TopicsData, f: Filters) {
   const srcSet = new Set(f.sources);
   const typeSet = new Set(f.types);
   const catSet = new Set(f.categories);
-  const items = data.items.filter(([s, c, flags]) => {
+  const kept0 = data.items.filter(([s, c, flags]) => {
     const src = data.sources[s];
     if (srcSet.size && !(src && srcSet.has(src.id))) return false;
     if (typeSet.size && !(src && typeSet.has(src.type))) return false;
@@ -56,8 +65,16 @@ function applyFilters(data: TopicsData, f: Filters) {
     if (f.read === 'unread' && flags & 1) return false;
     if (f.read === 'read' && !(flags & 1)) return false;
     if (f.read === 'starred' && !(flags & 2)) return false;
+    if (f.read === 'saved' && !(flags & 4)) return false;
     return true;
   });
+  // Only the kinds of tag asked for: AI tags and/or some kinds of Index name.
+  const kinds = new Set(f.index ?? []);
+  const wanted = (t: number) => {
+    const tag = data.tags[t]!;
+    return tag.index ? kinds.has(tag.index) : f.aiTags !== false;
+  };
+  const items = kept0.map((it): TopicsData['items'][number] => [it[0], it[1], it[2], it[3], it[4].filter(wanted)]);
   const counts = new Map<number, number>();
   for (const it of items) for (const t of it[4]) counts.set(t, (counts.get(t) ?? 0) + 1);
   const ranked = [...counts].filter(([, n]) => n >= f.min).sort((a, b) => b[1] - a[1] || data.tags[a[0]]!.label.localeCompare(data.tags[b[0]]!.label));
@@ -67,7 +84,8 @@ function applyFilters(data: TopicsData, f: Filters) {
 
 type Focus = { kind: 'source' | 'category' | 'tag'; name: string } | null;
 
-export function TopicsPage() {
+/** Shown under Statistics, and under Saved (inSaved) with the Saved tabs. */
+export function TopicsPage({ inSaved = false }: { inSaved?: boolean }) {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const initial = useMemo(loadPrefs, []);
@@ -134,7 +152,13 @@ export function TopicsPage() {
   const result = useMemo(() => (data ? applyFilters(data, filters) : null), [data, filters]);
   // Tag keys → index, for "find a tag" and focus from a tag page.
   const tagByKey = useMemo(() => new Map(data?.tags.map((t, i) => [t.key, i]) ?? []), [data]);
-  const allTagLabels = useMemo(() => [...new Set(data?.tags.map((t) => t.label) ?? [])].sort((a, b) => a.localeCompare(b)), [data]);
+  const shownTags = useMemo(
+    () => data?.tags.filter((t) => (t.index ? (filters.index ?? []).includes(t.index) : filters.aiTags !== false)) ?? [],
+    [data, filters.index, filters.aiTags],
+  );
+  const allTagLabels = useMemo(() => [...new Set(shownTags.map((t) => t.label))].sort((a, b) => a.localeCompare(b)), [shownTags]);
+  // Which kinds of Index name this period has, for the "Show" filter.
+  const indexKinds = useMemo(() => INDEX_TYPES.filter((k) => data?.tags.some((t) => t.index === k)), [data]);
 
   const active =
     filters.categories.length +
@@ -143,7 +167,9 @@ export function TopicsPage() {
     (filters.read !== 'all' ? 1 : 0) +
     (filters.top !== DEFAULTS.top ? 1 : 0) +
     (filters.min !== DEFAULTS.min ? 1 : 0) +
-    (!filters.showSources ? 1 : 0);
+    (!filters.showSources ? 1 : 0) +
+    (filters.aiTags === false ? 1 : 0) +
+    (filters.index?.length ?? 0);
 
   const sourcesSorted = useMemo(() => {
     if (!data) return [];
@@ -159,8 +185,9 @@ export function TopicsPage() {
   }, [data]);
 
   function findTag(label: string) {
-    const key = label.trim().toLowerCase();
-    if (!tagByKey.has(key)) return;
+    const want = label.trim().toLowerCase();
+    const key = shownTags.find((t) => t.label.toLowerCase() === want)?.key;
+    if (!key || !tagByKey.has(key)) return;
     setFocus({ kind: 'tag', name: key });
     setFind('');
   }
@@ -183,7 +210,14 @@ export function TopicsPage() {
     ...(filters.top !== DEFAULTS.top ? [filters.top ? `Top ${filters.top} tags` : 'All tags'] : []),
     ...(filters.min > 1 ? [`Tags on ${filters.min}+ items`] : []),
     ...(!filters.showSources ? ['Tags only'] : []),
+    ...(filters.aiTags === false ? ['No AI tags'] : []),
+    ...(filters.index?.length ? [`Index: ${filters.index.map((k) => INDEX_TYPE_NAMES[k]).join(', ')}`] : []),
   ];
+  const toggleIndex = (k: IndexType) =>
+    setFilters((f) => {
+      const list = f.index ?? [];
+      return { ...f, index: list.includes(k) ? list.filter((x) => x !== k) : [...list, k] };
+    });
 
   return (
     <div className="page">
@@ -192,13 +226,13 @@ export function TopicsPage() {
           <button className="iconbtn" aria-label="Back" onClick={() => navigate(-1)}>
             <IconBack />
           </button>
-          <h1>Statistics</h1>
+          <h1>{inSaved ? 'Saved' : 'Statistics'}</h1>
         </div>
         <Link className="btn btn--small" to="/tags">
           All tags
         </Link>
       </header>
-      <StatsTabs current="topics" />
+      {inSaved ? <SavedTabs current="topics" /> : <StatsTabs current="topics" />}
 
       <div className="section">
         <div className="topics__bar">
@@ -300,6 +334,24 @@ export function TopicsPage() {
               {(Object.keys(READ_LABEL) as TopicFilter['read'][]).map((r) => (
                 <button key={r} className="pill" aria-pressed={filters.read === r} onClick={() => set({ read: r })}>
                   {READ_LABEL[r]}
+                </button>
+              ))}
+            </FilterRow>
+            <FilterRow label="Show">
+              <button className="pill" aria-pressed={filters.aiTags !== false} onClick={() => set({ aiTags: filters.aiTags === false })}>
+                AI tags
+              </button>
+              {INDEX_TYPES.map((k) => (
+                <button
+                  key={k}
+                  className="pill"
+                  aria-pressed={(filters.index ?? []).includes(k)}
+                  disabled={!indexKinds.includes(k) && !(filters.index ?? []).includes(k)}
+                  title={indexKinds.includes(k) ? `${INDEX_TYPE_NAMES[k]} from key-sentence Indexes` : `No ${INDEX_TYPE_NAMES[k].toLowerCase()} in key-sentence Indexes in this period`}
+                  onClick={() => toggleIndex(k)}
+                >
+                  <i className="topics__dot" style={{ background: INDEX_COLOUR }} aria-hidden="true" />
+                  {INDEX_TYPE_NAMES[k]}
                 </button>
               ))}
             </FilterRow>
@@ -405,10 +457,18 @@ export function TopicsPage() {
                   Categories
                 </span>
               )}
-              <span>
-                <i style={{ background: 'var(--teal)' }} />
-                Tags
-              </span>
+              {filters.aiTags !== false && (
+                <span>
+                  <i style={{ background: 'var(--teal)' }} />
+                  Tags
+                </span>
+              )}
+              {(filters.index?.length ?? 0) > 0 && (
+                <span>
+                  <i style={{ background: INDEX_COLOUR }} />
+                  Index names
+                </span>
+              )}
             </span>
           </div>
           {result.items.length === 0 || (view === 'web' && result.kept.size === 0) ? (
@@ -417,7 +477,9 @@ export function TopicsPage() {
                 ? 'Nothing arrived in this period yet.'
                 : result.items.length === 0
                   ? 'Nothing matches these filters. Try a longer period or fewer filters.'
-                  : 'None of these items have tags yet. Tags come from the AI summaries.'}
+                  : filters.aiTags === false && !filters.index?.length
+                    ? 'Nothing to show: switch on AI tags or some Index names under Filters.'
+                    : 'None of these items have tags yet. Tags come from the AI summaries; Index names from key sentences.'}
             </p>
           ) : view === 'flow' ? (
             <FlowChart data={data} result={result} focus={focus} onFocus={setFocus} />
@@ -609,7 +671,7 @@ function FlowChart({ data, result, focus, onFocus }: { data: TopicsData; result:
                   width={(n.x1 ?? 0) - (n.x0 ?? 0)}
                   height={Math.max(2, (n.y1 ?? 0) - (n.y0 ?? 0))}
                   rx={3}
-                  fill={KIND_COLOUR[n.kind]}
+                  fill={n.kind === 'tag' && isIndexKey(n.key) ? INDEX_COLOUR : KIND_COLOUR[n.kind]}
                 />
                 <rect x={(n.x0 ?? 0) - 6} y={(n.y0 ?? 0) - 4} width={160} height={Math.max(12, (n.y1 ?? 0) - (n.y0 ?? 0)) + 8} fill="transparent" />
                 <text
@@ -651,7 +713,9 @@ function FlowChart({ data, result, focus, onFocus }: { data: TopicsData; result:
                   .join(', ')}
               </div>
             )}
-            {picked.kind === 'tag' && picked.key && <Link to={tagPath(picked.name)}>Open tag page ›</Link>}
+            {picked.kind === 'tag' && picked.key && (
+              <Link to={topicPath(picked.key, picked.name)}>{isIndexKey(picked.key) ? 'Search for it ›' : 'Open tag page ›'}</Link>
+            )}
             {picked.kind === 'source' && picked.key && <Link to={`/source/${picked.key}`}>Open source ›</Link>}
           </>
         ) : focusTag ? (
@@ -834,7 +898,7 @@ function WebChart({
                 onPointerCancel={() => (drag.current = null)}
               >
                 {n.kind === 'tag' ? (
-                  <circle r={r} fill="var(--teal)" fillOpacity={0.88} stroke={picked === n ? 'var(--ink)' : 'none'} strokeWidth={2} />
+                  <circle r={r} fill={isIndexKey(n.key) ? INDEX_COLOUR : 'var(--teal)'} fillOpacity={0.88} stroke={picked === n ? 'var(--ink)' : 'none'} strokeWidth={2} />
                 ) : (
                   <rect x={-7} y={-7} width={14} height={14} rx={3} fill="var(--purple-ink)" stroke={picked === n ? 'var(--ink)' : 'none'} strokeWidth={2} />
                 )}
@@ -872,7 +936,7 @@ function WebChart({
                     .join(', ')}
                 </div>
               )}
-              <Link to={tagPath(picked.name)}>Open tag page ›</Link>
+              <Link to={topicPath(picked.key, picked.name)}>{isIndexKey(picked.key) ? 'Search for it ›' : 'Open tag page ›'}</Link>
             </>
           ) : (
             <>
@@ -905,7 +969,7 @@ function HiddenTag({ data, tagKey }: { data: TopicsData; tagKey: string }) {
   return (
     <>
       <strong>{label}</strong> isn't on the chart with these filters{t ? '' : ` or in the last ${data.days} days`}.{' '}
-      <Link to={tagPath(label)}>Open its tag page ›</Link>
+      <Link to={topicPath(tagKey, label)}>{isIndexKey(tagKey) ? 'Search for it ›' : 'Open its tag page ›'}</Link>
     </>
   );
 }

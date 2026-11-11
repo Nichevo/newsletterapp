@@ -2700,6 +2700,110 @@ a.chip { text-decoration: none; }
   margin-left: auto;
 }
 
+.ksbar__jump {
+  gap: 2px;
+  padding: 0 6px 0 10px;
+}
+
+.ksbar__help {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--quiet);
+  font: 700 14px var(--font);
+  cursor: pointer;
+}
+
+.ksbar__help[aria-expanded='true'] {
+  background: var(--teal-tint);
+  border-color: var(--teal);
+  color: var(--teal-ink);
+}
+
+/* On a narrow phone the count makes room for the extra buttons. */
+@media (max-width: 420px) {
+  .ksbar {
+    gap: 4px;
+    padding: 6px 8px;
+  }
+  .ksbar__count {
+    display: none;
+  }
+}
+
+.kshelp {
+  position: absolute;
+  top: 100%;
+  right: 8px;
+  left: 8px;
+  max-width: 420px;
+  margin-left: auto;
+  margin-top: 4px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.kshelp ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.kshelp li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+}
+
+.kshelp li i {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 4px;
+  border-radius: 3px;
+}
+
+.kshelp li b {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.kshelp__meaning {
+  display: block;
+  color: var(--quiet);
+  font-size: 13px;
+}
+
+.kshelp .hint {
+  margin: 0;
+  font-size: 13px;
+}
+
+.kshelp__jump {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.kshelp__close {
+  justify-self: end;
+}
+
 .kschip {
   display: inline-flex;
   align-items: center;
@@ -2785,6 +2889,7 @@ a.chip { text-decoration: none; }
 
 /* Under an article: Outline, Index, References (key sentences part 2) */
 .kstabs {
+  scroll-margin-top: 110px;
   margin: 28px 0 8px;
   padding-top: 16px;
   border-top: 1px solid var(--border);
@@ -2989,4 +3094,12 @@ a.chip { text-decoration: none; }
 .table .kskind__dot {
   display: inline-block;
   vertical-align: -1px;
+}
+
+.topics__dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 50%;
 }

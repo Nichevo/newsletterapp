@@ -1,5 +1,5 @@
 import { INDEX_TYPE_NAMES, INDEX_TYPES, type IndexTerm, type ItemKeySentences, type ItemReferences, type ItemStudy, type KeyUseEvent } from '@newsletterapp/shared';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { flashRange, keySpans, kindDot, rangeForQuote, revealKey, termRanges } from '../keySentences';
@@ -11,18 +11,22 @@ import { flashRange, keySpans, kindDot, rangeForQuote, revealKey, termRanges } f
 // same one, and source links other articles share).
 
 type Root = ShadowRoot | HTMLElement;
-type Tab = 'outline' | 'index' | 'refs';
+export type KeyTab = 'outline' | 'index' | 'refs';
+type Tab = KeyTab;
 
 export function KeyTabs({
   data,
   refs,
   root,
+  want,
   onRefs,
   onUse,
 }: {
   data: ItemKeySentences;
   refs: ItemReferences | null;
   root: Root | null;
+  /** Asked for from the key sentences bar; n changes on every tap. */
+  want?: { tab: Tab; n: number } | null;
   onRefs: () => void;
   /** Counted for Statistics. */
   onUse: (e: KeyUseEvent) => void;
@@ -34,6 +38,9 @@ export function KeyTabs({
   const hasRefs = refCount > 0;
   const tabs: Tab[] = [...(hasOutline ? (['outline'] as const) : []), ...(hasIndex ? (['index'] as const) : []), ...(hasRefs ? (['refs'] as const) : [])];
   const [picked, setPicked] = useState<Tab | null>(null);
+  useEffect(() => {
+    if (want) setPicked(want.tab);
+  }, [want]);
   const tab = picked && tabs.includes(picked) ? picked : (tabs[0] ?? null);
   if (!tab) return null;
   const elsewhere = refs?.studies.filter((s) => s.cites > 1).length ?? 0;

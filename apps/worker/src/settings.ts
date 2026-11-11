@@ -1,5 +1,7 @@
 import {
   DEFAULT_SETTINGS,
+  INDEX_TYPES,
+  type IndexType,
   DEFAULT_SKIP_SITES,
   siteName,
   SOURCE_TYPES,
@@ -125,10 +127,12 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
           categories: strs(f?.categories, 40, 40),
           sources: strs(f?.sources, 100, 64),
           types: strs(f?.types, 10, 20).filter((t): t is SourceType => (SOURCE_TYPES as string[]).includes(t)),
-          read: (['all', 'unread', 'read', 'starred'] as const).find((v) => v === f?.read) ?? 'all',
+          read: (['all', 'unread', 'read', 'starred', 'saved'] as const).find((v) => v === f?.read) ?? 'all',
           top: Math.min(Math.max(Math.round(Number(f?.top) || 0), 0), 200),
           min: Math.min(Math.max(Math.round(Number(f?.min) || 1), 1), 100),
           showSources: f?.showSources !== false,
+          aiTags: f?.aiTags !== false,
+          index: strs(f?.index, 4, 10).filter((t): t is IndexType => (INDEX_TYPES as readonly string[]).includes(t)),
         }))
         .filter((f) => f.name)
         .slice(0, 20)

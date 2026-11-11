@@ -1,4 +1,4 @@
-import { platformOf, TOPICS_DAYS, type ItemKind, type TagCount, type TagList, type SourceType, type TopicsData, type TopicsItem } from '@newsletterapp/shared';
+import { INDEX_TYPES, platformOf, TOPICS_DAYS, type IndexType, type ItemKind, type TagCount, type TagList, type SourceType, type TopicsData, type TopicsItem } from '@newsletterapp/shared';
 import type { Hono } from 'hono';
 import { parseList } from './db';
 import type { AppVariables, Env } from './env';
@@ -17,7 +17,7 @@ const CACHE_SECONDS = 15 * 60;
 export function registerTopics(app: App) {
   app.get('/api/topics', async (c) => {
     const days = TOPICS_DAYS.find((d) => d === Number(c.req.query('days'))) ?? 30;
-    const key = new Request(`https://topics.cache/v1/${days}`);
+    const key = new Request(`https://topics.cache/v2/${days}`);
     const cache = (caches as unknown as { default: Cache }).default;
     if (c.req.query('fresh') !== '1') {
       const hit = await cache.match(key).catch(() => undefined);
@@ -71,14 +71,14 @@ export function registerTagList(app: App) {
 export async function buildTopics(env: Env, days: TopicsData['days']): Promise<TopicsData> {
   const t = now();
   const since = t - days * DAY;
-  const [items, tags, sources] = await Promise.all([
+  const [items, tags, sources, indexes] = await Promise.all([
     // Uses items_status_received: only the period's rows are read.
     env.DB.prepare(
-      `SELECT id, source_id, kind, category, ai_category, read_at IS NOT NULL AS r, interesting_at IS NOT NULL AS s, received_at
+      `SELECT id, source_id, kind, category, ai_category, read_at IS NOT NULL AS r, interesting_at IS NOT NULL AS s, saved_at IS NOT NULL AS v, received_at
        FROM items WHERE status IN ('inbox', 'archived') AND received_at >= ? AND kind != 'ai'`,
     )
       .bind(since)
-      .all<{ id: string; source_id: string | null; kind: ItemKind; category: string | null; ai_category: string | null; r: number; s: number; received_at: number }>(),
+      .all<{ id: string; source_id: string | null; kind: ItemKind; category: string | null; ai_category: string | null; r: number; s: number; v: number; received_at: number }>(),
     // Covered by item_tags_time.
     env.DB.prepare('SELECT item_id, tag, label FROM item_tags WHERE received_at >= ?')
       .bind(since)
@@ -90,6 +90,13 @@ export async function buildTopics(env: Env, days: TopicsData['days']): Promise<T
       feed_url: string | null;
       category: string | null;
     }>(),
+    // Index names from key sentences: only long articles have a row, read by item id.
+    env.DB.prepare(
+      `SELECT k.item_id, k.terms FROM items i JOIN key_sentences k ON k.item_id = i.id
+       WHERE i.status IN ('inbox', 'archived') AND i.received_at >= ? AND i.kind != 'ai' AND k.terms IS NOT NULL AND k.terms != '[]'`,
+    )
+      .bind(since)
+      .all<{ item_id: string; terms: string }>(),
   ]);
 
   const tagIndex = new Map<string, number>();
@@ -105,6 +112,32 @@ export async function buildTopics(env: Env, days: TopicsData['days']): Promise<T
     const list = byItem.get(r.item_id) ?? [];
     list.push(i);
     byItem.set(r.item_id, list);
+  }
+
+  // Index names sit with the tags, kept apart by their "idx:<type>:" key.
+  for (const r of indexes.results) {
+    let list: { term?: unknown; type?: unknown }[] = [];
+    try {
+      list = JSON.parse(r.terms) as typeof list;
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(list)) continue;
+    const mine = byItem.get(r.item_id) ?? [];
+    for (const t of list) {
+      if (typeof t?.term !== 'string' || !(INDEX_TYPES as readonly unknown[]).includes(t.type)) continue;
+      const label = t.term.trim();
+      if (!label) continue;
+      const key = `idx:${t.type as IndexType}:${label.toLowerCase()}`;
+      let i = tagIndex.get(key);
+      if (i === undefined) {
+        i = tagList.length;
+        tagIndex.set(key, i);
+        tagList.push({ key, label, index: t.type as IndexType });
+      }
+      mine.push(i);
+    }
+    byItem.set(r.item_id, mine);
   }
 
   const sourceById = new Map(sources.results.map((s) => [s.id, s]));
@@ -135,7 +168,7 @@ export async function buildTopics(env: Env, days: TopicsData['days']): Promise<T
         catList.push(cat);
       }
     }
-    packed.push([si, ci, (r.r ? 1 : 0) | (r.s ? 2 : 0), r.received_at, [...new Set(byItem.get(r.id) ?? [])]]);
+    packed.push([si, ci, (r.r ? 1 : 0) | (r.s ? 2 : 0) | (r.v ? 4 : 0), r.received_at, [...new Set(byItem.get(r.id) ?? [])]]);
   }
   return { days, generatedAt: t, sources: sourceList, categories: catList, tags: tagList, items: packed };
 }

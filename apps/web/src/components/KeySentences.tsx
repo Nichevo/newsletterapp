@@ -13,7 +13,7 @@ import { api } from '../api';
 import { anchorFor } from '../highlight';
 import { applyKeyMarks, clearKeyMarks, clearKeyView, drawnKeys, keySpans, kindDot, revealKey, setKeyView } from '../keySentences';
 import { IconChevron } from '../icons';
-import { KeyTabs } from './KeyTabs';
+import { KeyTabs, type KeyTab } from './KeyTabs';
 
 // Key sentences in the reader: the bar under the article's header (colour
 // chips that double as the legend, Skim, step through), the coloured
@@ -59,6 +59,9 @@ export function useKeySentences({
   const [toast, setToast] = useState<string | null>(null);
   const [refs, setRefs] = useState<ItemReferences | null>(null);
   const step = useRef(-1);
+  // The ? panel (what each colour means) and the jump to Outline/Index/References under the article.
+  const [help, setHelp] = useState(false);
+  const [want, setWant] = useState<{ tab: KeyTab; n: number } | null>(null);
 
   const loadRefs = useCallback((id: string) => {
     api
@@ -92,6 +95,8 @@ export function useKeySentences({
   useEffect(() => {
     setData(EMPTY);
     setSheet(null);
+    setHelp(false);
+    setWant(null);
     setHidden(new Set());
     setOn(true);
     setAsked(false);
@@ -150,6 +155,19 @@ export function useKeySentences({
     return c;
   }, [live]);
   const kindName = (k: KeyKind) => data.kinds.find((x) => x.id === k)?.name ?? k;
+
+  const tabsHere: KeyTab[] = [
+    ...(data.status === 'done' && live.length > 0 ? (['outline'] as const) : []),
+    ...(data.terms.length > 0 ? (['index'] as const) : []),
+    ...((refs?.studies.length ?? 0) + (refs?.links.length ?? 0) > 0 ? (['refs'] as const) : []),
+  ];
+  const TAB_NAME: Record<KeyTab, string> = { outline: 'Outline', index: 'Index', refs: 'References' };
+  function jumpTo(tab: KeyTab) {
+    setHelp(false);
+    used(tab);
+    setWant((w) => ({ tab, n: (w?.n ?? 0) + 1 }));
+    requestAnimationFrame(() => document.getElementById('key-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }
 
   function go(dir: 1 | -1) {
     if (!root) return;
@@ -270,6 +288,54 @@ export function useKeySentences({
             </span>
           </>
         )}
+        {tabsHere.length > 0 && (
+          <button
+            className="ksbar__switch ksbar__jump"
+            title={`Go to the ${tabsHere.map((t) => TAB_NAME[t]).join(', ')} under the article`}
+            onClick={() => jumpTo(tabsHere.includes('index') ? 'index' : tabsHere[0]!)}
+          >
+            {tabsHere.includes('index') ? 'Index' : TAB_NAME[tabsHere[0]!]}
+            <IconChevron size={14} />
+          </button>
+        )}
+        <button className="ksbar__help" aria-label="What the colours mean" aria-expanded={help} onClick={() => setHelp((v) => !v)}>
+          ?
+        </button>
+        {help && (
+          <div className="kshelp" role="dialog" aria-label="What the colours mean">
+            <ul>
+              {data.kinds
+                .filter((k) => k.on || counts.has(k.id))
+                .map((k) => (
+                  <li key={k.id}>
+                    <i style={{ background: kindDot(k.id) }} aria-hidden="true" />
+                    <span>
+                      <strong>{k.name}</strong>
+                      {counts.has(k.id) ? <b> {counts.get(k.id)}</b> : null}
+                      <span className="kshelp__meaning">{k.meaning}</span>
+                    </span>
+                  </li>
+                ))}
+            </ul>
+            <p className="hint">
+              Tap a coloured sentence to keep it as your own highlight, or to say it isn't key or has the wrong colour. Tap a colour above the article to
+              hide it. Skim fades everything else, and ‹ › step through the sentences.
+            </p>
+            {tabsHere.length > 0 && (
+              <div className="kshelp__jump">
+                <span className="hint">Go to</span>
+                {tabsHere.map((t) => (
+                  <button key={t} className="btn btn--small btn--ghost" onClick={() => jumpTo(t)}>
+                    {TAB_NAME[t]}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button className="btn btn--small kshelp__close" onClick={() => setHelp(false)}>
+              Close
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -337,7 +403,7 @@ export function useKeySentences({
   );
 
   const below =
-    enabled && item && item.kind !== 'ai' ? <KeyTabs data={data} refs={refs} root={root} onRefs={() => itemId && loadRefs(itemId)} onUse={used} /> : null;
+    enabled && item && item.kind !== 'ai' ? <KeyTabs data={data} refs={refs} root={root} want={want} onRefs={() => itemId && loadRefs(itemId)} onUse={used} /> : null;
 
   return { bar, legend, line, overlays, below, onDrawn, onKeyTap };
 }

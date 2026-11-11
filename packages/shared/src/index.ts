@@ -1,7 +1,7 @@
 // Types shared between the Worker API and the web app.
 // Timestamps are Unix milliseconds.
 
-import type { KeyMode, StudySummary } from './keysentences';
+import type { IndexType, KeyMode, StudySummary } from './keysentences';
 import type { AiLimitHit } from './usage';
 import { DEFAULT_SKIP_SITES, type Article, type FeedEntry } from './web';
 
@@ -1411,7 +1411,7 @@ export const TOPICS_DAYS: TopicsDays[] = [7, 30, 90];
 
 /**
  * One item on the Topics map, packed small: source and category are indexes into
- * TopicsData.sources / categories (-1 = none), flags bit 1 = read, bit 2 = starred,
+ * TopicsData.sources / categories (-1 = none), flags bit 1 = read, bit 2 = starred, bit 4 = saved,
  * then when it arrived and the indexes of its tags.
  */
 export type TopicsItem = [source: number, category: number, flags: number, receivedAt: number, tags: number[]];
@@ -1422,11 +1422,12 @@ export interface TopicsData {
   generatedAt: number;
   sources: { id: string; name: string; type: SourceType }[];
   categories: string[];
-  tags: { key: string; label: string }[];
+  /** AI tags, plus names from key-sentence Indexes (index set; their keys start "idx:"). */
+  tags: { key: string; label: string; index?: IndexType }[];
   items: TopicsItem[];
 }
 
-export type TopicsRead = 'all' | 'unread' | 'read' | 'starred';
+export type TopicsRead = 'all' | 'unread' | 'read' | 'starred' | 'saved';
 
 /** A saved set of Topics map filters. */
 export interface TopicFilter {
@@ -1442,4 +1443,8 @@ export interface TopicFilter {
   /** Only tags on at least this many items. */
   min: number;
   showSources: boolean;
+  /** Show the AI's tags (default on). */
+  aiTags?: boolean;
+  /** Which kinds of Index names to show alongside the tags (default none). */
+  index?: IndexType[];
 }
