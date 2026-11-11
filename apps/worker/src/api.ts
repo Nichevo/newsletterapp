@@ -301,7 +301,7 @@ app.get('/api/items', async (c) => {
           s.keyLines = marks
             .filter((m) => m.fix !== 'removed' && isKeyKind(m.kind) && typeof m.quote === 'string')
             .sort((a, b) => a.textOffset - b.textOffset)
-            .slice(0, 30)
+            .slice(0, 200)
             .map((m) => ({ kind: m.kind, quote: m.quote }));
         } catch {
           // Unreadable row: the item shows without them.
