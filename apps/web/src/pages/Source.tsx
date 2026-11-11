@@ -2,6 +2,7 @@ import type { AiMode, AppSettings, DiscoverResult, FullTextMode, Source, SourceA
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
+import { keysShown } from '../keySentences';
 import { activityView, nextTime, rhythmText, shortTime } from '../format';
 import { IconBack } from '../icons';
 import { StartWithPicker } from './Add';
@@ -236,6 +237,26 @@ export function SourcePage() {
               </span>
             </section>
           </div>
+
+          {keysShown() && source.kind !== 'ai' && (
+            <div className="section">
+              <span className="label">Key sentences</span>
+              <section className="card">
+                <div className="segmented" role="group" aria-label="Key sentences">
+                  {(['auto', 'always', 'never'] as const).map((m) => (
+                    <button key={m} aria-pressed={source.keySentences === m} onClick={() => void update({ keySentences: m })}>
+                      {{ auto: 'Auto', always: 'Always', never: 'Never' }[m]}
+                    </button>
+                  ))}
+                </div>
+                <span className="hint">
+                  Colours the sentences that carry an article. Auto does long ones (the length is in Settings &gt; PC helper and AI &gt; Key
+                  sentences), Always does every {noun} whatever its length, Never skips this source (right for link roundups). Only{' '}
+                  {noun}s summarised from now on; older ones can be done from the reader.
+                </span>
+              </section>
+            </div>
+          )}
 
           {isWeb && <FetchSection source={source} onUpdate={(p) => void update(p)} onCheck={() => void checkNow()} />}
           {isWeb && <PostFilterSection source={source} onUpdate={(p) => void update(p)} />}

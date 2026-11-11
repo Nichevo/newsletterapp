@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify';
 import type { Highlight } from '@newsletterapp/shared';
 import { useEffect, useRef } from 'react';
 import { applyMarks, MARK_CSS } from '../highlight';
+import { KEY_CSS, keyIndexFromPath } from '../keySentences';
 
 const BASE_CSS = `
   :host { display: block; color: inherit; line-height: 1.5; overflow-wrap: anywhere; }
@@ -139,6 +140,8 @@ export function EmailBody({
   onHighlightTap,
   onInternalLink,
   onMissing,
+  onDrawn,
+  onKeyTap,
 }: {
   html: string;
   loadImages: boolean;
@@ -159,6 +162,10 @@ export function EmailBody({
   onInternalLink?: (path: string) => void;
   /** Highlights that couldn't be found in this version of the text. */
   onMissing?: (ids: string[]) => void;
+  /** Called each time the article is drawn afresh (key sentences are marked again then). */
+  onDrawn?: (root: ShadowRoot) => void;
+  /** A tap on a key sentence: its position in the key sentence list. */
+  onKeyTap?: (index: number) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const marks = useRef<{ highlights: Highlight[]; active: string | null }>({ highlights: [], active: null });
@@ -213,10 +220,11 @@ export function EmailBody({
     else host.setAttribute('data-show-sponsored', '');
 
     const style = document.createElement('style');
-    style.textContent = `${BASE_CSS}\n${MARK_CSS}\n:host { font-size: ${fontSize}px; }`;
+    style.textContent = `${BASE_CSS}\n${MARK_CSS}\n${KEY_CSS}\n:host { font-size: ${fontSize}px; }`;
     root.replaceChildren(style, fragment);
     onMissing?.(applyMarks(root, marks.current.highlights, marks.current.active));
     onRoot?.(root);
+    onDrawn?.(root);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [html, loadImages, fontSize, hideSponsored]);
 
@@ -257,11 +265,17 @@ export function EmailBody({
       const mark = path.find((n): n is HTMLElement => n instanceof HTMLElement && n.tagName === 'MARK' && Boolean(n.dataset.hl));
       // A tap that ends a selection isn't a tap on the highlight.
       const sel = document.getSelection();
-      if (mark && onHighlightTap && (!sel || sel.isCollapsed)) onHighlightTap(mark.dataset.hl!);
+      if (sel && !sel.isCollapsed) return;
+      if (mark && onHighlightTap) {
+        onHighlightTap(mark.dataset.hl!);
+        return;
+      }
+      const key = keyIndexFromPath(path);
+      if (key !== null && onKeyTap && !host.hasAttribute('data-ks-off')) onKeyTap(key);
     };
     host.addEventListener('click', handler);
     return () => host.removeEventListener('click', handler);
-  }, [onLinkClick, onHighlightTap, onInternalLink]);
+  }, [onLinkClick, onHighlightTap, onInternalLink, onKeyTap]);
 
   return <div ref={hostRef} />;
 }

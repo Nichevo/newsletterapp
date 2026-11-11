@@ -15,6 +15,8 @@ import type {
   HelperHeartbeat,
   HelperJob,
   HelperResult,
+  KeyJob,
+  KeyResult,
   StoryJob,
   StoryResult,
   TrialJob,
@@ -61,6 +63,8 @@ export class AppClient {
   embedResult = (results: EmbedResult[]) => this.call<{ ok: boolean }>('POST', '/api/helper/embed/result', { results });
   storyClaim = (max: number) => this.call<{ jobs: StoryJob[] }>('POST', '/api/helper/story/claim', { max });
   storyResult = (r: StoryResult) => this.call<{ ok: boolean }>('POST', '/api/helper/story/result', r);
+  keyClaim = (max: number) => this.call<{ jobs: KeyJob[] }>('POST', '/api/helper/key/claim', { max });
+  keyResult = (r: KeyResult) => this.call<{ ok: boolean; status: string }>('POST', '/api/helper/key/result', r);
   likelyState = () => this.call<LikelyState>('GET', '/api/helper/likely');
   likelySave = (set: string[], unset: string[]) => this.call<{ ok: boolean }>('POST', '/api/helper/likely', { set, unset });
   linksClaim = (max: number) => this.call<{ jobs: LinkJob[] }>('POST', '/api/helper/suggest/links/claim', { max });

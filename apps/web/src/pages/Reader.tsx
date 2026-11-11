@@ -1,8 +1,9 @@
-import type { AskPreset, FetchPageStatus, ItemBody, ItemHighlights, ItemSummary, UnsubscribeResult } from '@newsletterapp/shared';
+import type { AskPreset, FetchPageStatus, Highlight, ItemBody, ItemHighlights, ItemSummary, UnsubscribeResult } from '@newsletterapp/shared';
 import { fileFilterOf, fileTag } from '@newsletterapp/shared';
 import { noteDeleted } from '../deleted';
 import { TagChip } from '../components/TagChip';
 import { NearLinks, StoryBanner } from '../components/StoryBanner';
+import { useKeySentences } from '../components/KeySentences';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
@@ -19,7 +20,7 @@ import { neighbours } from '../readingList';
 const KIND_NAME: Record<ItemSummary['kind'], string> = { newsletter: 'Newsletter', feed: 'Feed', site: 'Website', ai: 'AI note' };
 const PLATFORM_NAME = { reddit: 'Reddit', youtube: 'YouTube', github: 'GitHub' } as const;
 
-export function ReaderPage({ onChanged }: { onChanged: () => void }) {
+export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: () => void; keySentencesOn?: boolean }) {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -33,6 +34,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
   const nav = useMemo(() => neighbours(id), [id]);
   const [params] = useSearchParams();
   const marks = useHighlights(id, params.get('hl'));
+  const keys = useKeySentences({ item, root: marks.articleRoot, enabled: keySentencesOn, onKept: marks.added });
 
   // Previous / Next replace the current entry so Back still returns to the inbox.
   const go = useCallback(
@@ -178,6 +180,8 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
           )}
           {item.story && <StoryBanner itemId={item.id} />}
           {item.summary && <AiSummary item={item} onItem={setItem} marks={marks} />}
+          {keys.legend}
+          {keys.line}
           {item.kind !== 'ai' && (
             <QuickSummary
               preview={item.preheader ?? item.snippet}
@@ -231,6 +235,8 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
         </div>
       )}
 
+      {keys.bar}
+
       <div className="reader__body">
         {missingPicture && (
           <figure className="reader__picture">
@@ -252,6 +258,8 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             onHighlightTap={marks.openSheet}
             onInternalLink={(path) => navigate(path)}
             onMissing={marks.setMissing}
+            onDrawn={keys.onDrawn}
+            onKeyTap={keys.onKeyTap}
           />
         ) : body?.text ? (
           <TextBody
@@ -262,6 +270,8 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
             onRoot={marks.setRoot}
             onHighlightTap={marks.openSheet}
             onMissing={marks.setMissing}
+            onDrawn={keys.onDrawn}
+            onKeyTap={keys.onKeyTap}
           />
         ) : item ? (
           <p className="muted">{item.kind === 'newsletter' ? 'This email has no readable body.' : 'No saved copy of this post; open the live page.'}</p>
@@ -341,6 +351,7 @@ export function ReaderPage({ onChanged }: { onChanged: () => void }) {
         </Link>
       </div>
       {marks.overlays}
+      {keys.overlays}
     </div>
   );
 }
@@ -573,6 +584,9 @@ function useHighlights(itemId: string, jumpTo: string | null) {
     setRoot,
     setMissing,
     articleHighlights,
+    articleRoot,
+    /** A highlight made elsewhere (a kept key sentence): show it straight away. */
+    added: (h: Highlight) => setData((d) => (d.highlights.some((x) => x.id === h.id) ? d : { ...d, highlights: [...d.highlights, h] })),
     summary: { setRoot: setSummaryRoot, mark: markSummary, key: summaryHighlights.map((h) => h.id).join(',') + ':' + (sheet ?? '') },
     openSheet,
     scrollToNotes: () => notesRef.current?.scrollIntoView({ behavior: 'smooth' }),

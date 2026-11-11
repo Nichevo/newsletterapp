@@ -25,6 +25,7 @@ import { suggestHeartbeat } from './suggest';
 import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
 import { embedHeartbeat } from './embed';
+import { keyHeartbeat, queueAfterSummary } from './keysentences';
 import { storyHeartbeat } from './stories';
 import { fetchJobsWaiting } from './feeds';
 import { ASK_POLL_SECONDS, asksWaiting } from './highlights';
@@ -355,6 +356,7 @@ export function registerAi(app: App) {
       skipSites: settings.pcSkipSites,
       ...(await embedHeartbeat(c.env, hb)),
       ...(await storyHeartbeat(c.env, state.paused)),
+      ...(await keyHeartbeat(c.env, state.paused)),
       ...(state.paused ? {} : await suggestHeartbeat(c.env)),
     };
     return c.json(config);
@@ -495,6 +497,8 @@ export function registerAi(app: App) {
       );
     }
     await c.env.DB.batch(stmts);
+    // With its text final, a long article can have its key sentences found.
+    if (output) await queueAfterSummary(c.env, item.id).catch((err: unknown) => console.error('queueing key sentences failed', err));
 
     // Pause everything after several failures in a row, so a broken model or prompt
     // doesn't chew through the whole queue. Quick summaries carry on regardless.

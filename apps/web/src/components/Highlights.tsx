@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { Link } from 'react-router-dom';
 import { shortTime } from '../format';
 import { anchorFor, applyMarks, selectedRange } from '../highlight';
+import { keyIndexFromPath, addKeyTextCss } from '../keySentences';
 import { IconHighlight, IconSparkle, IconThumbDown, IconThumbUp } from '../icons';
 import { getAskOutput, setAskOutput, type AskOutputPref } from '../prefs';
 
@@ -496,6 +497,8 @@ export function TextBody({
   onRoot,
   onHighlightTap,
   onMissing,
+  onDrawn,
+  onKeyTap,
 }: {
   text: string;
   fontSize: number;
@@ -504,14 +507,20 @@ export function TextBody({
   onRoot: (el: HTMLElement) => void;
   onHighlightTap: (id: string) => void;
   onMissing: (ids: string[]) => void;
+  /** Called each time the text is drawn afresh (key sentences are marked again then). */
+  onDrawn?: (el: HTMLElement) => void;
+  /** A tap on a key sentence: its position in the key sentence list. */
+  onKeyTap?: (index: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const key = highlights.map((h) => h.id).join(',');
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    addKeyTextCss();
     el.textContent = text;
     onRoot(el);
+    onDrawn?.(el);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);
   useEffect(() => {
@@ -525,9 +534,15 @@ export function TextBody({
       className="reader__text"
       style={{ fontSize: fontSize + 1 }}
       onClick={(e) => {
-        const mark = (e.target as HTMLElement).closest('mark[data-hl]') as HTMLElement | null;
         const sel = document.getSelection();
-        if (mark && (!sel || sel.isCollapsed)) onHighlightTap(mark.dataset.hl!);
+        if (sel && !sel.isCollapsed) return;
+        const mark = (e.target as HTMLElement).closest('mark[data-hl]') as HTMLElement | null;
+        if (mark) {
+          onHighlightTap(mark.dataset.hl!);
+          return;
+        }
+        const ks = keyIndexFromPath(e.nativeEvent.composedPath());
+        if (ks !== null && onKeyTap && !ref.current?.hasAttribute('data-ks-off')) onKeyTap(ks);
       }}
     />
   );

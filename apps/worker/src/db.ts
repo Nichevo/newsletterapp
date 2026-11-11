@@ -78,6 +78,7 @@ export interface SourceRow {
   bundle?: number | null;
   wait_hours?: number | null;
   follow_link?: number | null;
+  key_sentences?: string | null;
   flood_skip?: number | null;
   post_filter?: string | null;
   daily_cap?: number | null;
@@ -131,6 +132,7 @@ export interface ItemRow {
   created_at: number;
   preheader: string | null;
   word_count: number | null;
+  ks_status?: string | null;
   category: string | null;
   sponsored: number;
   ai_status: AiStatus | null;
@@ -303,6 +305,7 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<Summa
     hasNear: !row.story_id && nearestSim(row.neighbours ?? null) >= NEAR_SHOW,
     file: row.file_type ? { type: row.file_type, label: fileTypeLabel(row.file_type, row.web_url ?? ''), kept: Boolean(row.file_key) } : null,
     savedPage: row.source_kind != null && isSavedPages({ kind: row.source_kind, url: row.source_url }),
+    keySentences: row.ks_status === 'done' ? 'done' : row.ks_status === 'pending' || row.ks_status === 'working' ? 'waiting' : null,
   };
 }
 
@@ -409,6 +412,7 @@ export function toSource(
     floodAt: row.flood_at ?? null,
     floodCount: row.flood_count ?? 0,
     savedPages: isSavedPages(row),
+    keySentences: row.key_sentences === 'always' || row.key_sentences === 'never' ? row.key_sentences : 'auto',
   };
 }
 

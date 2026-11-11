@@ -15,6 +15,8 @@ import { PcFetchStatsPage } from './pages/PcFetchStats';
 import { DigestPage } from './pages/Digest';
 import { InboxPage } from './pages/Inbox';
 import { ReaderPage } from './pages/Reader';
+import { KeySentencesPage } from './pages/KeySentences';
+import { setKeysShown } from './keySentences';
 import { SendersPage } from './pages/Senders';
 import { SettingsPage } from './pages/Settings';
 import { SourcePage } from './pages/Source';
@@ -56,6 +58,7 @@ export default function App() {
       .me()
       .then((m) => {
         setMe(m);
+        setKeysShown(m.keySentencesOn);
         refreshCounts();
       })
       .catch((err: unknown) => {
@@ -85,7 +88,7 @@ export default function App() {
         />
         <Route path="/saved/highlights" element={<HighlightsPage />} />
         <Route path="/saved/stories" element={<StoriesPage />} />
-        <Route path="/item/:id" element={<ReaderPage onChanged={refreshCounts} />} />
+        <Route path="/item/:id" element={<ReaderPage onChanged={refreshCounts} keySentencesOn={me.keySentencesOn} />} />
         <Route path="/senders" element={<SendersPage onChanged={refreshCounts} />} />
         <Route path="/add" element={<AddPage me={me} />} />
         <Route path="/ask" element={<AskPage />} />
@@ -105,6 +108,17 @@ export default function App() {
         <Route path="/settings/ai/usage" element={<AiUsagePage />} />
         <Route path="/settings/ai/highlights" element={<HighlightPromptsPage />} />
         <Route path="/settings/ai/web-search" element={<WebSearchPage />} />
+        <Route
+          path="/settings/ai/key-sentences"
+          element={
+            <KeySentencesPage
+              onChange={(on) => {
+                setKeysShown(on);
+                setMe((m) => (m ? { ...m, keySentencesOn: on } : m));
+              }}
+            />
+          }
+        />
         <Route path="/settings/ai/sites" element={<PcSitesPage />} />
         <Route path="/settings/sources" element={<SourcesPage />} />
         <Route path="/settings/sources/suggested" element={<SuggestedPage />} />

@@ -21,14 +21,14 @@ function textNodes(root: Root): Text[] {
   return out;
 }
 
-interface TextIndex {
+export interface TextIndex {
   text: string;
   nodes: Text[];
   /** Where each node starts in `text`. */
   starts: number[];
 }
 
-function indexText(root: Root): TextIndex {
+export function indexText(root: Root): TextIndex {
   const nodes = textNodes(root);
   const starts: number[] = [];
   let text = '';

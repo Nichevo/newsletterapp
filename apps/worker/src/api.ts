@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { registerDeleting } from './deleting';
-import { normalizePostFilter, parseFilterSet, tagKey, type FileFilter } from '@newsletterapp/shared';
+import { KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, type FileFilter } from '@newsletterapp/shared';
 import type {
   Platform,
   AiMode,
@@ -51,6 +51,7 @@ import {
   type SourceRow,
 } from './db';
 import { buildDigestIfDue } from './digest';
+import { registerKeySentences, loadKeySettings } from './keysentences';
 import { registerStories, toStoryInfo } from './stories';
 import { registerEmbed } from './embed';
 import { recordLinkClick, registerSuggest } from './suggest';
@@ -87,7 +88,13 @@ app.use('/api/*', async (c, next) => {
 
 app.get('/api/me', async (c) => {
   const settings = await loadSettings(c.env);
-  const me: Me = { email: c.get('userEmail'), domain: c.env.MAIL_DOMAIN || null, digestOn: settings.digest.enabled, groupSameNews: settings.stories.groupSameNews };
+  const me: Me = {
+    email: c.get('userEmail'),
+    domain: c.env.MAIL_DOMAIN || null,
+    digestOn: settings.digest.enabled,
+    groupSameNews: settings.stories.groupSameNews,
+    keySentencesOn: (await loadKeySettings(c.env)).enabled,
+  };
   return c.json(me);
 });
 
@@ -110,6 +117,7 @@ registerPcHolds(app);
 registerTopics(app);
 registerTagList(app);
 registerStories(app);
+registerKeySentences(app);
 registerDeleting(app);
 
 // ---------- Items ----------
@@ -164,11 +172,18 @@ function typeSql(kind: string): string | null {
 }
 /** Types to show and/or hide, e.g. "reddit|github" or "!reddit|!github". */
 function typeWhere(value: string, _binds: unknown[]): string[] {
-  const set = parseFilterSet(value);
+  const all = parseFilterSet(value);
+  // "Key sentences" is about the item, not its type: it narrows whatever types are picked.
+  const ks = [
+    ...(all.include.includes(KEY_TOKEN) ? [KEY_SQL] : []),
+    ...(all.exclude.includes(KEY_TOKEN) ? [`NOT ${KEY_SQL}`] : []),
+  ];
+  const set = { include: all.include.filter((k) => k !== KEY_TOKEN), exclude: all.exclude.filter((k) => k !== KEY_TOKEN) };
   const inc = set.include.map(typeSql).filter((s): s is string => s !== null);
   const exc = set.exclude.map(typeSql).filter((s): s is string => s !== null);
-  return [...(inc.length ? [`(${inc.join(' OR ')})`] : []), ...exc.map((s) => `NOT ${s}`)];
+  return [...(inc.length ? [`(${inc.join(' OR ')})`] : []), ...exc.map((s) => `NOT ${s}`), ...ks];
 }
+const KEY_SQL = "COALESCE(items.ks_status, '') = 'done'";
 const CATEGORY_SQL = "COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]'))";
 /** Sources to show and/or hide (ids, e.g. "a|b" or "!a"). */
 function sourceWhere(value: string, binds: unknown[]): string[] {
@@ -926,6 +941,8 @@ app.post('/api/sources/:id', async (c) => {
     }
   }
   if (typeof input.name === 'string' && input.name.trim()) set('name = ?', input.name.trim().slice(0, 200));
+  if (input.keySentences === 'auto' || input.keySentences === 'always' || input.keySentences === 'never')
+    set('key_sentences = ?', input.keySentences === 'auto' ? null : input.keySentences);
   // The rest only mean something for feeds and websites.
   if (input.fetchVia === 'cloud' || input.fetchVia === 'pc') set("fetch_via = CASE WHEN kind = 'feed' THEN ? ELSE 'pc' END", input.fetchVia);
   if (typeof input.render === 'boolean') set('render = ?', input.render ? 1 : 0);

@@ -1,6 +1,7 @@
 // Types shared between the Worker API and the web app.
 // Timestamps are Unix milliseconds.
 
+import type { KeyMode } from './keysentences';
 import type { AiLimitHit } from './usage';
 import { DEFAULT_SKIP_SITES, type Article, type FeedEntry } from './web';
 
@@ -8,6 +9,7 @@ export * from './web';
 export * from './suggest';
 export * from './highlights';
 export * from './files';
+export * from './keysentences';
 
 /** 'ai' = an article written by the AI from a highlight (the "AI notes" source). */
 export type ItemKind = 'newsletter' | 'feed' | 'site' | 'ai';
@@ -119,6 +121,8 @@ export interface ItemSummary {
   file: { type: string; label: string; kept: boolean } | null;
   /** Added on its own (Add > Just one page): it can be deleted. */
   savedPage: boolean;
+  /** Key sentences: done (coloured in the reader), waiting for the PC, or null. */
+  keySentences: 'done' | 'waiting' | null;
 }
 
 /** The story an item belongs to, as shown on its inbox row. */
@@ -485,6 +489,8 @@ export interface Source {
   rhythm: FeedRhythm | null;
   /** The "Saved pages" source: single pages added on their own, never checked for new posts. */
   savedPages: boolean;
+  /** Key sentences for its posts: Auto (by length), Always or Never. */
+  keySentences: KeyMode;
 }
 
 /**
@@ -582,6 +588,8 @@ export interface Me {
   digestOn: boolean;
   /** Show the same news from several sources as one inbox row (Settings > Reading). */
   groupSameNews: boolean;
+  /** Whether key sentences are switched on (Settings > PC helper and AI > Key sentences). */
+  keySentencesOn: boolean;
 }
 
 /** One AI tag on the All tags page. */
@@ -743,6 +751,7 @@ export interface SourceUpdate {
   bundle?: boolean;
   waitHours?: number;
   followLink?: boolean;
+  keySentences?: KeyMode;
   floodSkip?: boolean;
   postFilter?: PostFilter;
   dailyCap?: number;
@@ -979,7 +988,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.5.0';
+export const HELPER_VERSION = '0.6.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -1010,6 +1019,8 @@ export interface HelperConfig {
   storyWaiting?: boolean;
   /** Feed suggestions are due: count links in recent reading, then check the candidate sites. */
   suggestDue?: boolean;
+  /** Articles waiting for their key sentences (helpers from 0.6.0). */
+  keyWaiting?: boolean;
 }
 
 /** One item for the helper to embed: its text and when it arrived. */
