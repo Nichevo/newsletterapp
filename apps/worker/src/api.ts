@@ -13,7 +13,6 @@ import type {
   BulkReadInput,
   FullTextMode,
   AppSettings,
-  Digest,
   ItemBody,
   ItemKind,
   SummaryKind,
@@ -51,10 +50,10 @@ import {
   type SourceRow,
 } from './db';
 import { isSaveAddress, readSaveLog, signInEmails } from './saveinbox';
-import { buildDigestIfDue } from './digest';
 import { registerKeySentences, loadKeySettings } from './keysentences';
 import { registerRefs } from './refs';
 import { registerKeyStats } from './keystats';
+import { registerReviews } from './reviews';
 import { registerStories, toStoryInfo } from './stories';
 import { registerEmbed } from './embed';
 import { recordLinkClick, registerSuggest } from './suggest';
@@ -94,7 +93,7 @@ app.get('/api/me', async (c) => {
   const me: Me = {
     email: c.get('userEmail'),
     domain: c.env.MAIL_DOMAIN || null,
-    digestOn: settings.digest.enabled,
+    reviewsOn: settings.reviews.weekly || settings.reviews.monthly,
     groupSameNews: settings.stories.groupSameNews,
     keySentencesOn: (await loadKeySettings(c.env)).enabled,
   };
@@ -120,6 +119,7 @@ registerPcHolds(app);
 registerTopics(app);
 registerTagList(app);
 registerStories(app);
+registerReviews(app);
 registerKeySentences(app);
 registerRefs(app);
 registerKeyStats(app);
@@ -629,13 +629,13 @@ app.get('/api/items/:id/raw', async (c) => {
 });
 
 /** Phone or desktop, from the client's own say-so or, failing that, its user agent. */
-function deviceOf(c: { req: { header: (name: string) => string | undefined } }, claimed?: unknown): ReadDevice {
+export function deviceOf(c: { req: { header: (name: string) => string | undefined } }, claimed?: unknown): ReadDevice {
   if (claimed === 'phone' || claimed === 'desktop') return claimed;
   return /Mobi|Android|iPhone/i.test(c.req.header('user-agent') ?? '') ? 'phone' : 'desktop';
 }
 
 /** Marks items read once, remembering how and where; items already read keep their original record. */
-async function markRead(env: Env, ids: string[], via: ReadVia, device: ReadDevice, at = now()): Promise<number> {
+export async function markRead(env: Env, ids: string[], via: ReadVia, device: ReadDevice, at = now()): Promise<number> {
   let changed = 0;
   for (let i = 0; i < ids.length; i += 50) {
     const chunk = ids.slice(i, i + 50);
@@ -1174,57 +1174,7 @@ app.put('/api/settings', async (c) => {
   return c.json(settings);
 });
 
-// ---------- Daily digest ----------
-
-/** Stored digests carry their read state in a column so marking one done needs no JSON rewrite. */
-function digestFromRow(row: { body: string; read_at: number | null }): Digest {
-  return { ...(JSON.parse(row.body) as Digest), readAt: row.read_at };
-}
-
-app.get('/api/digests', async (c) => {
-  const limit = Math.min(Number(c.req.query('limit') ?? 14) || 14, 60);
-  const rows = await c.env.DB.prepare('SELECT body, read_at FROM digests ORDER BY day DESC LIMIT ?')
-    .bind(limit)
-    .all<{ body: string; read_at: number | null }>();
-  return c.json(rows.results.map(digestFromRow));
-});
-
-app.get('/api/digests/:day', async (c) => {
-  const row = await c.env.DB.prepare('SELECT body, read_at FROM digests WHERE day = ?')
-    .bind(c.req.param('day'))
-    .first<{ body: string; read_at: number | null }>();
-  return row ? c.json(digestFromRow(row)) : c.json({ error: 'not found' }, 404);
-});
-
-/** Marks a digest done (hidden from the Digest tab); with markRead, its stories are marked read too. */
-app.post('/api/digests/:day/done', async (c) => {
-  const day = c.req.param('day');
-  const row = await c.env.DB.prepare('SELECT body FROM digests WHERE day = ?').bind(day).first<{ body: string }>();
-  if (!row) return c.json({ error: 'not found' }, 404);
-  const body = (await c.req.json().catch(() => null)) as { markRead?: unknown; device?: unknown } | null;
-  const t = now();
-  await c.env.DB.prepare('UPDATE digests SET read_at = ? WHERE day = ?').bind(t, day).run();
-  let itemsRead = 0;
-  if (body?.markRead === true) {
-    const digest = JSON.parse(row.body) as Digest;
-    const ids = digest.sections.flatMap((s) => s.stories.flatMap((st) => [st.itemId, ...st.more.map((m) => m.itemId)]));
-    itemsRead = await markRead(c.env, ids, 'digest', deviceOf(c, body.device), t);
-  }
-  return c.json({ readAt: t, itemsRead });
-});
-
-app.post('/api/digests/:day/undone', async (c) => {
-  await c.env.DB.prepare('UPDATE digests SET read_at = NULL WHERE day = ?').bind(c.req.param('day')).run();
-  return c.json({ readAt: null });
-});
-
-/** Builds (or rebuilds) today's digest now, whatever the scheduled hour says. */
-app.post('/api/digests/build', async (c) => {
-  const digest = await buildDigestIfDue(c.env, true);
-  return c.json(digest ?? { empty: true });
-});
-
-/** Rescores the last week of items; the Top sort and the digest read the result. */
+/** Rescores the last week of items; the Top sort and the reviews read the result. */
 app.post('/api/maintenance/rescore', async (c) => c.json({ scored: await scoreRecentItems(c.env) }));
 
 // ---------- Quick summaries for items that arrived before they existed ----------

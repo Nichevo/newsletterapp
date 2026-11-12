@@ -261,7 +261,7 @@ async function bodies(env: Env, itemId: string) {
 
 // ---------- The "AI notes" article ----------
 
-async function aiSourceId(env: Env): Promise<string> {
+export async function aiSourceId(env: Env): Promise<string> {
   const row = await env.DB.prepare("SELECT id FROM sources WHERE kind = 'ai' ORDER BY created_at LIMIT 1").first<{ id: string }>();
   if (row) return row.id;
   const id = newId();

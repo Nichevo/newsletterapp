@@ -35,7 +35,12 @@ import type {
   WebSearchSettings,
   WebSearchView,
   PcOffMode,
-  Digest,
+  Review,
+  ReviewKind,
+  ReviewListItem,
+  ReviewQuality,
+  CategorySuggestion,
+  ReviewFinding,
   DiscoverResult,
   ItemKind,
   NewSourceInput,
@@ -218,11 +223,18 @@ export const api = {
   sourceActivity: () => get<SourceActivity[]>('/api/sources/activity'),
   checkSource: (id: string) => post<{ added: number; waitingForPc: boolean; source: Source }>(`/api/sources/${id}/check`),
 
-  digests: () => get<Digest[]>('/api/digests'),
-  buildDigest: () => post<Digest | { empty: true }>('/api/digests/build'),
-  digestDone: (day: string, markRead: boolean) =>
-    post<{ readAt: number; itemsRead: number }>(`/api/digests/${day}/done`, { markRead, device: isPhone() }),
-  digestUndone: (day: string) => post<{ readAt: null }>(`/api/digests/${day}/undone`),
+  reviews: () => get<ReviewListItem[]>('/api/reviews'),
+  review: (id: string) => get<Review>(`/api/reviews/${id}`),
+  reviewQuality: () => get<ReviewQuality>('/api/reviews/quality'),
+  buildReview: (kind: ReviewKind) => post<Review>('/api/reviews/build', { kind }),
+  reviewDone: (id: string, markRead: boolean) =>
+    post<{ readAt: number; itemsRead: number }>(`/api/reviews/${id}/done`, { markRead, device: isPhone() }),
+  reviewUndone: (id: string) => post<{ readAt: null }>(`/api/reviews/${id}/undone`),
+  reviewMore: (id: string) => post<{ status: string }>(`/api/reviews/${id}/more`),
+  reviewRetry: (id: string) => post<{ status: string }>(`/api/reviews/${id}/retry`),
+  reviewFinding: (id: string, fid: string, notUseful: boolean) => post<ReviewFinding>(`/api/reviews/${id}/findings/${fid}`, { notUseful }),
+  reviewCategory: (id: string, sid: string, action: 'apply' | 'apply_old' | 'dismiss') =>
+    post<{ suggestion: CategorySuggestion; message: string }>(`/api/reviews/${id}/categories/${encodeURIComponent(sid)}`, { action }),
 
   settings: () => get<AppSettings>('/api/settings'),
   pcHolds: () => get<PcHoldsView>('/api/pc-holds'),

@@ -27,6 +27,7 @@ import { newId, now } from './ids';
 import { embedHeartbeat } from './embed';
 import { keyHeartbeat, queueAfterSummary } from './keysentences';
 import { storyHeartbeat } from './stories';
+import { reviewHeartbeat } from './reviews';
 import { fetchJobsWaiting } from './feeds';
 import { ASK_POLL_SECONDS, asksWaiting } from './highlights';
 import { countSearches, searchAllowance, summarySearches } from './websearch';
@@ -358,6 +359,7 @@ export function registerAi(app: App) {
       ...(await storyHeartbeat(c.env, state.paused)),
       ...(await keyHeartbeat(c.env, state.paused)),
       ...(state.paused ? {} : await suggestHeartbeat(c.env)),
+      ...(await reviewHeartbeat(c.env, state.paused)),
     };
     return c.json(config);
   });

@@ -1,6 +1,6 @@
 import type { Me } from '@newsletterapp/shared';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError, api } from './api';
 import { TabBar } from './components/TabBar';
 import { AddPage } from './pages/Add';
@@ -12,7 +12,7 @@ import { HighlightPromptsPage } from './pages/HighlightPrompts';
 import { WebSearchPage } from './pages/WebSearch';
 import { PcSitesPage } from './pages/PcSites';
 import { PcFetchStatsPage } from './pages/PcFetchStats';
-import { DigestPage } from './pages/Digest';
+import { ReviewPage } from './pages/Review';
 import { InboxPage } from './pages/Inbox';
 import { ReaderPage } from './pages/Reader';
 import { KeySentencesPage } from './pages/KeySentences';
@@ -83,7 +83,9 @@ export default function App() {
     <div className="app">
       <Routes>
         <Route path="/" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
-        <Route path="/digest" element={<DigestPage on={me.digestOn} />} />
+        <Route path="/review" element={<ReviewPage on={me.reviewsOn} />} />
+        <Route path="/review/:id" element={<ReviewPage on={me.reviewsOn} />} />
+        <Route path="/digest" element={<Navigate to="/review" replace />} />
         <Route path="/saved" element={<InboxPage key="saved" mode="saved" me={me} counts={counts} onChanged={refreshCounts} />} />
         <Route
           path="/saved/interesting"
@@ -109,7 +111,7 @@ export default function App() {
           element={
             <SettingsPage
               me={me}
-              onDigestChange={(on) => setMe((m) => (m ? { ...m, digestOn: on } : m))}
+              onReviewsChange={(on) => setMe((m) => (m ? { ...m, reviewsOn: on } : m))}
               onGroupChange={(on) => setMe((m) => (m ? { ...m, groupSameNews: on } : m))}
             />
           }
@@ -158,7 +160,7 @@ export default function App() {
         <Route path="/tag/*" element={<TagPagePage />} />
         <Route path="*" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
       </Routes>
-      {!isReader && <TabBar pendingSenders={counts.pendingSenders} showDigest={me.digestOn} />}
+      {!isReader && <TabBar pendingSenders={counts.pendingSenders} showReview={me.reviewsOn} />}
     </div>
   );
 }

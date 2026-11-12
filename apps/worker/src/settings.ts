@@ -9,7 +9,10 @@ import {
   parseFilterSet,
   FILE_FILTERS,
   type AppSettings,
-  type DigestOptions,
+  type ReviewSettings,
+  REVIEW_CHART_WEEKS,
+  REVIEW_PARTS,
+  MAX_REVIEW_SEARCHES,
   TOPICS_DAYS,
   type SavedFilter,
   type SourceType,
@@ -74,25 +77,8 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     ? [...new Set(input.aiOffCategories.map((c) => str(c, 40)).filter(Boolean))].slice(0, 40)
     : (base.aiOffCategories ?? []);
   const interests = typeof input.interests === 'string' ? str(input.interests, 300) : base.interests;
-  const digestHour =
-    typeof input.digestHour === 'number' && Number.isInteger(input.digestHour) && input.digestHour >= 0 && input.digestHour <= 23
-      ? input.digestHour
-      : base.digestHour;
   const timezone = typeof input.timezone === 'string' && isTimezone(input.timezone) ? input.timezone : base.timezone;
-  const d = (input.digest && typeof input.digest === 'object' ? input.digest : {}) as Partial<DigestOptions>;
-  const bd = base.digest;
-  const digest: DigestOptions = {
-    enabled: typeof d.enabled === 'boolean' ? d.enabled : bd.enabled,
-    stories: d.stories === 6 || d.stories === 12 || d.stories === 20 ? d.stories : bd.stories,
-    windowHours: d.windowHours === 0 || d.windowHours === 24 || d.windowHours === 48 ? d.windowHours : bd.windowHours,
-    includeRead: typeof d.includeRead === 'boolean' ? d.includeRead : bd.includeRead,
-    includeSponsored: typeof d.includeSponsored === 'boolean' ? d.includeSponsored : bd.includeSponsored,
-    groupBy: d.groupBy === 'category' || d.groupBy === 'source' ? d.groupBy : bd.groupBy,
-    skipCategories: Array.isArray(d.skipCategories)
-      ? [...new Set(d.skipCategories.map((c) => str(c, 40)).filter(Boolean))].slice(0, 40)
-      : bd.skipCategories,
-    doneMarksRead: typeof d.doneMarksRead === 'boolean' ? d.doneMarksRead : bd.doneMarksRead,
-  };
+  const reviews = normalizeReviews(input.reviews, base.reviews ?? DEFAULT_SETTINGS.reviews);
   const cleanTypes = (v: string) => {
     const set = parseFilterSet(v);
     const ok = (t: string) => (SOURCE_TYPES as string[]).includes(t) || (FILE_FILTERS as readonly string[]).includes(t);
@@ -164,14 +150,40 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     aiByKind,
     aiOffCategories,
     interests,
-    digestHour,
     timezone,
-    digest,
+    reviews,
     savedFilters,
     pcSkipSites,
     pcSkipAllowCategories,
     topicFilters,
     stories,
     saveSenders,
+  };
+}
+
+const int = (v: unknown, lo: number, hi: number, fallback: number) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= lo && n <= hi ? n : fallback;
+};
+
+/** Settings > Reviews, from untrusted input. */
+export function normalizeReviews(input: unknown, base: ReviewSettings): ReviewSettings {
+  const r = (input && typeof input === 'object' ? input : {}) as Partial<ReviewSettings>;
+  const parts = new Set(REVIEW_PARTS.map((p) => p.part));
+  return {
+    weekly: typeof r.weekly === 'boolean' ? r.weekly : base.weekly,
+    monthly: typeof r.monthly === 'boolean' ? r.monthly : base.monthly,
+    weekDay: int(r.weekDay, 0, 6, base.weekDay),
+    hour: int(r.hour, 0, 23, base.hour),
+    weeklySearches: int(r.weeklySearches, 0, MAX_REVIEW_SEARCHES, base.weeklySearches),
+    monthlySearches: int(r.monthlySearches, 0, MAX_REVIEW_SEARCHES, base.monthlySearches),
+    chartWeeks: REVIEW_CHART_WEEKS.find((w) => w === Number(r.chartWeeks)) ?? base.chartWeeks,
+    topStories: int(r.topStories, 1, 10, base.topStories),
+    skipParts: Array.isArray(r.skipParts) ? [...new Set(r.skipParts.filter((p) => parts.has(p)))] : base.skipParts,
+    skipCategories: Array.isArray(r.skipCategories)
+      ? [...new Set(r.skipCategories.map((c) => str(c, 40)).filter(Boolean))].slice(0, 40)
+      : base.skipCategories,
+    doneMarksRead: typeof r.doneMarksRead === 'boolean' ? r.doneMarksRead : base.doneMarksRead,
+    inInbox: typeof r.inInbox === 'boolean' ? r.inInbox : base.inInbox,
   };
 }

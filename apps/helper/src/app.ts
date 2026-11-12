@@ -17,6 +17,8 @@ import type {
   HelperResult,
   KeyJob,
   KeyResult, RefJob, RefResult,
+  ReviewJob,
+  ReviewResult,
   StoryJob,
   StoryResult,
   TrialJob,
@@ -74,6 +76,8 @@ export class AppClient {
   suggestStart = () => this.call<SuggestRun>('POST', '/api/helper/suggest/start', {});
   suggestResult = (results: SuggestCheckResult[], done: boolean) =>
     this.call<{ ok: boolean }>('POST', '/api/helper/suggest/result', { results, done });
+  reviewClaim = () => this.call<{ job: ReviewJob | null }>('POST', '/api/helper/review/claim', {});
+  reviewResult = (r: ReviewResult) => this.call<{ ok: boolean }>('POST', '/api/helper/review/result', r);
   fetchResult = (r: FetchJobResult) => this.call<{ ok: boolean; added?: number }>('POST', '/api/helper/fetch/result', r);
 
   /** Downloads a file the web app serves (used for self-update). */

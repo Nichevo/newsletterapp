@@ -1,5 +1,5 @@
 import { keysShown } from '../keySentences';
-import type { AppSettings, DigestOptions, Me, Source, SummaryKind } from '@newsletterapp/shared';
+import { MAX_REVIEW_SEARCHES, REVIEW_CHART_WEEKS, REVIEW_PARTS, type AppSettings, type Me, type ReviewKind, type ReviewQuality, type ReviewSettings, type Source, type SummaryKind } from '@newsletterapp/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
@@ -68,11 +68,11 @@ function MenuRow({ to, title, sub }: { to: string; title: string; sub: string })
 
 export function SettingsPage({
   me,
-  onDigestChange,
+  onReviewsChange,
   onGroupChange,
 }: {
   me: Me;
-  onDigestChange: (on: boolean) => void;
+  onReviewsChange: (on: boolean) => void;
   onGroupChange: (on: boolean) => void;
 }) {
   const [sources, setSources] = useState<Source[]>([]);
@@ -82,12 +82,12 @@ export function SettingsPage({
     api.sources().then(setSources).catch(() => undefined);
   }, []);
 
-  // Shows or hides the Digest tab as soon as the switch is saved (or put back after a failed save).
-  const digestOn = settings?.digest.enabled;
+  // Shows or hides the Review tab as soon as a switch is saved (or put back after a failed save).
+  const reviewsOn = settings ? settings.reviews.weekly || settings.reviews.monthly : undefined;
   useEffect(() => {
-    if (digestOn !== undefined) onDigestChange(digestOn);
+    if (reviewsOn !== undefined) onReviewsChange(reviewsOn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [digestOn]);
+  }, [reviewsOn]);
   const groupOn = settings?.stories.groupSameNews;
   useEffect(() => {
     if (groupOn !== undefined) onGroupChange(groupOn);
@@ -135,7 +135,7 @@ export function SettingsPage({
 
       <ReadingSection />
       {settings && <StoriesSection settings={settings} onSave={save} />}
-      {settings && <DigestSection settings={settings} onSave={save} />}
+      {settings && <ReviewsSection settings={settings} onSave={save} />}
 
       <div className="section">
         <span className="label">Account</span>
@@ -517,23 +517,38 @@ function ReadingSection() {
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const hourLabel = (h: number) => `${((h + 11) % 12) + 1}:00 ${h < 12 ? 'am' : 'pm'}`;
 
-/** When the daily digest is built, in which time zone, plus a build-now button. */
-function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** Weekly and monthly reviews: when they're built, what goes in, how much web searching. */
+function ReviewsSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
   const [building, setBuilding] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [quality, setQuality] = useState<ReviewQuality | null>(null);
   const deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const zones = [...new Set([settings.timezone, deviceZone, 'UTC'])];
-  const d = settings.digest;
-  const saveDigest = (patch: Partial<DigestOptions>) => onSave({ digest: { ...d, ...patch } });
+  const r = settings.reviews;
+  const saveReviews = (patch: Partial<ReviewSettings>) => onSave({ reviews: { ...r, ...patch } });
+  const on = r.weekly || r.monthly;
+  // Sliders save when let go, not on every step.
+  const [weekly, setWeekly] = useState(r.weeklySearches);
+  const [monthly, setMonthly] = useState(r.monthlySearches);
+  useEffect(() => {
+    setWeekly(r.weeklySearches);
+    setMonthly(r.monthlySearches);
+  }, [r.weeklySearches, r.monthlySearches]);
+  useEffect(() => {
+    api.reviewQuality().then(setQuality).catch(() => undefined);
+  }, []);
+  const perMonth = Math.round((r.weekly ? weekly * 4.35 : 0) + (r.monthly ? monthly : 0));
 
-  async function buildNow() {
+  async function buildNow(kind: ReviewKind) {
     setBuilding(true);
     setNote(null);
     try {
-      const d = await api.buildDigest();
-      setNote('empty' in d ? 'Nothing to digest yet: no issues arrived in the window.' : `Built today's digest from ${d.itemCount} issue${d.itemCount === 1 ? '' : 's'}.`);
+      const rv = await api.buildReview(kind);
+      setNote(`Built the review for ${rv.pack.label}. The PC writes its words and web findings next.`);
     } catch (err) {
-      setNote(err instanceof Error ? err.message : 'Could not build the digest');
+      setNote(err instanceof Error ? err.message : 'Could not build the review');
     } finally {
       setBuilding(false);
     }
@@ -541,23 +556,35 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
 
   return (
     <div className="section">
-      <span className="label">Daily digest</span>
+      <span className="label">Reviews</span>
       <section className="card">
-        <OptionSwitch label="Build a daily digest" help="digestOn" value={d.enabled} onChange={(v) => void saveDigest({ enabled: v })} />
-        {!d.enabled && (
-          <span className="hint">Off: no digest is built and the Digest tab is hidden. Your earlier digests are kept.</span>
-        )}
-        {d.enabled && (
+        <span className="hint">
+          A look back over the week (and, if you like, the month): stories that moved, how your topics are trending, source changes, what you
+          starred, and a few things the PC finds on the web. They replaced the daily digest; its lead stories live on as Top of the week.
+        </span>
+        <OptionSwitch label="Weekly review" help="reviewWeekly" value={r.weekly} onChange={(v) => void saveReviews({ weekly: v })} />
+        <OptionSwitch label="Monthly review (longer view)" help="reviewMonthly" value={r.monthly} onChange={(v) => void saveReviews({ monthly: v })} />
+        {!on && <span className="hint">Off: no reviews are built and the Review tab is hidden. Earlier reviews are kept.</span>}
+        {on && (
           <>
-            <div className="inline">
-              <div className="field" style={{ flex: 1, minWidth: 130 }}>
-                <label htmlFor="digest-hour">Build at<Help topic="digestWhen" /></label>
-                <select
-                  id="digest-hour"
-                  className="input"
-                  value={settings.digestHour}
-                  onChange={(e) => void onSave({ digestHour: Number(e.target.value) })}
-                >
+            <div className="inline" style={{ flexWrap: 'wrap' }}>
+              {r.weekly && (
+                <div className="field" style={{ flex: 1, minWidth: 130 }}>
+                  <label htmlFor="review-day">Weekly on</label>
+                  <select id="review-day" className="input" value={r.weekDay} onChange={(e) => void saveReviews({ weekDay: Number(e.target.value) })}>
+                    {WEEKDAYS.map((d, i) => (
+                      <option key={d} value={i}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="field" style={{ flex: 1, minWidth: 110 }}>
+                <label htmlFor="review-hour">
+                  At<Help topic="reviewWhen" />
+                </label>
+                <select id="review-hour" className="input" value={r.hour} onChange={(e) => void saveReviews({ hour: Number(e.target.value) })}>
                   {HOURS.map((h) => (
                     <option key={h} value={h}>
                       {hourLabel(h)}
@@ -565,14 +592,9 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
                   ))}
                 </select>
               </div>
-              <div className="field" style={{ flex: 2 }}>
-                <label htmlFor="digest-zone">Time zone</label>
-                <select
-                  id="digest-zone"
-                  className="input"
-                  value={settings.timezone}
-                  onChange={(e) => void onSave({ timezone: e.target.value })}
-                >
+              <div className="field" style={{ flex: 2, minWidth: 160 }}>
+                <label htmlFor="review-zone">Time zone</label>
+                <select id="review-zone" className="input" value={settings.timezone} onChange={(e) => void onSave({ timezone: e.target.value })}>
                   {zones.map((z) => (
                     <option key={z} value={z}>
                       {z === deviceZone ? `${z} (this device)` : z}
@@ -581,71 +603,133 @@ function DigestSection({ settings, onSave }: { settings: AppSettings; onSave: (p
                 </select>
               </div>
             </div>
+            {r.monthly && <span className="hint">The monthly review is built on the 1st at the same hour and covers the month before.</span>}
+
+            <div className="field">
+              <label htmlFor="review-ws-week">
+                Web searches per weekly review: <b>{weekly}</b>
+                <Help topic="reviewSearches" />
+              </label>
+              <input
+                id="review-ws-week"
+                type="range"
+                min={0}
+                max={MAX_REVIEW_SEARCHES}
+                value={weekly}
+                onChange={(e) => setWeekly(Number(e.target.value))}
+                onPointerUp={() => void saveReviews({ weeklySearches: weekly })}
+                onKeyUp={() => void saveReviews({ weeklySearches: weekly })}
+              />
+            </div>
+            {r.monthly && (
+              <div className="field">
+                <label htmlFor="review-ws-month">
+                  Web searches per monthly review: <b>{monthly}</b>
+                </label>
+                <input
+                  id="review-ws-month"
+                  type="range"
+                  min={0}
+                  max={MAX_REVIEW_SEARCHES}
+                  value={monthly}
+                  onChange={(e) => setMonthly(Number(e.target.value))}
+                  onPointerUp={() => void saveReviews({ monthlySearches: monthly })}
+                  onKeyUp={() => void saveReviews({ monthlySearches: monthly })}
+                />
+              </div>
+            )}
             <span className="hint">
-              Once a day the top stories are grouped Techmeme style, using the summaries and your reading habits. Nothing extra is
-              sent to the AI.
+              About {perMonth} searches a month from your web search budget. Each review also has a Find more button for a few extra.
+              {quality && quality.findings > 0
+                ? ` Last 8 weeks: ${quality.findings} findings from ${quality.searches} searches, ${quality.notUseful} marked not useful.`
+                : ''}
             </span>
+
             <div className="switchrow">
-              <span style={{ fontSize: 14 }}>Lead stories<Help topic="digestStories" /></span>
-              <div className="segmented" role="group" aria-label="Lead stories" style={{ width: 180 }}>
-                {([6, 12, 20] as const).map((n) => (
-                  <button key={n} aria-pressed={d.stories === n} onClick={() => void saveDigest({ stories: n })}>
+              <span style={{ fontSize: 14 }}>
+                Trend chart opens at<Help topic="reviewChart" />
+              </span>
+              <div className="segmented" role="group" aria-label="Trend chart range" style={{ width: 240 }}>
+                {REVIEW_CHART_WEEKS.map((n) => (
+                  <button key={n} aria-pressed={r.chartWeeks === n} onClick={() => void saveReviews({ chartWeeks: n })}>
+                    {n === 12 ? '12 weeks' : n === 26 ? '6 months' : '1 year'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="switchrow">
+              <span style={{ fontSize: 14 }}>Top of the week stories</span>
+              <div className="segmented" role="group" aria-label="Lead stories" style={{ width: 160 }}>
+                {[1, 3, 5].map((n) => (
+                  <button key={n} aria-pressed={r.topStories === n} onClick={() => void saveReviews({ topStories: n })}>
                     {n}
                   </button>
                 ))}
               </div>
             </div>
-            <div className="switchrow">
-              <span style={{ fontSize: 14 }}>Covers<Help topic="digestWindow" /></span>
-              <div className="segmented" role="group" aria-label="Window" style={{ width: 240 }}>
-                {([0, 24, 48] as const).map((h) => (
-                  <button key={h} aria-pressed={d.windowHours === h} onClick={() => void saveDigest({ windowHours: h })}>
-                    {h === 0 ? 'Since last' : `${h} h`}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="switchrow">
-              <span style={{ fontSize: 14 }}>Group by<Help topic="digestGroup" /></span>
-              <div className="segmented" role="group" aria-label="Group by" style={{ width: 200 }}>
-                {(['category', 'source'] as const).map((g) => (
-                  <button key={g} aria-pressed={d.groupBy === g} onClick={() => void saveDigest({ groupBy: g })}>
-                    {g === 'category' ? 'Category' : 'Newsletter'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <OptionSwitch label="Include issues you've already read" help="digestRead" value={d.includeRead} onChange={(v) => void saveDigest({ includeRead: v })} />
-            <OptionSwitch label="Include sponsored-heavy issues" help="digestSponsored" value={d.includeSponsored} onChange={(v) => void saveDigest({ includeSponsored: v })} />
-            <OptionSwitch label="Done marks stories read by default (changeable per digest)" help="digestDone" value={d.doneMarksRead} onChange={(v) => void saveDigest({ doneMarksRead: v })} />
             <div className="field">
-              <label>Leave out categories<Help topic="digestSkip" /></label>
+              <label>
+                Parts to include<Help topic="reviewParts" />
+              </label>
+              <div className="chipedit">
+                {REVIEW_PARTS.filter((p) => p.kinds.some((k) => (k === 'week' ? r.weekly : r.monthly))).map((p) => {
+                  const off = r.skipParts.includes(p.part);
+                  return (
+                    <button
+                      key={p.part}
+                      className={`chip ${off ? 'chip--outline' : 'chip--category'}`}
+                      aria-pressed={!off}
+                      style={{ textDecoration: off ? 'line-through' : 'none' }}
+                      onClick={() => void saveReviews({ skipParts: off ? r.skipParts.filter((x) => x !== p.part) : [...r.skipParts, p.part] })}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="hint">Tap a part to leave it out; struck-through ones are skipped from the next review.</span>
+            </div>
+            <div className="field">
+              <label>
+                Leave out categories<Help topic="reviewSkip" />
+              </label>
               <div className="chipedit">
                 {settings.categories.map((c) => {
-                  const off = d.skipCategories.includes(c);
+                  const off = r.skipCategories.includes(c);
                   return (
                     <button
                       key={c}
                       className={`chip ${off ? 'chip--outline' : 'chip--category'}`}
                       aria-pressed={off}
                       style={{ textDecoration: off ? 'line-through' : 'none' }}
-                      onClick={() =>
-                        void saveDigest({ skipCategories: off ? d.skipCategories.filter((x) => x !== c) : [...d.skipCategories, c] })
-                      }
+                      onClick={() => void saveReviews({ skipCategories: off ? r.skipCategories.filter((x) => x !== c) : [...r.skipCategories, c] })}
                     >
                       {c}
                     </button>
                   );
                 })}
               </div>
-              <span className="hint">Tap a category to leave it out of the digest; struck-through ones are skipped.</span>
             </div>
+            <OptionSwitch
+              label="Done also marks the lead stories and story items read (changeable on each review)"
+              help="reviewDone"
+              value={r.doneMarksRead}
+              onChange={(v) => void saveReviews({ doneMarksRead: v })}
+            />
+            <OptionSwitch label="Also put each review in the inbox" help="reviewInbox" value={r.inInbox} onChange={(v) => void saveReviews({ inInbox: v })} />
             <div className="inline">
-              <button className="btn btn--small" disabled={building} onClick={() => void buildNow()}>
-                {building ? 'Building…' : 'Build now'}
-              </button>
-              <Link to="/digest" className="btn btn--ghost btn--small">
-                Open digest
+              {r.weekly && (
+                <button className="btn btn--small" disabled={building} onClick={() => void buildNow('week')}>
+                  {building ? 'Building…' : 'Build weekly now'}
+                </button>
+              )}
+              {r.monthly && (
+                <button className="btn btn--small" disabled={building} onClick={() => void buildNow('month')}>
+                  Build last month now
+                </button>
+              )}
+              <Link to="/review" className="btn btn--ghost btn--small">
+                Open reviews
               </Link>
             </div>
             {note && <span className="hint">{note}</span>}

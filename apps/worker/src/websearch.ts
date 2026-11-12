@@ -19,6 +19,7 @@ interface Usage {
   month: string;
   asks: number;
   summaries: number;
+  reviews: number;
 }
 
 const monthOf = (t = Date.now()) => new Date(t).toISOString().slice(0, 7);
@@ -51,13 +52,15 @@ export async function loadWebSearch(env: Env): Promise<WebSearchSettings> {
 export async function loadUsage(env: Env): Promise<Usage> {
   const u = await readJson<Usage>(env, USAGE_KEY);
   const month = monthOf();
-  return u && u.month === month ? { month, asks: u.asks || 0, summaries: u.summaries || 0 } : { month, asks: 0, summaries: 0 };
+  return u && u.month === month
+    ? { month, asks: u.asks || 0, summaries: u.summaries || 0, reviews: u.reviews || 0 }
+    : { month, asks: 0, summaries: 0, reviews: 0 };
 }
 
-/** Searches left this month for highlight questions, and for summaries (which keep a reserve back). */
+/** Searches left this month for highlight questions, and for summaries and reviews (which keep a reserve back). */
 export async function searchAllowance(env: Env): Promise<{ asks: number; summaries: number; settings: WebSearchSettings }> {
   const [settings, usage] = await Promise.all([loadWebSearch(env), loadUsage(env)]);
-  const left = settings.monthlyBudget - usage.asks - usage.summaries;
+  const left = settings.monthlyBudget - usage.asks - usage.summaries - usage.reviews;
   return {
     asks: Math.max(0, left),
     summaries: Math.max(0, left - Math.ceil(settings.monthlyBudget * ASK_RESERVE)),
@@ -66,7 +69,7 @@ export async function searchAllowance(env: Env): Promise<{ asks: number; summari
 }
 
 /** Counts searches the helper reports. Only written when there were some. */
-export async function countSearches(env: Env, kind: 'asks' | 'summaries', n: unknown) {
+export async function countSearches(env: Env, kind: 'asks' | 'summaries' | 'reviews', n: unknown) {
   const count = Math.min(Math.max(Math.round(Number(n) || 0), 0), 20);
   if (count === 0) return;
   const usage = await loadUsage(env);
@@ -92,9 +95,10 @@ export function registerWebSearch(app: App) {
     const view: WebSearchView = {
       settings,
       month: usage.month,
-      used: usage.asks + usage.summaries,
+      used: usage.asks + usage.summaries + usage.reviews,
       usedAsks: usage.asks,
       usedSummaries: usage.summaries,
+      usedReviews: usage.reviews,
       pcSearch: helper && 'webSearch' in helper ? (helper.webSearch ?? null) : undefined,
       helperLastSeenAt: helper?.lastSeenAt ?? null,
     };

@@ -1,17 +1,17 @@
 import { NavLink } from 'react-router-dom';
 import { IconBookmark, IconDigest, IconInbox, IconSettings, IconShield } from '../icons';
 
-export function TabBar({ pendingSenders, showDigest }: { pendingSenders: number; showDigest: boolean }) {
+export function TabBar({ pendingSenders, showReview }: { pendingSenders: number; showReview: boolean }) {
   return (
     <nav className="tabbar" aria-label="Main">
       <NavLink to="/" end>
         <IconInbox />
         Inbox
       </NavLink>
-      {showDigest && (
-        <NavLink to="/digest">
+      {showReview && (
+        <NavLink to="/review">
           <IconDigest />
-          Digest
+          Review
         </NavLink>
       )}
       <NavLink to="/saved">
