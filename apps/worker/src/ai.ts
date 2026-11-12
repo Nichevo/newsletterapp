@@ -387,7 +387,9 @@ export function registerAi(app: App) {
        WHERE id IN (
          SELECT items.id FROM items LEFT JOIN sources ON sources.id = items.source_id
          WHERE items.id IN (${queueCandidatesSql(settings.aiByKind)})
-           AND (items.ai_status = 'pending' OR (items.ai_status = 'working' AND items.ai_claimed_at < ?2))
+           -- The + keeps SQLite from reading every 'pending' item through items_ai_queue (old ones
+           -- outside the inbox too) instead of looking up the few queue candidates by id.
+           AND (+items.ai_status = 'pending' OR (+items.ai_status = 'working' AND items.ai_claimed_at < ?2))
            AND ${eligibleSql(settings.aiByKind, settings.aiOffCategories)}
          ORDER BY items.received_at DESC LIMIT ?3
        )
