@@ -38,7 +38,8 @@ const SETTINGS_KEY = 'key_sentences';
 /** A claimed article goes back in the queue if the PC hasn't answered in this long. */
 const LEASE_MS = 15 * 60_000;
 const MAX_ATTEMPTS = 2;
-const MAX_MARKS = 120;
+/** Coloured sentences kept per article; the % setting decides how many the PC picks, this is only a safety cap. */
+const MAX_MARKS = 400;
 
 // ---------- Settings ----------
 

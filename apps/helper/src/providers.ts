@@ -107,7 +107,7 @@ export function anthropic(apiKey: string): Provider {
     async complete(model, system, user) {
       const r = await postJson<{ content?: { type: string; text?: string }[] }>(
         'https://api.anthropic.com/v1/messages',
-        { model, max_tokens: 1024, temperature: 0.2, system, messages: [{ role: 'user', content: user }] },
+        { model, max_tokens: 4096, temperature: 0.2, system, messages: [{ role: 'user', content: user }] },
         headers,
       );
       return (r.content ?? []).map((b) => b.text ?? '').join('');

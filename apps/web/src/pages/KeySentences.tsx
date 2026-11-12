@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { IconBack } from '../icons';
 import { kindDot } from '../keySentences';
+import { Help } from '../components/Help';
 
 // Settings > PC helper and AI > Key sentences: the master switch, which
 // articles get them (length, categories; sources on their own pages), how many,
@@ -108,7 +109,7 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
                 <span className="label">Which articles</span>
                 <section className="card">
                   <div className="field">
-                    <label htmlFor="ks-min">Articles longer than (words)</label>
+                    <label htmlFor="ks-min">Articles longer than (words)<Help topic="ksMinWords" /></label>
                     <input
                       id="ks-min"
                       className="input"
@@ -122,7 +123,7 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
                   </div>
                   {categories.length > 0 && (
                     <div className="field">
-                      <label>Categories</label>
+                      <label>Categories<Help topic="ksCategories" /></label>
                       {categories.map((c) => (
                         <div key={c} className="switchrow">
                           <span style={{ fontSize: 14 }}>{c}</span>
@@ -151,7 +152,7 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
                     </div>
                   )}
                   <div className="field">
-                    <label>Do older articles too</label>
+                    <label>Do older articles too<Help topic="ksBackdate" /></label>
                     <div className="inline" style={{ flexWrap: 'wrap' }}>
                       {BACKDATE.map((d) => (
                         <button key={d} className="btn btn--small" onClick={() => void backdate(d)}>
@@ -170,7 +171,7 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
                 <span className="label">How many</span>
                 <section className="card">
                   <div className="field">
-                    <label>Per section</label>
+                    <label>Per section<Help topic="ksPerSection" /></label>
                     <div className="segmented" role="group" aria-label="Key sentences per section">
                       {([1, 2, 3] as const).map((n) => (
                         <button key={n} aria-pressed={s.perSection === n} onClick={() => void save({ perSection: n })}>
@@ -181,7 +182,7 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
                     <span className="hint">Light marks about 1 sentence per section, Normal about 2, More about 3.</span>
                   </div>
                   <div className="field">
-                    <label htmlFor="ks-share">At most this much of an article coloured (%)</label>
+                    <label htmlFor="ks-share">At most this much of an article coloured (%)<Help topic="ksMaxShare" /></label>
                     <input
                       id="ks-share"
                       className="input"
@@ -194,7 +195,7 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
                     <span className="hint">Of its sentences. Keeps a long article from turning into a colouring book.</span>
                   </div>
                   <label className="switchrow">
-                    <span style={{ fontSize: 14 }}>Open articles in Skim mode</span>
+                    <span style={{ fontSize: 14 }}>Open articles in Skim mode<Help topic="ksSkim" /></span>
                     <input type="checkbox" checked={s.skimDefault} onChange={(e) => void save({ skimDefault: e.target.checked })} />
                   </label>
                   <span className="hint">Skim fades everything except the key sentences. You can switch it in the reader either way.</span>
@@ -205,12 +206,12 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
                 <span className="label">Index, studies and links</span>
                 <section className="card">
                   <label className="switchrow">
-                    <span style={{ fontSize: 14 }}>Index under long articles</span>
+                    <span style={{ fontSize: 14 }}>Index under long articles<Help topic="ksIndex" /></span>
                     <input type="checkbox" checked={s.index} onChange={(e) => void save({ index: e.target.checked })} />
                   </label>
                   <span className="hint">People, organisations, places and terms the article names. Tap one to jump to each mention.</span>
                   <label className="switchrow">
-                    <span style={{ fontSize: 14 }}>Collect studies and source links</span>
+                    <span style={{ fontSize: 14 }}>Collect studies and source links<Help topic="ksStudies" /></span>
                     <input type="checkbox" checked={s.studies} onChange={(e) => void save({ studies: e.target.checked })} />
                   </label>
                   <span className="hint">
@@ -218,7 +219,7 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
                     They go into <Link to="/studies">Studies</Link>, where you can see the same study across articles and spot ones quoted differently.
                   </span>
                   <label className="switchrow">
-                    <span style={{ fontSize: 14 }}>Show links only one article uses</span>
+                    <span style={{ fontSize: 14 }}>Show links only one article uses<Help topic="ksLinksAll" /></span>
                     <input type="checkbox" checked={s.linksAll} onChange={(e) => void save({ linksAll: e.target.checked })} />
                   </label>
                   <span className="hint">Off: a source link shows under an article only once another article links to the same page, to keep the clutter down.</span>
@@ -226,7 +227,7 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
               </div>
 
               <div className="section">
-                <span className="label">Colours and what they mean</span>
+                <span className="label">Colours and what they mean<Help topic="ksColours" /></span>
                 <section className="card">
                   {s.kinds.map((k) => {
                     const d = kindDraft[k.id];
@@ -276,7 +277,7 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
                 <span className="label">Model and prompt</span>
                 <section className="card">
                   <div className="field">
-                    <label htmlFor="ks-model">Model</label>
+                    <label htmlFor="ks-model">Model<Help topic="ksModel" /></label>
                     <select id="ks-model" className="input" value={s.model} onChange={(e) => void save({ model: e.target.value })}>
                       <option value="">Same as summaries (first switched-on model)</option>
                       {models.map((m) => (
@@ -290,7 +291,7 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
                     <span className="hint">The answer is only sentence numbers and kinds, so a smaller, quicker model may do well here.</span>
                   </div>
                   <div className="field">
-                    <label htmlFor="ks-extra">Extra instructions for the model</label>
+                    <label htmlFor="ks-extra">Extra instructions for the model<Help topic="ksExtra" /></label>
                     <textarea
                       id="ks-extra"
                       className="input"
@@ -309,7 +310,7 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
               </div>
 
               <div className="section">
-                <span className="label">Link roundups</span>
+                <span className="label">Link roundups<Help topic="ksRoundups" /></span>
                 <section className="card">
                   <span className="hint">
                     Lists of links (daily roundups, “what we're reading”) are skipped on Auto. An article counts as one when it has at least

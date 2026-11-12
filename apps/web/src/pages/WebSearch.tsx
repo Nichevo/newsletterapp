@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { shortTime } from '../format';
 import { IconBack } from '../icons';
+import { Help } from '../components/Help';
 
 // Settings > AI > Web search: whether the PC has a Brave key, the monthly
 // search budget and how much of it is used, and which summaries search the
@@ -88,7 +89,7 @@ export function WebSearchPage() {
                 stop searching when less than a tenth is left. When it's all used, answers carry on without searching and say so.
               </span>
               <div className="field">
-                <label htmlFor="budget">Searches per month</label>
+                <label htmlFor="budget">Searches per month<Help topic="searchBudget" /></label>
                 <div className="inline">
                   <input
                     id="budget"
@@ -126,7 +127,7 @@ export function WebSearchPage() {
           </div>
 
           <div className="section">
-            <span className="label">Summaries with web search</span>
+            <span className="label">Summaries with web search<Help topic="summarySearch" /></span>
             <section className="card">
               <span className="hint">
                 A summary with search on gets a “Background” line and “Other coverage” links, from searching the headline. Off

@@ -5,6 +5,7 @@ import { api } from '../api';
 import { useVisiblePolling } from '../poll';
 import { BarChart, dayName, dayTick, hourTick, RangeSwitch, shortDate } from '../components/BarChart';
 import { IconBack } from '../icons';
+import { Help } from '../components/Help';
 
 // Settings > AI > Usage and cost: caps on how long the PC spends on AI,
 // graphs of the run time by hour and by day with the caps drawn on them, and
@@ -164,7 +165,7 @@ function LimitsSection({
   const changed = JSON.stringify(draft) !== JSON.stringify(usage.settings.limits);
   return (
     <div className="section">
-      <span className="label">Limits for local AI</span>
+      <span className="label">Limits for local AI<Help topic="aiLimits" /></span>
       <section className="card">
         <span className="hint">
           Leave a box empty for no limit. When a limit is reached the PC stops taking new items until it clears; the item in progress
@@ -196,7 +197,7 @@ function LimitsSection({
           </div>
         ))}
         <div className="field">
-          <label htmlFor="breakMinutes">Rest between sessions</label>
+          <label htmlFor="breakMinutes">Rest between sessions<Help topic="aiRest" /></label>
           <div className="inline">
             <input
               id="breakMinutes"
@@ -394,7 +395,10 @@ function CostSection({ usage, onSave }: { usage: AiUsageView; onSave: (c: AiCost
       </section>
 
       <section className="card">
-        <strong>Cost settings</strong>
+        <strong>
+          Cost settings
+          <Help topic="aiCost" />
+        </strong>
         <div className="field">
           <label htmlFor="currency">Currency symbol</label>
           <input
