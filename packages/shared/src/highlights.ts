@@ -186,6 +186,8 @@ export interface WebSearchView {
   /** Searches made this month for highlight questions and for summaries. */
   usedAsks: number;
   usedSummaries: number;
+  /** Searches made for weekly and monthly reviews. */
+  usedReviews: number;
   /** What the helper said at its last check-in: null when it has no key, undefined when it hasn't said (older helper or never seen). */
   pcSearch: 'brave' | null | undefined;
   helperLastSeenAt: number | null;

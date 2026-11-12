@@ -10,6 +10,8 @@ export * from './suggest';
 export * from './highlights';
 export * from './files';
 export * from './keysentences';
+export * from './reviews';
+import { DEFAULT_REVIEW_SETTINGS, type ReviewSettings } from './reviews';
 
 /** 'ai' = an article written by the AI from a highlight (the "AI notes" source). */
 export type ItemKind = 'newsletter' | 'feed' | 'site' | 'ai';
@@ -617,8 +619,8 @@ export interface ReadingEventInput {
 export interface Me {
   email: string;
   domain: string | null;
-  /** Whether the daily digest is switched on (Settings > Daily digest). */
-  digestOn: boolean;
+  /** Whether weekly or monthly reviews are switched on (Settings > Reviews); off hides the Review tab. */
+  reviewsOn: boolean;
   /** Show the same news from several sources as one inbox row (Settings > Reading). */
   groupSameNews: boolean;
   /** Whether key sentences are switched on (Settings > PC helper and AI > Key sentences). */
@@ -658,12 +660,10 @@ export interface AppSettings {
   aiOffCategories: string[];
   /** A short line about the reader's interests, used by the summary prompt. */
   interests: string;
-  /** Local hour (0-23) at which the daily digest is put together. */
-  digestHour: number;
-  /** IANA time zone the digest day and hour are measured in, e.g. "Australia/Sydney". */
+  /** IANA time zone days, weeks and review times are measured in, e.g. "Pacific/Auckland". */
   timezone: string;
-  /** How the daily digest is put together. */
-  digest: DigestOptions;
+  /** Weekly and monthly reviews (they replaced the daily digest). */
+  reviews: ReviewSettings;
   /** Named inbox filters, shown as one-tap presets in the filter bar on every device. */
   savedFilters: SavedFilter[];
   /**
@@ -695,42 +695,14 @@ export interface SavedFilter {
   kind: string | null;
 }
 
-export interface DigestOptions {
-  /** Off: no digest is built and the Digest tab is hidden. */
-  enabled: boolean;
-  /** Roughly how many lead stories. */
-  stories: 6 | 12 | 20;
-  /** Hours of mail to cover; 0 = everything since the last digest. */
-  windowHours: 0 | 24 | 48;
-  includeRead: boolean;
-  includeSponsored: boolean;
-  groupBy: 'category' | 'source';
-  /** Categories left out of the digest entirely. */
-  skipCategories: string[];
-  /** Marking a digest done also marks its stories read. */
-  doneMarksRead: boolean;
-}
-
-export const DEFAULT_DIGEST_OPTIONS: DigestOptions = {
-  enabled: true,
-  stories: 12,
-  windowHours: 0,
-  includeRead: false,
-  includeSponsored: false,
-  groupBy: 'category',
-  skipCategories: [],
-  doneMarksRead: false,
-};
-
 export const DEFAULT_SETTINGS: AppSettings = {
   categories: ['AI', 'Tech', 'Business', 'Finance', 'Science', 'Politics', 'Health', 'Productivity', 'Culture', 'Other'],
   keywordRules: [],
   aiByKind: { newsletter: true, feed: false, site: false },
   aiOffCategories: [],
   interests: '',
-  digestHour: 7,
   timezone: 'UTC',
-  digest: DEFAULT_DIGEST_OPTIONS,
+  reviews: DEFAULT_REVIEW_SETTINGS,
   savedFilters: [],
   pcSkipSites: [...DEFAULT_SKIP_SITES],
   pcSkipAllowCategories: [],
@@ -739,9 +711,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   saveSenders: [],
 };
 
-// ---------- Daily digest ----------
+// ---------- Lead stories (Top of the week; the old daily digest) ----------
 
-/** One story in the digest: the lead item plus "More:" links to related issues. */
+/** One lead story: the item plus "More:" links to related issues. */
 export interface DigestStory {
   itemId: string;
   subject: string;
@@ -1029,7 +1001,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.7.1';
+export const HELPER_VERSION = '0.8.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -1064,6 +1036,8 @@ export interface HelperConfig {
   keyWaiting?: boolean;
   /** Articles waiting for their studies and source links to be collected. */
   refsWaiting?: boolean;
+  /** A weekly or monthly review waiting for the PC to write it (helpers from 0.8.0). */
+  reviewWaiting?: boolean;
 }
 
 /** One item for the helper to embed: its text and when it arrived. */

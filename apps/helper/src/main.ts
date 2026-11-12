@@ -9,6 +9,7 @@ import { Embeddings } from './embed';
 import { askLookups, lookupsText, summaryLookups, toSources, type Lookups } from './lookups';
 import { holdReport, holdsSent, runFetchJob, setSkipSites } from './fetch';
 import { log } from './log';
+import { runReview } from './reviews';
 import { runSuggestions } from './suggest';
 import { findProvider, providersFrom, type Provider } from './providers';
 import { currentLoad, powerMeter } from './system';
@@ -39,8 +40,9 @@ import { itemText, parseOutput } from './text';
 // when it splits the work) and posts the results. Between those rounds it
 // checks for new highlight questions every few seconds, and between
 // summaries too, so an answer doesn't wait behind a long batch. After the
-// embeddings it writes a one-line note for each new item in a story, and once
-// a week it looks for feeds you might like (suggest.ts). It only ever makes
+// embeddings it writes a one-line note for each new item in a story, writes
+// the weekly (and monthly) review (reviews.ts), and once a week it looks for
+// feeds you might like (suggest.ts). It only ever makes
 // outbound requests.
 
 const cfg = loadConfig();
@@ -585,6 +587,9 @@ async function tick(): Promise<number> {
   doing('key sentences');
   await keySentences(config).catch((err: unknown) => log('key sentences failed:', err));
   await studiesAndLinks(config).catch((err: unknown) => log('studies failed:', err));
+  // Weekly and monthly reviews: a few model calls and web searches, once a week.
+  doing('reviews');
+  await runReview(config, app, cfg, providers, doing).catch((err: unknown) => log('review failed:', err));
   // Feed suggestions last: weekly, and the least urgent.
   doing('feed suggestions');
   await runSuggestions(config, app, cfg, embeddings, checkAsks).catch((err: unknown) => log('feed suggestions failed:', err));

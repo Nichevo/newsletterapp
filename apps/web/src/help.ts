@@ -69,31 +69,30 @@ export const HELP = {
     'A change applies to new articles; you are asked whether to rematch the old ones.',
   ], 'Articles join a story when they are up to 30 days apart. A story page shows up to 300 articles.'),
 
-  // ---------- Settings > Daily digest ----------
-  digestOn: h('Build a daily digest', [
-    'Once a day the app groups the top stories Techmeme style: a lead item with "More:" links to related issues. It uses the summaries and your reading habits; nothing extra goes to the AI.',
-    'Off hides the Digest tab. Earlier digests are kept.',
+  // ---------- Settings > Reviews ----------
+  reviewWeekly: h('Weekly review', [
+    'A look back over the last 7 days, built on the day and hour you pick: top stories, stories that moved, topic trends, source changes, your stars and a few web findings.',
+    'The charts and lists are ready at once; the PC writes the opening, story lines and findings when it is on.',
   ]),
-  digestWhen: h('Build at and time zone', [
-    'The hour the digest is put together, in the time zone you pick. The same time zone sets where a day starts in Reading statistics.',
+  reviewMonthly: h('Monthly review', [
+    'Built on the 1st for the month before, with a longer view: how stories ran over 6 months, your interests over the year, a source review and a category check.',
   ]),
-  digestStories: h('Lead stories', [
-    'Roughly how many lead stories the digest has. Usual: 12.',
-  ], 'Each lead story gets at most 4 "More:" links.'),
-  digestWindow: h('Covers', [
-    'How much mail the digest looks at: everything since the last digest, or the last 24 or 48 hours.',
-  ], 'A digest never covers less than 6 hours, even when built twice in a day.'),
-  digestGroup: h('Group by', ['Whether the digest sections are your categories or the newsletters themselves.']),
-  digestRead: h('Include issues you have already read', [
-    'Off: anything you have read before the digest is built is left out, so it only shows what you missed.',
+  reviewWhen: h('When reviews are built', [
+    'The hour, in the time zone you pick. The same time zone sets where a day starts in Reading statistics.',
   ]),
-  digestSponsored: h('Include sponsored-heavy issues', [
-    'Off: issues the AI flagged as mostly advertising are left out.',
+  reviewSearches: h('Web searches per review', [
+    'How many Brave searches the PC may make for each review, from the monthly web search budget. Background terms are looked up on Wikipedia and cost nothing.',
+    'If reviews feel thin, raise it, or tap Find more on a review. Mark findings Not useful so you can see here whether more searches help.',
   ]),
-  digestDone: h('Done marks stories read', [
-    'Whether tapping Done on a digest also marks its stories read in the inbox. You can change it on each digest before tapping Done.',
+  reviewChart: h('Trend chart range', ['How far back the topic trend chart starts. You can change it on each review.']),
+  reviewParts: h('Parts to include', ['Struck-through parts are left out of the next review. Each one can come back at any time.']),
+  reviewSkip: h('Leave out categories', ['Items in struck-through categories never appear in Top of the week or Stories that moved.']),
+  reviewDone: h('Done marks items read', [
+    'Whether Mark review done also marks the lead stories and the items in the stories that moved as read. You can change it on each review.',
   ]),
-  digestSkip: h('Leave out categories', ['Struck-through categories never appear in the digest. Their items stay in the inbox as usual.']),
+  reviewInbox: h('Also put each review in the inbox', [
+    'Adds a short article with the opening and a link to the whole review to your inbox once the PC has written it. Off: reviews only show in the Review tab.',
+  ]),
 
   // ---------- Your sources > Categories ----------
   categories: h('Categories', [
