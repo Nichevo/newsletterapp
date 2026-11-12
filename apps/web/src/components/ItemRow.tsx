@@ -7,6 +7,7 @@ import { useDensity, useViewOptions } from './DensityToggle';
 import { TagChip } from './TagChip';
 import { keysShown, kindDot } from '../keySentences';
 import { readingMinutes, shortTime } from '../format';
+import { setViewOptions } from '../prefs';
 import { IconBookmark, IconCheck, IconHighlight, IconSparkle } from '../icons';
 
 const KIND_CHIP: Record<ItemSummary['kind'], string> = { newsletter: 'Newsletter', feed: 'Feed', site: 'Site', ai: 'AI note' };
@@ -223,7 +224,25 @@ export function ItemRow({
         )}
         {keyLines.length > 0 && keysHidden > 0 && (
           <span className="row__keysmore">
-            {keyLines.length} of {allKeys.length} key sentences shown · the rest are in the article (Settings › Reading to show more)
+            {keyLines.length} of {allKeys.length} key sentences shown (
+            {[
+              opts.inboxKeyKinds !== 'all' ? (opts.inboxKeyKinds === 'main' ? 'Main points only' : 'Main points and takeaways only') : null,
+              opts.inboxKeyCount !== 99 ? `up to ${opts.inboxKeyCount}` : null,
+            ]
+              .filter(Boolean)
+              .join(', ')}
+            ){' '}
+            <button
+              type="button"
+              className="linkbtn"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setViewOptions({ inboxKeyKinds: 'all', inboxKeyCount: 99 });
+              }}
+            >
+              Show all
+            </button>
           </span>
         )}
         {expanded && opts.expandedPoints > 0 && item.keyPoints.length > 0 && (
