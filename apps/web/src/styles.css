@@ -3186,3 +3186,8 @@ a.chip { text-decoration: none; }
   color: var(--teal-ink);
   font-size: 14px !important;
 }
+
+.row__keysmore .linkbtn {
+  font-size: 12px;
+  font-weight: 600;
+}
