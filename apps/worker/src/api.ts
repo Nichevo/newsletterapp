@@ -757,12 +757,11 @@ app.post('/api/items/:id/:action', async (c) => {
 app.get('/api/counts', async (c) => {
   // Inbox and unread in one pass over the inbox_read index (index only, no table reads).
   const row = await c.env.DB.prepare(
-    `SELECT
-       (SELECT COUNT(*) FROM items INDEXED BY items_inbox_read WHERE status = 'inbox') AS inbox,
-       (SELECT COUNT(*) FROM items INDEXED BY items_inbox_read WHERE status = 'inbox' AND read_at IS NULL) AS unread,
+    `SELECT inbox.n AS inbox, COALESCE(inbox.unread, 0) AS unread,
        (SELECT COUNT(*) FROM items INDEXED BY items_saved WHERE saved_at IS NOT NULL AND status != 'dropped') AS saved,
        (SELECT COUNT(*) FROM items INDEXED BY items_interesting WHERE interesting_at IS NOT NULL AND status != 'dropped') AS interesting,
-       (SELECT COUNT(*) FROM senders WHERE status = 'pending') AS pendingSenders`,
+       (SELECT COUNT(*) FROM senders WHERE status = 'pending') AS pendingSenders
+     FROM (SELECT COUNT(*) AS n, SUM(read_at IS NULL) AS unread FROM items INDEXED BY items_inbox_read WHERE status = 'inbox') AS inbox`,
   ).first<{ inbox: number; unread: number; saved: number; interesting: number; pendingSenders: number }>();
   return c.json(row ?? { inbox: 0, unread: 0, saved: 0, interesting: 0, pendingSenders: 0 });
 });

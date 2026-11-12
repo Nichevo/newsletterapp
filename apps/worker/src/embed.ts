@@ -24,6 +24,11 @@ type App = Hono<{ Bindings: Env; Variables: AppVariables }>;
  */
 const WAITING =
   "items.embedded_at IS NULL AND (items.ai_status IS NULL OR items.ai_status NOT IN ('pending', 'working')) AND (items.ks_status IS NULL OR items.ks_status NOT IN ('pending', 'working') OR items.received_at < (unixepoch() - 21600) * 1000)";
+/**
+ * Read through the items_embed_ready index (migration 0039), which holds only items
+ * not waiting for a summary, so the once-a-minute check doesn't walk the AI backlog.
+ */
+const FROM_WAITING = 'items INDEXED BY items_embed_ready';
 /** Main points and takeaways added to the text, at most this long. */
 const POINTS_CHARS = 700;
 const MAX_CLAIM = 64;
@@ -43,7 +48,7 @@ export async function embedHeartbeat(env: Env, hb: HelperHeartbeat): Promise<{ e
     }
   }
   const [waiting, stars] = await env.DB.batch([
-    env.DB.prepare(`SELECT 1 AS w FROM items WHERE ${WAITING} LIMIT 1`),
+    env.DB.prepare(`SELECT 1 AS w FROM ${FROM_WAITING} WHERE ${WAITING} LIMIT 1`),
     env.DB.prepare('SELECT COUNT(*) AS n, MAX(interesting_at) AS at FROM items WHERE interesting_at IS NOT NULL'),
   ]);
   const s = stars?.results[0] as { n: number; at: number | null } | undefined;
@@ -103,7 +108,7 @@ export function registerEmbed(app: App) {
       `SELECT items.id, items.subject, items.summary, items.key_points, items.tags, items.preheader, items.snippet, items.received_at,
          sources.name AS source_name,
          CASE WHEN items.ks_status = 'done' THEN (SELECT marks FROM key_sentences WHERE key_sentences.item_id = items.id) END AS ks_marks
-       FROM items LEFT JOIN sources ON sources.id = items.source_id
+       FROM ${FROM_WAITING} LEFT JOIN sources ON sources.id = items.source_id
        WHERE ${WAITING} ORDER BY items.received_at ASC LIMIT ?`,
     )
       .bind(max)
