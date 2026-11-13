@@ -19,6 +19,12 @@ import {
   type SummaryKind,
   type TopicFilter,
   type StorySettings,
+  type TuningSettings,
+  DEFAULT_TUNING,
+  AI_MAX_CHARS_CHOICES,
+  PDF_PAGES_CHOICES,
+  LIKELY_SHARE_CHOICES,
+  STORY_DAYS_CHOICES,
 } from '@newsletterapp/shared';
 import type { Env } from './env';
 import { now } from './ids';
@@ -139,6 +145,15 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
               .slice(0, 40),
           )
         : (bs.categories ?? {}),
+    joinDays: oneOf(st.joinDays, STORY_DAYS_CHOICES, bs.joinDays ?? 30),
+  };
+  const tu = (input.tuning && typeof input.tuning === 'object' ? input.tuning : {}) as Partial<TuningSettings>;
+  const bt = base.tuning ?? DEFAULT_TUNING;
+  const tuning: TuningSettings = {
+    aiMaxChars: oneOf(tu.aiMaxChars, AI_MAX_CHARS_CHOICES, bt.aiMaxChars),
+    pdfMaxPages: oneOf(tu.pdfMaxPages, PDF_PAGES_CHOICES, bt.pdfMaxPages),
+    likelyShare: oneOf(tu.likelyShare, LIKELY_SHARE_CHOICES, bt.likelyShare),
+    topLean: tu.topLean === 'newest' || tu.topLean === 'balanced' || tu.topLean === 'favourites' ? tu.topLean : bt.topLean,
   };
   // Plain email addresses only, lower-case, no duplicates.
   const saveSenders = Array.isArray(input.saveSenders)
@@ -158,7 +173,14 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     topicFilters,
     stories,
     saveSenders,
+    tuning,
   };
+}
+
+/** The value if it is one of the choices, else the fallback. */
+function oneOf(v: unknown, choices: readonly number[], fallback: number): number {
+  const n = Number(v);
+  return choices.includes(n) ? n : fallback;
 }
 
 const int = (v: unknown, lo: number, hi: number, fallback: number) => {

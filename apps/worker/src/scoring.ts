@@ -1,4 +1,6 @@
 import { readJson, writeJson } from './ai';
+import { loadSettings } from './settings';
+import type { TopLean } from '@newsletterapp/shared';
 import type { Env } from './env';
 import { now } from './ids';
 
@@ -77,10 +79,21 @@ function parseCount(json: string | null): number {
   }
 }
 
-export function scoreFor(row: ScoreRow, affinity: number | undefined, at: number): number {
+/**
+ * What the Top sort leans towards (Settings > Reading). Balanced is the original mix;
+ * Newest lets age count for much more; My favourite sources lets source affinity count more.
+ */
+const LEAN: Record<TopLean, { affinity: number; agePerDay: number; ageMax: number }> = {
+  newest: { affinity: 0.5, agePerDay: 4.5, ageMax: 30 },
+  balanced: { affinity: 1, agePerDay: 1.5, ageMax: 10 },
+  favourites: { affinity: 1.6, agePerDay: 0.75, ageMax: 5 },
+};
+
+export function scoreFor(row: ScoreRow, affinity: number | undefined, at: number, lean: TopLean = 'balanced'): number {
+  const w = LEAN[lean];
   let score = 50;
-  // Source affinity moves the score by up to -20 .. +30; unknown sources sit in the middle.
-  score += affinity === undefined ? 0 : Math.round(affinity * 50 - 20);
+  // Source affinity moves the score by up to -20 .. +30 (Balanced); unknown sources sit in the middle.
+  score += affinity === undefined ? 0 : Math.round((affinity * 50 - 20) * w.affinity);
   if (row.ai_status === 'done') {
     if (row.why_it_matters) score += 10;
     if (parseCount(row.key_points) >= 3) score += 5;
@@ -90,9 +103,9 @@ export function scoreFor(row: ScoreRow, affinity: number | undefined, at: number
   if (row.saved_at) score += 10;
   if (row.interesting_at) score += 15;
   if (row.word_count !== null && row.word_count < 120) score -= 10; // a teaser or a notice
-  // Freshness: full marks for today, fading to -10 after a week.
+  // Freshness: full marks for today, fading (Balanced: to -10 after a week).
   const ageDays = Math.max(0, (at - row.received_at) / DAY);
-  score -= Math.round(Math.min(10, ageDays * 1.5));
+  score -= Math.round(Math.min(w.ageMax, ageDays * w.agePerDay));
   return Math.max(0, Math.min(100, score));
 }
 
@@ -111,7 +124,7 @@ async function cachedAffinity(env: Env, at: number): Promise<Map<string, number>
 /** Rescores items from the last week. Cheap: one grouped query plus one small update per item. */
 export async function scoreRecentItems(env: Env): Promise<number> {
   const at = now();
-  const affinity = await cachedAffinity(env, at);
+  const [affinity, settings] = await Promise.all([cachedAffinity(env, at), loadSettings(env)]);
   const rows = await env.DB.prepare(
     `SELECT id, source_id, received_at, why_it_matters, key_points, thin_content, sponsored, word_count, saved_at, interesting_at, ai_status
      FROM items WHERE received_at >= ? AND status IN ('inbox', 'archived')`,
@@ -120,7 +133,7 @@ export async function scoreRecentItems(env: Env): Promise<number> {
     .all<ScoreRow>();
 
   const updates = rows.results.map((row) => {
-    const score = scoreFor(row, row.source_id ? affinity.get(row.source_id) : undefined, at);
+    const score = scoreFor(row, row.source_id ? affinity.get(row.source_id) : undefined, at, settings.tuning.topLean);
     return env.DB.prepare('UPDATE items SET score = ?1 WHERE id = ?2 AND COALESCE(score, -1) != ?1').bind(score, row.id);
   });
   for (let i = 0; i < updates.length; i += 50) await env.DB.batch(updates.slice(i, i + 50));

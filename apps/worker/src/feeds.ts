@@ -37,6 +37,8 @@ import {
   textFileHtml,
   titleFromFileName,
   DEFAULT_DAILY_CAP,
+  DEFAULT_OLD_LINK_DAYS,
+  DEFAULT_REDDIT_COMMENTS,
   normalizePostFilter,
   passesPostFilter,
   isRedditPost,
@@ -303,6 +305,8 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
       source.kind === 'feed' &&
       articleUrl !== null &&
       !isVideoPost(articleUrl) &&
+      // Reddit with comments set to none: the feed's post is all there is to fetch.
+      !(isRedditPost(articleUrl) && source.reddit_comments === 0) &&
       (outside !== null ||
         source.full_text === 'always' ||
         (source.full_text === 'auto' && (quick.wordCount < TEASER_WORDS || isRedditPost(e.url))));
@@ -1351,6 +1355,8 @@ export function registerFeeds(app: App) {
         knownKeys: known.results.map((r) => r.key),
         firstRun: s ? s.last_ok_at === null : false,
         startCount: s && s.last_ok_at === null ? (s.start_count ?? null) : null,
+        redditComments: s?.reddit_comments ?? DEFAULT_REDDIT_COMMENTS,
+        oldLinkDays: s?.old_link_days ?? DEFAULT_OLD_LINK_DAYS,
         wantPicture: s?.show_picture === 1,
         postUrl: s?.follow_link === 1 ? (post?.web_url ?? null) : null,
         skipSites,

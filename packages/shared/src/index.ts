@@ -335,11 +335,13 @@ export interface StorySettings {
   categories: Record<string, StoryCategoryMode>;
   /** Every recent story gets a whole-story summary from the PC, rewritten as articles join (a story can still switch it off). */
   autoSummaries: boolean;
+  /** Articles up to this many days apart can join one story. */
+  joinDays: number;
 }
 
 export type StoryCategoryMode = 'strict' | 'off';
 
-export const DEFAULT_STORY_SETTINGS: StorySettings = { notes: true, groupSameNews: true, match: 'normal', categories: {}, autoSummaries: false };
+export const DEFAULT_STORY_SETTINGS: StorySettings = { notes: true, groupSameNews: true, match: 'normal', categories: {}, autoSummaries: false, joinDays: 30 };
 
 export interface UnsubscribeResult {
   /** The Worker sent the one-click request and the sender accepted it. */
@@ -514,6 +516,10 @@ export interface Source {
   followLink: boolean;
   /** Posts past the daily limit are dropped instead of going to Archived. */
   floodSkip: boolean;
+  /** Reddit feeds: top comments the PC adds to each post. */
+  redditComments: number;
+  /** Website watches: links dated older than this many days are skipped (0 = never). */
+  oldLinkDays: number;
   /** Which posts come in at all (by title). */
   postFilter: PostFilter;
   /** Flood guard: at most this many new posts a day reach the inbox; the rest go to Archived. */
@@ -695,7 +701,34 @@ export interface AppSettings {
    * address). They can only save pages; they never get into the app.
    */
   saveSenders: string[];
+  /** Limits that used to be fixed: how much the AI reads, PDF pages, Likely interesting, Top sort. */
+  tuning: TuningSettings;
 }
+
+export type TopLean = 'newest' | 'balanced' | 'favourites';
+
+export interface TuningSettings {
+  /** Characters of an item's text the AI reads (the rest is cut). */
+  aiMaxChars: number;
+  /** Pages of a PDF the PC reads. */
+  pdfMaxPages: number;
+  /** Share (%) of recent items shown as Likely interesting. */
+  likelyShare: number;
+  /** What the Top sort leans towards. */
+  topLean: TopLean;
+}
+
+export const AI_MAX_CHARS_CHOICES = [12_000, 24_000, 48_000, 96_000] as const;
+export const PDF_PAGES_CHOICES = [60, 150, 300] as const;
+export const LIKELY_SHARE_CHOICES = [10, 15, 25] as const;
+export const STORY_DAYS_CHOICES = [14, 30, 60, 90] as const;
+export const REDDIT_COMMENT_CHOICES = [0, 3, 8, 15] as const;
+/** Website watches: skip links dated older than this many days (0 = never skip). */
+export const OLD_LINK_CHOICES = [7, 30, 90, 0] as const;
+export const DEFAULT_REDDIT_COMMENTS = 8;
+export const DEFAULT_OLD_LINK_DAYS = 30;
+
+export const DEFAULT_TUNING: TuningSettings = { aiMaxChars: 24_000, pdfMaxPages: 60, likelyShare: 15, topLean: 'balanced' };
 
 export interface SavedFilter {
   name: string;
@@ -722,6 +755,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   topicFilters: [],
   stories: DEFAULT_STORY_SETTINGS,
   saveSenders: [],
+  tuning: DEFAULT_TUNING,
 };
 
 // ---------- Lead stories (Top of the week; the old daily digest) ----------
@@ -777,6 +811,8 @@ export interface SourceUpdate {
   followLink?: boolean;
   keySentences?: KeyMode;
   floodSkip?: boolean;
+  redditComments?: number;
+  oldLinkDays?: number;
   postFilter?: PostFilter;
   dailyCap?: number;
   /** Minutes between checks; null = automatic (feeds follow their learnt rhythm). */
@@ -877,6 +913,10 @@ export interface FetchJob {
   firstRun: boolean;
   /** First check only: how many of the latest posts to bring in (the "Start with" choice); null = the usual few. */
   startCount?: number | null;
+  /** Reddit posts: how many top comments to add. */
+  redditComments?: number;
+  /** Page watches: skip links dated older than this many days (0 = never). */
+  oldLinkDays?: number;
   /** The source shows pictures in the inbox: pick each post's picture from its page and download it. */
   wantPicture?: boolean;
   /** Follow-link sources: the aggregator's own page for the post, to list its other links for the story. */
@@ -1014,7 +1054,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.8.0';
+export const HELPER_VERSION = '0.8.1';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -1041,6 +1081,10 @@ export interface HelperConfig {
   interestingKey?: string;
   /** Sites the PC must not fetch for lookups outside a fetch job (highlight questions). */
   skipSites?: string[];
+  /** Characters of an item's text the AI reads; the helper's own config is used when left out. */
+  aiMaxChars?: number;
+  /** Pages of a PDF the PC reads. */
+  pdfMaxPages?: number;
   /** Story notes waiting for the PC. */
   storyWaiting?: boolean;
   /** Feed suggestions are due: count links in recent reading, then check the candidate sites. */
@@ -1070,6 +1114,8 @@ export interface EmbedResult {
 export interface LikelyState {
   interesting: string[];
   likely: string[];
+  /** Share (%) of recent items to flag; older apps leave it out (15). */
+  share?: number;
 }
 
 export interface HelperJob {

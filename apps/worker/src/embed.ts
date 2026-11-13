@@ -5,6 +5,7 @@ import { parseList } from './db';
 import type { AppVariables, Env } from './env';
 import { now } from './ids';
 import { assignStories } from './stories';
+import { loadSettings } from './settings';
 
 /**
  * Embeddings for stories (related reading) and Likely interesting. The PC helper turns each item's
@@ -35,7 +36,7 @@ const MAX_CLAIM = 64;
 const TEXT_CHARS = 2000;
 
 /** Called from the heartbeat: resets the queue for a new store, and says whether there is work. */
-export async function embedHeartbeat(env: Env, hb: HelperHeartbeat): Promise<{ embedWaiting: boolean; interestingKey: string }> {
+export async function embedHeartbeat(env: Env, hb: HelperHeartbeat, likelyShare = 15): Promise<{ embedWaiting: boolean; interestingKey: string }> {
   if (typeof hb.embedStore === 'string' && hb.embedStore) {
     const known = await readJson<{ store?: string }>(env, 'embed_store');
     if (known?.store !== hb.embedStore) {
@@ -52,7 +53,7 @@ export async function embedHeartbeat(env: Env, hb: HelperHeartbeat): Promise<{ e
     env.DB.prepare('SELECT COUNT(*) AS n, MAX(interesting_at) AS at FROM items WHERE interesting_at IS NOT NULL'),
   ]);
   const s = stars?.results[0] as { n: number; at: number | null } | undefined;
-  return { embedWaiting: (waiting?.results.length ?? 0) > 0, interestingKey: `${s?.n ?? 0}:${s?.at ?? 0}` };
+  return { embedWaiting: (waiting?.results.length ?? 0) > 0, interestingKey: `${s?.n ?? 0}:${s?.at ?? 0}:${likelyShare}` };
 }
 
 /** The text an item is embedded from: what it is about, without the full body. */
@@ -150,12 +151,13 @@ export function registerEmbed(app: App) {
 
   /** Which items are marked Interesting, and which are flagged Likely interesting now. */
   app.get('/api/helper/likely', async (c) => {
+    const settings = await loadSettings(c.env);
     const [stars, likely] = await c.env.DB.batch([
       c.env.DB.prepare('SELECT id FROM items WHERE interesting_at IS NOT NULL ORDER BY interesting_at DESC LIMIT 500'),
       c.env.DB.prepare('SELECT id FROM items WHERE likely = 1 ORDER BY received_at DESC LIMIT 2000'),
     ]);
     const ids = (r: D1Result | undefined) => ((r?.results ?? []) as { id: string }[]).map((x) => x.id);
-    return c.json({ interesting: ids(stars), likely: ids(likely) } satisfies LikelyState);
+    return c.json({ interesting: ids(stars), likely: ids(likely), share: settings.tuning.likelyShare } satisfies LikelyState);
   });
 
   /** Flags changes only, so a rescore writes a handful of rows rather than every recent item. */

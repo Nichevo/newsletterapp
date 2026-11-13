@@ -1,6 +1,7 @@
 import type { ModelRef } from '@newsletterapp/shared';
 import type { LocalConfig } from './config';
 import { OUTPUT_SCHEMA } from './text';
+import { contextTokens, pcLimits } from './limits';
 
 /**
  * One way of running a model. The app decides which model to use (the
@@ -55,7 +56,7 @@ export function ollama(baseUrl: string): Provider {
         model,
         stream: false,
         ...(json ? { format: opts?.schema ?? OUTPUT_SCHEMA } : {}),
-        options: { temperature: json ? 0.2 : 0.3, num_ctx: 16384 },
+        options: { temperature: json ? 0.2 : 0.3, num_ctx: contextTokens(pcLimits.maxChars ?? 24_000) },
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user },
