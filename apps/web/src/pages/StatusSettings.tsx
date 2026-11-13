@@ -1,4 +1,4 @@
-import { STATUS_KEEP_DAYS, STATUS_MIN_MINUTES, type StatusService, type StatusSettings, type StatusSettingsView } from '@newsletterapp/shared';
+import { HOME_RADIUS_KM, STATUS_KEEP_DAYS, STATUS_MIN_MINUTES, type HomeArea, type StatusService, type StatusSettings, type StatusSettingsView } from '@newsletterapp/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
@@ -17,6 +17,9 @@ const KIND_NOTE: Record<StatusService['kind'], string> = {
   azure: 'Azure status (only lists what’s happening now)',
   aws: 'AWS status feed; updates joined by service and region',
   apple: 'Apple System Status data',
+  onenz: 'One NZ’s outage map data (mobile and broadband), outages near your home area',
+  vector: 'Vector’s outage map data: power cuts covering or near your home area, planned cuts while they’re on, and Vector’s Auckland-wide alerts',
+  chorus: 'Chorus’s outage map data (the fibre and copper network most internet providers use), outages near your home area',
 };
 
 function ServiceRow({ s, onSave, onRemove }: { s: StatusService; onSave: (patch: { enabled?: boolean; only?: string[] }) => void; onRemove: () => void }) {
@@ -74,6 +77,77 @@ function ServiceRow({ s, onSave, onRemove }: { s: StatusService; onSave: (patch:
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function HomeCard({ home, onSave }: { home: HomeArea | null; onSave: (home: HomeArea | null) => void }) {
+  const [label, setLabel] = useState(home?.label ?? '');
+  const [lat, setLat] = useState(home ? String(home.lat) : '');
+  const [lng, setLng] = useState(home ? String(home.lng) : '');
+  const [radius, setRadius] = useState(home?.radiusKm ?? 5);
+  const [note, setNote] = useState<string | null>(null);
+  const valid = Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) && lat.trim() !== '' && lng.trim() !== '';
+
+  function locate() {
+    if (!navigator.geolocation) return setNote('This browser can’t share its location; type the numbers in instead.');
+    setNote('Finding where you are…');
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setLat(p.coords.latitude.toFixed(4));
+        setLng(p.coords.longitude.toFixed(4));
+        setNote('Filled in from this device. Check it, then Save.');
+      },
+      () => setNote('Location wasn’t shared; type the numbers in instead.'),
+      { timeout: 15000 },
+    );
+  }
+
+  return (
+    <div className="section">
+      <span className="label">Home area (power, mobile and internet outages)</span>
+      <section className="card" style={{ display: 'grid', gap: 8 }}>
+        <input className="input" placeholder="Name, e.g. your suburb" value={label} onChange={(e) => setLabel(e.target.value)} aria-label="Home area name" />
+        <div className="inline">
+          <input className="input" inputMode="decimal" placeholder="Latitude, e.g. -36.9" value={lat} onChange={(e) => setLat(e.target.value)} aria-label="Latitude" />
+          <input className="input" inputMode="decimal" placeholder="Longitude, e.g. 174.9" value={lng} onChange={(e) => setLng(e.target.value)} aria-label="Longitude" />
+        </div>
+        <label className="switchrow">
+          <span style={{ fontSize: 14 }}>Count outages within</span>
+          <select className="input" style={{ width: 'auto' }} value={radius} onChange={(e) => setRadius(Number(e.target.value))}>
+            {HOME_RADIUS_KM.map((k) => (
+              <option key={k} value={k}>
+                {k} km
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="inline">
+          <button className="btn btn--small" type="button" onClick={locate}>
+            Use this device’s location
+          </button>
+          <button
+            className="btn btn--small"
+            type="button"
+            disabled={!valid}
+            onClick={() => onSave({ label: label.trim(), lat: Number(lat), lng: Number(lng), radiusKm: radius })}
+          >
+            Save
+          </button>
+          {home && (
+            <button className="btn btn--small" type="button" onClick={() => onSave(null)}>
+              Clear
+            </button>
+          )}
+        </div>
+        {note && <span className="hint">{note}</span>}
+        <span className="hint">
+          {home
+            ? `Saved${home.label ? `: ${home.label}` : ''}. Power cuts are matched to the outage areas on Vector’s map; mobile and internet outages to the sites One NZ and Chorus list.`
+            : 'Not set, so the power, mobile and internet checks are waiting. Tip: right-click your house in Google Maps on a computer to copy its latitude and longitude.'}{' '}
+          Kept only in this app’s settings.
+        </span>
+      </section>
     </div>
   );
 }
@@ -165,6 +239,8 @@ export function StatusSettingsPage({ onChanged }: { onChanged: () => void }) {
               </span>
             </section>
           </div>
+
+          <HomeCard key={JSON.stringify(view.settings.home)} home={view.settings.home} onSave={(home) => saveSettings({ home })} />
 
           <div className="section">
             <span className="label">Services · tap one for its words</span>

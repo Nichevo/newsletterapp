@@ -17,9 +17,26 @@ export type StatusKind =
   /** AWS all-services RSS: a new item for every update, months of history. */
   | 'aws'
   /** Apple's system status data (JSON, not a feed). */
-  | 'apple';
+  | 'apple'
+  /** Home: One NZ network outages (mobile and broadband), near the home area. */
+  | 'onenz'
+  /** Home: Vector power outages (Auckland lines), at or near the home area. */
+  | 'vector'
+  /** Home: Chorus fibre and copper outages, near the home area. */
+  | 'chorus';
 
-export const STATUS_KINDS: StatusKind[] = ['statuspage', 'google', 'm365', 'azure', 'aws', 'apple'];
+export const STATUS_KINDS: StatusKind[] = ['statuspage', 'google', 'm365', 'azure', 'aws', 'apple', 'onenz', 'vector', 'chorus'];
+/** Kinds that need the home area and read several addresses (not a single feed). */
+export const HOME_KINDS: StatusKind[] = ['onenz', 'vector', 'chorus'];
+
+/** Where home outages are matched; set in Settings > System status, never in the code. */
+export interface HomeArea {
+  label: string;
+  lat: number;
+  lng: number;
+  /** Outages within this many km count as near home. */
+  radiusKm: number;
+}
 
 export type StatusLevel = 'minor' | 'major';
 /** A service's state on the status page: fine, a problem, a bigger outage, or not read yet / failing. */
@@ -32,9 +49,12 @@ export interface StatusSettings {
   minMinutes: number;
   /** Fixed incidents are kept this many days. */
   keepDays: number;
+  /** Home outage checks (power, mobile, internet) match against this; null = not set. */
+  home: HomeArea | null;
 }
 
-export const DEFAULT_STATUS_SETTINGS: StatusSettings = { banner: true, minMinutes: 0, keepDays: 30 };
+export const DEFAULT_STATUS_SETTINGS: StatusSettings = { banner: true, minMinutes: 0, keepDays: 30, home: null };
+export const HOME_RADIUS_KM = [1, 2, 5, 10];
 export const STATUS_MIN_MINUTES = [0, 15, 30, 60];
 export const STATUS_KEEP_DAYS = [7, 30, 90];
 
@@ -578,6 +598,7 @@ function parseApple(body: string, now: number): ParsedStatus {
 /** Reads one status page's text into incidents. Throws when the text isn't what that kind of page sends. */
 export function parseStatus(kind: StatusKind, body: string, now = Date.now()): ParsedStatus {
   if (kind === 'apple') return parseApple(body, now);
+  if (HOME_KINDS.includes(kind)) throw new Error('Home outage checks are read from several addresses, not one feed');
   const start = body.slice(0, 3000);
   if (!/<(rss|feed|channel)[\s>]/i.test(start)) throw new Error('That address didn’t send a feed');
   switch (kind) {
@@ -591,6 +612,8 @@ export function parseStatus(kind: StatusKind, body: string, now = Date.now()): P
       return parseAzure(body, now);
     case 'aws':
       return parseAws(body, now);
+    default:
+      throw new Error('Home outage checks are read from several addresses, not one feed');
   }
 }
 
@@ -603,4 +626,323 @@ export function matchesWords(only: string[], title: string, components: string[]
     if (!t) return false;
     return new RegExp(`(^|[^A-Za-z0-9])${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^A-Za-z0-9])`, 'i').test(hay);
   });
+}
+
+
+// ---------- Home outages (One NZ, Vector, Chorus) ----------
+// These aren't feeds: each reader takes the JSON the provider's own outage map
+// uses and keeps what is near the home area.
+
+const R_KM = 6371;
+
+/** Great-circle distance in km. */
+export function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad;
+  const dLng = (lng2 - lng1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R_KM * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+type Ring = number[][];
+
+/** Whether [lng, lat] lies inside a polygon ring (ray casting). */
+function inRing(lng: number, lat: number, ring: Ring): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i] as [number, number];
+    const [xj, yj] = ring[j] as [number, number];
+    if (yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi || 1e-12) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+interface Geometry {
+  type?: string;
+  coordinates?: unknown;
+}
+
+/** Polygons of a GeoJSON geometry, each as [outer, ...holes]. */
+function polygonsOf(g: Geometry | null | undefined): Ring[][] {
+  if (!g || !Array.isArray(g.coordinates)) return [];
+  if (g.type === 'Polygon') return [g.coordinates as Ring[]];
+  if (g.type === 'MultiPolygon') return g.coordinates as Ring[][];
+  if (g.type === 'Point') {
+    const c = g.coordinates as number[];
+    return [[[c]]];
+  }
+  return [];
+}
+
+/** How a shape sits relative to home: inside it (0 km), or the nearest corner's distance. */
+export function shapeDistanceKm(g: Geometry | null | undefined, home: HomeArea): number {
+  let best = Infinity;
+  for (const poly of polygonsOf(g)) {
+    const [outer, ...holes] = poly;
+    if (!outer) continue;
+    if (outer.length > 2 && inRing(home.lng, home.lat, outer) && !holes.some((h) => inRing(home.lng, home.lat, h))) return 0;
+    for (const ring of poly) for (const c of ring) {
+      if (typeof c[0] !== 'number' || typeof c[1] !== 'number') continue;
+      best = Math.min(best, distanceKm(home.lat, home.lng, c[1], c[0]));
+    }
+  }
+  return best;
+}
+
+function kmText(km: number): string {
+  if (km === 0) return 'Covers your home area';
+  return km < 1 ? `${Math.round(km * 1000)} m from home` : `${km.toFixed(1)} km from home`;
+}
+
+const NZ_TZ = 'Pacific/Auckland';
+
+/** A New Zealand wall-clock time as a timestamp. */
+export function nzTime(y: number, mo: number, d: number, h: number, mi: number): number {
+  const guess = Date.UTC(y, mo - 1, d, h, mi);
+  // The zone's offset at that moment, from how the guess reads in NZ.
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: NZ_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(guess));
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  const asNz = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'));
+  return guess - (asNz - guess);
+}
+
+function nzText(ms: number): string {
+  return new Intl.DateTimeFormat('en-NZ', { timeZone: NZ_TZ, weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(ms));
+}
+
+/** "3:34 AM 12/11/26" or "09/11/2026 09:37" (NZ time). */
+export function nzStamp(s: string): number | null {
+  const date = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(s);
+  const time = /(\d{1,2}):(\d{2})\s*(AM|PM)?/i.exec(s);
+  if (!date) return null;
+  let year = Number(date[3]);
+  if (year < 100) year += 2000;
+  let hour = time ? Number(time[1]) : 0;
+  const ampm = time?.[3]?.toUpperCase();
+  if (ampm === 'PM' && hour < 12) hour += 12;
+  if (ampm === 'AM' && hour === 12) hour = 0;
+  return nzTime(year, Number(date[2]), Number(date[1]), hour, time ? Number(time[2]) : 0);
+}
+
+export interface OneNzOutageGroup {
+  label: string;
+  items: { createdDate?: string | null; description?: string | null; etaFix?: string | null; location?: string | null; locations?: string | null; status?: string | null }[];
+}
+
+/** One NZ: every outage nationally, kept when one of its sites is near home. */
+export function parseOneNz(groups: OneNzOutageGroup[], home: HomeArea, now = Date.now()): ParsedStatus {
+  const incidents: ParsedIncident[] = [];
+  for (const g of groups) {
+    for (const it of g.items ?? []) {
+      const sites = (it.locations ?? '')
+        .split(/\r?\n/)
+        .map((line) => line.split('|').map((x) => x.trim()))
+        .filter((p) => p.length >= 4 && Number.isFinite(Number(p[2])) && Number.isFinite(Number(p[3])))
+        .map((p) => ({ area: p[1] ?? '', km: distanceKm(home.lat, home.lng, Number(p[2]), Number(p[3])), start: nzStamp(p[4] ?? ''), end: nzStamp(p[5] ?? '') }));
+      const near = sites.filter((x) => x.km <= home.radiusKm).sort((a, b) => a.km - b.km);
+      if (!near.length) continue;
+      const status = (it.status ?? '').trim();
+      const planned = /planned/i.test(status);
+      const start = near[0]!.start ?? now;
+      const end = near[0]!.end;
+      // Planned work counts only while it's on.
+      if (planned && (start > now || (end !== null && end < now))) continue;
+      const description = stripTags((it.description ?? '').replace(/<br\s*\/?>/gi, ' ')) || `${g.label} outage`;
+      const ref = /\b(INC\d+|CHG\d+)\b/.exec(it.location ?? '')?.[1];
+      const resolved = /resolved|restored|complete/i.test(status);
+      const text = [description, status && `Status: ${status}`, it.etaFix && `Expected fix: ${it.etaFix}`, kmText(near[0]!.km)].filter(Boolean).join('. ');
+      incidents.push({
+        key: `${g.label}|${ref ?? hashText(`${it.location}|${description}`)}`,
+        title: clip(`${g.label}: ${description} (${near.map((x) => x.area).filter((a, i, all) => a && all.indexOf(a) === i).slice(0, 3).join(', ')})`, 200),
+        url: 'https://one.nz/help/network-status/',
+        level: /\bno\b[^.]*\b(service|coverage|connection)|outage|\bdown\b/i.test(description) ? 'major' : 'minor',
+        resolved,
+        startedAt: start,
+        updatedAt: start,
+        components: [g.label, ...(planned ? ['Planned'] : [])],
+        nextUpdate: it.etaFix ? `fix expected ${it.etaFix}` : null,
+        updates: [{ key: hashText(text), at: now, label: status || 'Update', text }],
+      });
+    }
+  }
+  return { incidents, complete: true };
+}
+
+export interface ChorusIncident {
+  reference?: string;
+  status?: string;
+  start_time?: number;
+  rest_time?: number | null;
+  description?: string | null;
+  add_desc?: string | null;
+  exchange?: string | null;
+  updates?: { timestamp?: string; description?: string }[];
+  sites?: { impact?: number; role?: string; point?: string | null }[];
+}
+
+const CHORUS_ROLES: Record<string, string> = { GPON: 'Fibre', FRE_CABLE: 'Copper', FRE_CABLEPAIR: 'Copper', DSL: 'Copper (DSL)' };
+
+/** Chorus: fibre and copper incidents nationally, kept when a site is near home. */
+export function parseChorus(list: ChorusIncident[], home: HomeArea, now = Date.now()): ParsedStatus {
+  const incidents: ParsedIncident[] = [];
+  for (const inc of list) {
+    let km = Infinity;
+    let connections = 0;
+    const roles = new Set<string>();
+    for (const site of inc.sites ?? []) {
+      let point: Geometry | null = null;
+      try {
+        point = typeof site.point === 'string' ? (JSON.parse(site.point) as Geometry) : null;
+      } catch {
+        point = null;
+      }
+      const c = point?.coordinates as number[] | undefined;
+      if (!c || typeof c[0] !== 'number' || typeof c[1] !== 'number') continue;
+      const d = distanceKm(home.lat, home.lng, c[1], c[0]);
+      if (d <= home.radiusKm) {
+        roles.add(CHORUS_ROLES[site.role ?? ''] ?? site.role ?? 'Network');
+        connections += site.impact ?? 0;
+      }
+      km = Math.min(km, d);
+    }
+    if (km > home.radiusKm) continue;
+    const kinds = [...roles];
+    const updates: ParsedUpdate[] = (inc.updates ?? []).map((u) => {
+      const at = nzStamp(u.timestamp ?? '') ?? (inc.start_time ?? now / 1000) * 1000;
+      const label = /\d\s+(\w[\w ]*)$/.exec(u.timestamp ?? '')?.[1] ?? 'Update';
+      return { key: `${u.timestamp}|${hashText(u.description ?? '')}`, at, label, text: clip(u.description ?? '', 4000) };
+    });
+    const start = (inc.start_time ?? now / 1000) * 1000;
+    if (!updates.length) updates.push({ key: 'start', at: start, label: 'Event', text: clip(inc.description || inc.add_desc || 'Outage reported', 4000) });
+    const resolved = /^(c|r|closed|resolved|restored)$/i.test(inc.status ?? '');
+    const rest = inc.rest_time ? inc.rest_time * 1000 : null;
+    incidents.push({
+      key: inc.reference ?? hashText(JSON.stringify(inc.sites ?? [])),
+      title: clip(`${kinds.join(' and ') || 'Network'} outage${inc.exchange ? ` near ${inc.exchange} exchange` : ''}${connections ? ` (${connections} connection${connections === 1 ? '' : 's'})` : ''}`, 200),
+      url: 'https://www.chorus.co.nz/optimise/internet-outages-map',
+      level: roles.has('Fibre') ? 'major' : 'minor',
+      resolved,
+      startedAt: start,
+      updatedAt: Math.max(start, ...updates.map((u) => u.at)),
+      components: [...kinds, kmText(km)],
+      nextUpdate: rest && !resolved ? `restore expected ${nzText(rest)}` : null,
+      updates,
+    });
+  }
+  return { incidents, complete: true };
+}
+
+export interface VectorPlanned {
+  switchingProposalNumber?: string;
+  suburb?: string | null;
+  changeReason?: { reasonDescription?: string | null } | null;
+  plannedOutageBlocks?: {
+    isAdvertised?: boolean;
+    advertisedStartDateTime?: string | null;
+    advertisedEndDateTime?: string | null;
+    alternativeStartDateTime?: string | null;
+    alternativeEndDateTime?: string | null;
+    cancelledReason?: string | null;
+  }[];
+}
+
+export interface VectorInput {
+  unplanned: { features?: { properties?: Record<string, unknown> | null; geometry?: Geometry | null }[] };
+  plannedShapes: { features?: { properties?: Record<string, unknown> | null; geometry?: Geometry | null }[] };
+  planned: VectorPlanned[];
+  /** The site-wide alert (storms and big events). */
+  alert: { content?: unknown } | null;
+}
+
+/** Vector: power outages whose area covers or comes near home, planned work while it's on, and Vector's site-wide alert. */
+export function parseVector(input: VectorInput, home: HomeArea, now = Date.now()): ParsedStatus {
+  const incidents: ParsedIncident[] = [];
+  for (const f of input.unplanned.features ?? []) {
+    const type = String(f.properties?.outageType ?? 'Unplanned');
+    if (/planned/i.test(type) && !/unplanned/i.test(type)) continue;
+    const km = shapeDistanceKm(f.geometry, home);
+    if (km > home.radiusKm) continue;
+    // Shapes carry no id: the area's rough position stands in for one.
+    const first = polygonsOf(f.geometry)[0]?.[0]?.[0] ?? [0, 0];
+    const key = `out|${type}|${Number(first[0]).toFixed(2)},${Number(first[1]).toFixed(2)}`;
+    const extra = Object.entries(f.properties ?? {})
+      .filter(([k, v]) => k !== 'outageType' && (typeof v === 'string' || typeof v === 'number'))
+      .map(([k, v]) => `${k}: ${v}`)
+      .slice(0, 6)
+      .join(' · ');
+    const text = [`${type} power outage`, kmText(km), extra].filter(Boolean).join('. ');
+    incidents.push({
+      key,
+      title: km === 0 ? 'Power outage covering your home area' : `Power outage ${kmText(km)}`,
+      url: 'https://help.vector.co.nz/map',
+      level: km === 0 ? 'major' : 'minor',
+      resolved: false,
+      startedAt: now,
+      updatedAt: now,
+      components: ['Power', km === 0 ? 'Your area' : 'Nearby'],
+      nextUpdate: null,
+      updates: [{ key: hashText(text), at: now, label: type, text }],
+    });
+  }
+  const byNumber = new Map<string, VectorPlanned>();
+  for (const p of input.planned ?? []) if (p.switchingProposalNumber) byNumber.set(p.switchingProposalNumber, p);
+  for (const f of input.plannedShapes.features ?? []) {
+    const km = shapeDistanceKm(f.geometry, home);
+    if (km > home.radiusKm) continue;
+    const numbers = String(f.properties?.switchingProposalNumbers ?? '').split(/,\s*/).filter(Boolean);
+    for (const n of numbers) {
+      const p = byNumber.get(n);
+      for (const b of p?.plannedOutageBlocks ?? []) {
+        if (b.cancelledReason) continue;
+        const startRaw = b.alternativeStartDateTime && Date.parse(b.alternativeStartDateTime) > now - 86_400_000 ? b.alternativeStartDateTime : b.advertisedStartDateTime;
+        const start = startRaw ? Date.parse(startRaw) : NaN;
+        const endRaw = startRaw === b.alternativeStartDateTime ? b.alternativeEndDateTime : b.advertisedEndDateTime;
+        const end = endRaw ? Date.parse(endRaw) : NaN;
+        if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+        // Planned cuts count from an hour before until they end.
+        if (now < start - 3_600_000 || now > end) continue;
+        const reason = p?.changeReason?.reasonDescription;
+        const text = [`Planned power cut ${nzText(start)} to ${nzText(end)}`, p?.suburb && `Area: ${p.suburb}`, reason, kmText(km)].filter(Boolean).join('. ');
+        incidents.push({
+          key: `planned|${n}|${start}`,
+          title: clip(`Planned power cut${p?.suburb ? ` in ${p.suburb.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())}` : ''} until ${nzText(end)}`, 200),
+          url: 'https://help.vector.co.nz/map',
+          level: 'minor',
+          resolved: false,
+          startedAt: start,
+          updatedAt: start,
+          components: ['Power', 'Planned', km === 0 ? 'Your area' : 'Nearby'],
+          nextUpdate: null,
+          updates: [{ key: hashText(text), at: Math.min(start, now), label: 'Planned', text }],
+        });
+      }
+    }
+  }
+  const alert = input.alert?.content;
+  if (alert) {
+    const text = clip(typeof alert === 'string' ? stripTags(alert) : stripTags(JSON.stringify(alert)), 4000);
+    if (text) {
+      incidents.push({
+        key: `alert|${hashText(text)}`,
+        title: clip(`Vector alert: ${firstSentence(text, 150)}`, 200),
+        url: 'https://help.vector.co.nz/map',
+        level: 'major',
+        resolved: false,
+        startedAt: now,
+        updatedAt: now,
+        components: ['Power', 'Auckland-wide'],
+        nextUpdate: null,
+        updates: [{ key: hashText(text), at: now, label: 'Alert', text }],
+      });
+    }
+  }
+  return { incidents, complete: true };
 }
