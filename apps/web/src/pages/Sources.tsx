@@ -1,18 +1,36 @@
-import { SOURCE_TYPES, type Source, type SourceActivity, type SourceType } from '@newsletterapp/shared';
+import {
+  DEPTH_MIN_ITEMS,
+  SOURCE_TYPES,
+  depthTotal,
+  depthValue,
+  sourceVerdict,
+  type DepthCounts,
+  type Source,
+  type SourceActivity,
+  type SourceType,
+  type SourceVerdict,
+} from '@newsletterapp/shared';
+import { DepthBar, VerdictPill, valueColour } from '../components/DepthBar';
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { activityView, nextTime, rhythmText, type ActivityView } from '../format';
 import { IconBack } from '../icons';
 import { KIND_LABEL, sourceType } from '../components/FilterBar';
 import { CategoriesSection, useAppSettings } from './Settings';
 
-type Show = 'all' | 'quiet' | 'unread' | 'paused';
-type Sort = 'latest' | 'name' | 'reads';
-const SORT_LABEL: Record<Sort, string> = { latest: 'Latest', name: 'Name', reads: 'Most read' };
+type Show = 'all' | 'quiet' | 'unread' | 'paused' | 'skipped' | 'summary' | 'keeper';
+type Sort = 'latest' | 'name' | 'reads' | 'value';
+const SORT_LABEL: Record<Sort, string> = { latest: 'Latest', name: 'Name', reads: 'Most looked at', value: 'Value, lowest first' };
 interface Row {
   source: Source;
   view: ActivityView;
+  depth: DepthCounts | null;
+}
+const SKIPPED: SourceVerdict[] = ['mostly_skipped', 'always_skipped'];
+/** Lowest value first; sources with too little to go on go last. */
+function valueKey(r: Row): number {
+  return r.depth && depthTotal(r.depth) >= DEPTH_MIN_ITEMS ? (depthValue(r.depth) ?? 999) : 999;
 }
 
 /** Every source you receive or follow, grouped by kind. Each row opens the source's own page. */
@@ -22,8 +40,11 @@ export function SourcesPage() {
   const [error, setError] = useState<string | null>(null);
   const { settings, save } = useAppSettings();
   const [activity, setActivity] = useState<Map<string, SourceActivity>>(new Map());
-  const [show, setShow] = useState<Show>('all');
-  const [sort, setSort] = useState<Sort>('latest');
+  const [params] = useSearchParams();
+  // Statistics links here as ?show=skipped (and sorts by value).
+  const linked = (['skipped', 'summary', 'keeper'] as Show[]).find((v) => v === params.get('show'));
+  const [show, setShow] = useState<Show>(linked ?? 'all');
+  const [sort, setSort] = useState<Sort>(linked ? 'value' : 'latest');
   const [query, setQuery] = useState('');
   const [type, setType] = useState<SourceType | ''>('');
   const [category, setCategory] = useState('');
@@ -39,16 +60,32 @@ export function SourcesPage() {
       .catch(() => undefined);
   }, []);
 
-  const rows: Row[] = (sources ?? []).map((s) => ({ source: s, view: activityView(activity.get(s.id), s) }));
+  const rows: Row[] = (sources ?? []).map((s) => ({ source: s, view: activityView(activity.get(s.id), s), depth: activity.get(s.id)?.depth ?? null }));
   const quietCount = rows.filter((r) => r.view.quiet).length;
   const unreadCount = rows.filter((r) => r.view.unread).length;
   const pausedCount = rows.filter((r) => r.source.pausedAt !== null).length;
+  const verdictOf = (r: Row) => (r.depth ? sourceVerdict(r.depth) : 'too_few');
+  const skippedCount = rows.filter((r) => SKIPPED.includes(verdictOf(r))).length;
+  const summaryCount = rows.filter((r) => verdictOf(r) === 'summary').length;
+  const keeperCount = rows.filter((r) => verdictOf(r) === 'keeper').length;
   const types = SOURCE_TYPES.filter((t) => rows.some((r) => sourceType(r.source) === t));
   const categories = [...new Set(rows.map((r) => r.source.category).filter((c): c is string => Boolean(c)))].sort();
   const words = query.trim().toLowerCase();
   const picked = rows
     .filter((r) =>
-      show === 'all' ? true : show === 'quiet' ? r.view.quiet : show === 'unread' ? r.view.unread : r.source.pausedAt !== null,
+      show === 'all'
+        ? true
+        : show === 'quiet'
+          ? r.view.quiet
+          : show === 'unread'
+            ? r.view.unread
+            : show === 'skipped'
+              ? SKIPPED.includes(verdictOf(r))
+              : show === 'summary'
+                ? verdictOf(r) === 'summary'
+                : show === 'keeper'
+                  ? verdictOf(r) === 'keeper'
+                  : r.source.pausedAt !== null,
     )
     .filter((r) => !type || sourceType(r.source) === type)
     .filter((r) => !category || (category === '-' ? !r.source.category : r.source.category === category))
@@ -64,7 +101,9 @@ export function SourcesPage() {
         ? a.source.name.localeCompare(b.source.name)
         : sort === 'reads'
           ? b.view.readsPerMonth - a.view.readsPerMonth || b.view.perMonth - a.view.perMonth
-          : 0,
+          : sort === 'value'
+            ? valueKey(a) - valueKey(b) || b.view.perMonth - a.view.perMonth
+            : 0,
     );
   const newsletters = picked.filter((r) => r.source.kind === 'newsletter');
   const others = picked.filter((r) => r.source.kind !== 'newsletter');
@@ -148,7 +187,7 @@ export function SourcesPage() {
             </select>
           </div>
           <div className="pills">
-            {(['all', 'quiet', 'unread', 'paused'] as Show[])
+            {(['all', 'skipped', 'summary', 'keeper', 'quiet', 'unread', 'paused'] as Show[])
               .filter((v) => v !== 'paused' || pausedCount > 0)
               .map((v) => (
                 <button key={v} className="pill" aria-pressed={show === v} onClick={() => setShow(v)}>
@@ -158,7 +197,13 @@ export function SourcesPage() {
                       ? `Quiet (${quietCount})`
                       : v === 'unread'
                         ? `Unread (${unreadCount})`
-                        : `Paused (${pausedCount})`}
+                        : v === 'skipped'
+                          ? `Mostly skipped (${skippedCount})`
+                          : v === 'summary'
+                            ? `Summary is enough (${summaryCount})`
+                            : v === 'keeper'
+                              ? `Keepers (${keeperCount})`
+                              : `Paused (${pausedCount})`}
                 </button>
               ))}
           </div>
@@ -173,8 +218,10 @@ export function SourcesPage() {
             ))}
           </div>
           <span className="hint">
-            Rates are over the last 90 days (or since a source was added). Quiet = nothing for 30+ days and well past its usual gap.
-            Unread = none of its recent items read.
+            Rates are over the last 90 days (or since a source was added). The bar shows how far you went with its items, from Not
+            interested (orange) and Skipped (grey) to Read the summary, Read the article (teal) and Kept (amber); the number is its value out of 100. Looked at =
+            glanced or more, so a swipe without looking doesn&apos;t count. Quiet = nothing for 30+ days and well past its usual gap. Unread =
+            none of its recent items looked at.
           </span>
         </div>
       )}
@@ -186,6 +233,8 @@ export function SourcesPage() {
               ? 'No quiet sources: everything has posted recently.'
               : show === 'paused'
                 ? 'No paused sources.'
+                : show === 'skipped' || show === 'summary' || show === 'keeper'
+                  ? `None yet. A source needs ${DEPTH_MIN_ITEMS} items you have looked at, marked read or left unread for two weeks.`
                 : 'No unread sources: you read something from each.'}
         </p>
       )}
@@ -217,7 +266,7 @@ function SourceList({ title, rows, noun }: { title: string; rows: Row[]; noun: s
     <div className="section">
       <span className="label">{title}</span>
       <div className="card card--list">
-        {rows.map(({ source: s, view }) => (
+        {rows.map(({ source: s, view, depth }) => (
           <Link key={s.id} to={`/source/${s.id}`} className="cardrow">
             <div className="cardrow__main">
               <span className="cardrow__title">{s.name}</span>
@@ -230,6 +279,7 @@ function SourceList({ title, rows, noun }: { title: string; rows: Row[]; noun: s
                 {s.pausedAt ? ' · paused' : s.lastError ? ' · last check failed' : ''}
               </span>
               <span className="cardrow__sub">{view.line}</span>
+              {depth && depthTotal(depth) > 0 && <SourceDepthLine depth={depth} />}
               {view.flag && !s.pausedAt && <span className="cardrow__sub cardrow__flag">{view.flag}</span>}
               {s.kind === 'feed' && !s.pausedAt && (
                 <span className="cardrow__sub">
@@ -243,5 +293,19 @@ function SourceList({ title, rows, noun }: { title: string; rows: Row[]; noun: s
         ))}
       </div>
     </div>
+  );
+}
+
+function SourceDepthLine({ depth }: { depth: DepthCounts }) {
+  const verdict = sourceVerdict(depth);
+  const value = depthValue(depth);
+  return (
+    <span className="cardrow__sub depthrow">
+      <DepthBar depth={depth} />
+      <span className="depthrow__value" style={{ color: verdict === 'too_few' ? undefined : valueColour(value) }}>
+        {verdict === 'too_few' ? '' : value}
+      </span>
+      {verdict !== 'mixed' && <VerdictPill verdict={verdict} />}
+    </span>
   );
 }

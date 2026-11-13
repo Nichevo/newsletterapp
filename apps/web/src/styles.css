@@ -20,12 +20,21 @@
   --purple-ink: #4d3a8c;
   --swipe-read: #4a5259;
   --swipe-save: #0b6b66;
+  --swipe-long: #b4441a;
+  --swipe-star: #b26a12;
   /* Key sentence colours (the line colour; tints live with the marks in keySentences.ts). */
   --ks-main: #2f62c9;
   --ks-evidence: #1f8a46;
   --ks-example: #7148c4;
   --ks-caveat: #c23b3b;
   --ks-takeaway: #c8650f;
+  /* How far you went with an item: Not interested .. Kept */
+  --depth-not_interested: #c2410c;
+  --depth-skipped: #d9ddd9;
+  --depth-glanced: #a7aea8;
+  --depth-summary: #6fb9b3;
+  --depth-article: #0b6b66;
+  --depth-kept: #d98a2b;
   --font: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --serif: 'Source Serif 4', 'Iowan Old Style', Georgia, serif;
   --radius: 14px;
@@ -59,11 +68,19 @@
     --purple-ink: #c3b4f0;
     --swipe-read: #5b646c;
     --swipe-save: #0f7f79;
+    --swipe-long: #c2532a;
+    --swipe-star: #c27c1c;
     --ks-main: #7aa5ff;
     --ks-evidence: #6fd393;
     --ks-example: #b79cf5;
     --ks-caveat: #f08a8a;
     --ks-takeaway: #f5a85c;
+    --depth-not_interested: #e07a52;
+    --depth-skipped: #3a4046;
+    --depth-glanced: #66707a;
+    --depth-summary: #2f8a83;
+    --depth-article: #5fd0c6;
+    --depth-kept: #e6a24a;
   }
 }
 
@@ -4036,4 +4053,132 @@ a.chip { text-decoration: none; }
 
 .rv-caught .empty {
   padding-bottom: 8px;
+}
+
+/* Reader: Not interested toggle sits with the chips */
+.chip--button {
+  cursor: pointer;
+  font-family: inherit;
+  background: transparent;
+}
+.chip--button.chip--warn {
+  border: 1px solid transparent;
+}
+
+/* Which sources add value: stacked bar of how far you went with each item */
+.depthbar {
+  display: flex;
+  height: 9px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--depth-skipped);
+  min-width: 60px;
+}
+.depthbar--big {
+  height: 12px;
+}
+.depthbar i {
+  display: block;
+  height: 100%;
+}
+.depthrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.depthrow .depthbar {
+  flex: 1;
+}
+.depthrow__value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  min-width: 22px;
+  text-align: right;
+}
+.depthlegend {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+}
+.depthlegend div {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.depthlegend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.depthlegend em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  color: var(--quiet);
+}
+.depthmonths {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+.depthmonths div {
+  display: grid;
+  grid-template-columns: 104px 1fr 34px;
+  gap: 8px;
+  align-items: center;
+}
+.depthmonths em {
+  font-style: normal;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--quiet);
+}
+.verdict {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.verdict--keeper {
+  background: var(--amber-tint);
+  color: var(--amber-ink);
+}
+.verdict--summary {
+  background: var(--teal-tint);
+  color: var(--teal-ink);
+}
+.verdict--mixed,
+.verdict--too_few {
+  border: 1px solid var(--border);
+  color: var(--quiet);
+}
+.verdict--mostly_skipped,
+.verdict--always_skipped {
+  background: var(--red-tint);
+  color: var(--red-ink);
+}
+.depthnote {
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: var(--teal-tint);
+}
+.depthnote--low {
+  background: var(--red-tint);
+}
+.kv {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  font-size: 13px;
+}
+.kv span {
+  color: var(--quiet);
+}
+.kv b {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }

@@ -11,6 +11,8 @@ import type {
   TagPage,
   TopicsData,
   SourceActivity,
+  SourceDepthDetail,
+  GlanceInput,
   Address,
   AddressMonth,
   AskPreset,
@@ -159,8 +161,21 @@ export const api = {
   itemBody: (id: string, version = 0) => get<ItemBody>(`/api/items/${id}/body${version ? `?v=${version}` : ''}`),
   fetchPage: (id: string) => post<FetchPageStatus>(`/api/items/${id}/fetch-page`),
   fetchPageStatus: (id: string) => get<FetchPageStatus>(`/api/items/${id}/fetch-page`),
-  itemAction: (id: string, action: 'read' | 'unread' | 'save' | 'unsave' | 'interesting' | 'uninteresting' | 'archive' | 'unarchive') =>
-    post<ItemSummary>(`/api/items/${id}/${action}`, action === 'read' ? { device: isPhone() } : undefined),
+  itemAction: (
+    id: string,
+    action: 'read' | 'unread' | 'save' | 'unsave' | 'interesting' | 'uninteresting' | 'archive' | 'unarchive' | 'not_interested' | 'interested',
+  ) => post<ItemSummary>(`/api/items/${id}/${action}`, action === 'read' || action === 'not_interested' ? { device: isPhone() } : undefined),
+  /** Seconds inbox rows sat at the reading line; keepalive so it survives leaving the page. */
+  glances: (input: GlanceInput) => {
+    if (!input.items.length) return;
+    void fetch('/api/items/glances', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+      keepalive: true,
+    }).catch(() => undefined);
+  },
+  sourceDepth: (id: string) => get<SourceDepthDetail>(`/api/sources/${id}/depth`),
   bulkRead: (input: BulkReadInput) => post<{ changed: number }>('/api/items/bulk-read', { ...input, device: isPhone() }),
   rawUrl: (id: string) => `/api/items/${id}/raw`,
   storyBanner: (id: string) => get<StoryBanner | null>(`/api/items/${id}/story`),

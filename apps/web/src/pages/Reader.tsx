@@ -95,7 +95,9 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
     [id],
   );
 
-  async function act(action: 'save' | 'unsave' | 'interesting' | 'uninteresting' | 'archive' | 'unarchive' | 'read' | 'unread') {
+  async function act(
+    action: 'save' | 'unsave' | 'interesting' | 'uninteresting' | 'archive' | 'unarchive' | 'read' | 'unread' | 'not_interested' | 'interested',
+  ) {
     if (!item) return;
     try {
       const updated = await api.itemAction(item.id, action);
@@ -161,6 +163,17 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
           <div className="reader__chips">
             <span className="chip chip--outline">{longDate(item.receivedAt)}</span>
             {item.readAt && <span className="chip chip--outline">{readLabel(item)}</span>}
+            {item.kind !== 'ai' && (
+              <button
+                type="button"
+                className={`chip ${item.notInterestedAt ? 'chip--warn' : 'chip--outline'} chip--button`}
+                aria-pressed={Boolean(item.notInterestedAt)}
+                title="A clear no for this one: counts against its source when you look at which sources add value"
+                onClick={() => void act(item.notInterestedAt ? 'interested' : 'not_interested')}
+              >
+                {item.notInterestedAt ? 'Not interested ✕' : 'Not interested?'}
+              </button>
+            )}
             {item.toAddress && <span className="chip chip--outline">to {item.toAddress}</span>}
             {item.file && (
               <Link className="chip chip--file" to={`/?kind=${fileFilterOf(item.file.type)}`} title="Show all of this type">
@@ -889,17 +902,37 @@ function Unsubscribe({ item, onChanged }: { item: ItemSummary; onChanged: () => 
 }
 
 /**
- * Logs an "open" when the item appears, then active reading seconds and the
- * furthest scroll position when the reader leaves or the tab is hidden.
+ * Where the reading line (a third of the way down the screen) sits: on the AI
+ * summary card, in the article, or elsewhere (title, chips, buttons). While the
+ * article hasn't reached the line yet, a summary that is on screen counts.
+ */
+function readingZone(): 'summary' | 'article' | 'other' {
+  const line = window.innerHeight * 0.33;
+  const summary = document.querySelector('.reader__head section.ai')?.getBoundingClientRect();
+  const article = document.querySelector('.reader__body')?.getBoundingClientRect();
+  if (summary && summary.top <= line && summary.bottom >= line) return 'summary';
+  if (article && article.top <= line && article.bottom > 0) return 'article';
+  if (summary && summary.bottom > 0 && summary.top < window.innerHeight) return 'summary';
+  return 'other';
+}
+
+/**
+ * Logs an "open" when the item appears, then active reading seconds (in all, and
+ * split between the AI summary and the article) and the furthest scroll position
+ * when the reader leaves or the tab is hidden.
  */
 function useReadingTracker(id: string, ready: boolean) {
   const seconds = useRef(0);
+  const summarySecs = useRef(0);
+  const articleSecs = useRef(0);
   const maxScroll = useRef(0);
   const lastActivity = useRef(Date.now());
 
   useEffect(() => {
     if (!ready) return;
     seconds.current = 0;
+    summarySecs.current = 0;
+    articleSecs.current = 0;
     maxScroll.current = 0;
     lastActivity.current = Date.now();
     const device = isPhone();
@@ -909,6 +942,9 @@ function useReadingTracker(id: string, ready: boolean) {
       if (document.visibilityState !== 'visible') return;
       if (Date.now() - lastActivity.current > 60_000) return; // idle: stop counting
       seconds.current += 1;
+      const zone = readingZone();
+      if (zone === 'summary') summarySecs.current += 1;
+      else if (zone === 'article') articleSecs.current += 1;
     }, 1000);
 
     const activity = () => {
@@ -925,9 +961,16 @@ function useReadingTracker(id: string, ready: boolean) {
     activity();
 
     const flush = () => {
-      if (seconds.current >= 2) api.event(id, { type: 'read_time', value: seconds.current, device });
+      if (seconds.current >= 2) {
+        api.event(id, { type: 'read_time', value: seconds.current, device });
+        // Both, even at 0: it records that this visit was split, for the source's value.
+        api.event(id, { type: 'summary_time', value: summarySecs.current, device });
+        api.event(id, { type: 'article_time', value: articleSecs.current, device });
+      }
       if (maxScroll.current > 0) api.event(id, { type: 'finish', value: maxScroll.current, device });
       seconds.current = 0;
+      summarySecs.current = 0;
+      articleSecs.current = 0;
       maxScroll.current = 0;
     };
     const onVisibility = () => {
@@ -957,6 +1000,7 @@ const READ_VIA_LABEL: Record<NonNullable<ItemSummary['readVia']>, string> = {
   swipe: 'Marked read',
   bulk: 'Marked read with its newsletter',
   digest: 'Marked read from the digest',
+  not_interested: 'Marked not interested',
 };
 
 /** "Read on phone, Thu 30 Oct 9:12" or "Marked read from the digest on desktop, …". */

@@ -186,7 +186,7 @@ export function registerReading(app: App) {
       // Most-read first; never-opened newsletters sink to the bottom where they are easy to spot.
       .sort((a, b) => (b.opened > 0 ? 1 : 0) - (a.opened > 0 ? 1 : 0) || b.read - a.read || b.issues - a.issues);
 
-    const via: Record<ReadVia, number> = { reader: 0, swipe: 0, bulk: 0, digest: 0 };
+    const via: Record<ReadVia, number> = { reader: 0, swipe: 0, bulk: 0, digest: 0, not_interested: 0 };
     const device: Record<ReadDevice, number> = { phone: 0, desktop: 0 };
     for (const r of viaRows.results) {
       if (r.read_via && r.read_via in via) via[r.read_via] += r.n;

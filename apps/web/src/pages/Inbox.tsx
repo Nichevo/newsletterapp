@@ -1,6 +1,7 @@
 import { SavedTabs } from './Highlights';
 import type { ItemListResponse, ItemSummary, ItemView, Me, SavedFilter, Source } from '@newsletterapp/shared';
 import { FILE_FILTERS, KEY_KINDS } from '@newsletterapp/shared';
+import { useGlanceTracker } from '../glance';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { rememberList } from '../readingList';
@@ -95,14 +96,15 @@ export function InboxPage({
   const [listCounts, setListCounts] = useState<ItemListResponse['counts'] | null>(null);
   // Sources with items in the chosen category, kept while a source is then picked so the others stay on offer.
   const [catSources, setCatSources] = useState<{ category: string; ids: string[] } | null>(null);
-  const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
+  const [toast, setToast] = useState<{ text: string; undo?: () => void; action?: { label: string; run: () => void } } | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
-  function showToast(text: string, undo?: () => void, ms = 6000) {
+  function showToast(text: string, undo?: () => void, ms = 6000, action?: { label: string; run: () => void }) {
     window.clearTimeout(toastTimer.current);
-    setToast({ text, undo });
+    setToast({ text, undo, action });
     toastTimer.current = window.setTimeout(() => setToast(null), ms);
   }
+  useGlanceTracker(true);
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
   // Back from the reader after Delete: offer Undo for a few seconds.
@@ -214,6 +216,27 @@ export function InboxPage({
     }
   }
 
+  /** The long read swipe: marks it read as Not interested, with Undo (back to a plain read). */
+  async function markNotInterested(item: ItemSummary) {
+    const id = item.id;
+    setToast(null);
+    patch({ ...item, readAt: item.readAt ?? Date.now(), readVia: 'not_interested', notInterestedAt: Date.now() });
+    try {
+      patch(await api.itemAction(id, 'not_interested'));
+      onChanged();
+      showToast('Marked not interested', () => {
+        setToast(null);
+        api
+          .itemAction(id, 'interested')
+          .then(patch)
+          .catch(() => showToast('Could not undo'));
+      });
+    } catch {
+      patch(item);
+      showToast('Could not mark it not interested');
+    }
+  }
+
   async function markUnread(item: ItemSummary) {
     if (!item.readAt) return;
     patch({ ...item, readAt: null });
@@ -284,12 +307,41 @@ export function InboxPage({
   const readSide = getSwipeReadSide();
   // On an item already read, the read swipe flips to Mark unread.
   const readAction = (item: ItemSummary): SwipeAction =>
-    item.readAt ? { run: markUnread, label: 'Mark unread', kind: 'read' } : { run: markRead, label: 'Mark read', kind: 'read' };
+    item.readAt
+      ? { run: markUnread, label: 'Mark unread', kind: 'read' }
+      : { run: markRead, label: 'Mark read', kind: 'read', long: { run: (i) => void markNotInterested(i), label: 'Not interested' } };
   const saveAction = (item: ItemSummary): SwipeAction => ({
     run: toggleSave,
     label: item.savedAt ? 'Remove from saved' : 'Save for later',
     kind: 'save',
+    ...(item.interestingAt ? {} : { long: { run: (i: ItemSummary) => void starAndRead(i), label: 'Star, read' } }),
   });
+
+  /** The long save swipe: stars it as Interesting and marks it read, with Undo. */
+  async function starAndRead(item: ItemSummary) {
+    const wasUnread = !item.readAt;
+    setToast(null);
+    patch({ ...item, interestingAt: Date.now(), readAt: item.readAt ?? Date.now() });
+    try {
+      await api.itemAction(item.id, 'interesting');
+      patch(wasUnread ? await api.itemAction(item.id, 'read') : await api.item(item.id));
+      onChanged();
+      showToast('Starred as Interesting and marked read', () => {
+        setToast(null);
+        api
+          .itemAction(item.id, 'uninteresting')
+          .then(() => (wasUnread ? api.itemAction(item.id, 'unread') : api.item(item.id)))
+          .then((i) => {
+            patch(i);
+            onChanged();
+          })
+          .catch(() => showToast('Could not undo'));
+      });
+    } catch {
+      patch(item);
+      showToast('Could not star it');
+    }
+  }
 
   async function toggleSave(item: ItemSummary) {
     const action = item.savedAt ? 'unsave' : 'save';
@@ -534,6 +586,11 @@ export function InboxPage({
       {toast && (
         <div className="toast" role="status">
           {toast.text}
+          {toast.action && (
+            <button className="toast__undo" onClick={toast.action.run}>
+              {toast.action.label}
+            </button>
+          )}
           {toast.undo && (
             <button className="toast__undo" onClick={toast.undo}>
               Undo

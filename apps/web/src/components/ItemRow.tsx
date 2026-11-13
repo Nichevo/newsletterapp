@@ -15,12 +15,17 @@ const PLATFORM_CHIP = { reddit: 'Reddit', youtube: 'YouTube', github: 'GitHub' }
 
 const THRESHOLD = 88; // px of travel before a swipe counts
 const MAX = 120;
+/** A side with a long swipe goes further: past this share of the row's width (at least LONG_MIN px) it does the long action. */
+const LONG_SHARE = 0.5;
+const LONG_MIN = 180;
 
 /** What a swipe to one side does: the handler, its label and which look it gets. */
 export interface SwipeAction {
   run: (item: ItemSummary) => void;
   label: string;
   kind: 'read' | 'save';
+  /** A longer pull on the same side does this instead (e.g. Mark read as Not interested). */
+  long?: { run: (item: ItemSummary) => void; label: string };
 }
 
 /** The same news from other sources, shown under the row that leads the group. */
@@ -54,10 +59,15 @@ export function ItemRow({
   const start = useRef<{ x: number; y: number; id: number } | null>(null);
   const axis = useRef<'x' | 'y' | null>(null);
   const moved = useRef(false);
+  const width = useRef(400);
+  const longAt = () => Math.max(LONG_MIN, width.current * LONG_SHARE);
+  const sideOf = (d: number) => (d < 0 ? left : right);
+  const isLong = (d: number) => Boolean(sideOf(d).long) && Math.abs(d) >= longAt();
 
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     start.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    width.current = e.currentTarget.getBoundingClientRect().width || 400;
     axis.current = null;
     moved.current = false;
     setSnapping(false);
@@ -75,7 +85,11 @@ export function ItemRow({
     }
     if (axis.current !== 'x') return;
     moved.current = true;
-    const clamped = Math.max(-MAX, Math.min(MAX, ddx));
+    // A side with a long action can be pulled further, up to just past where it switches.
+    const reach = (d: number) => (sideOf(d).long ? longAt() + 30 : MAX);
+    const clamped = Math.max(-reach(-1), Math.min(reach(1), ddx));
+    // A little buzz when the pull crosses into (or back out of) the long action.
+    if (isLong(clamped) !== isLong(dx) && Math.sign(clamped) === Math.sign(dx || clamped)) navigator.vibrate?.(12);
     setDx(clamped);
   }
 
@@ -84,8 +98,8 @@ export function ItemRow({
     if (!s || s.id !== e.pointerId) return;
     start.current = null;
     if (axis.current === 'x') {
-      if (dx <= -THRESHOLD) left.run(item);
-      else if (dx >= THRESHOLD) right.run(item);
+      const side = sideOf(dx);
+      if (Math.abs(dx) >= THRESHOLD) (isLong(dx) && side.long ? side.long.run : side.run)(item);
     }
     setSnapping(true);
     setDx(0);
@@ -99,7 +113,9 @@ export function ItemRow({
     navigate(`/item/${item.id}`);
   }
 
-  const bg = dx < 0 ? `var(--swipe-${left.kind})` : dx > 0 ? `var(--swipe-${right.kind})` : 'transparent';
+  const long = dx !== 0 && isLong(dx);
+  const bg = long ? (sideOf(dx).kind === 'save' ? 'var(--swipe-star)' : 'var(--swipe-long)') : dx < 0 ? `var(--swipe-${left.kind})` : dx > 0 ? `var(--swipe-${right.kind})` : 'transparent';
+  const sideLabel = (side: SwipeAction) => (long && side.long ? side.long.label : side.label);
   const kindClass = `chip chip--${item.kind}`;
   const preview = item.summary ?? item.preheader ?? item.snippet;
   const expanded = density === 'expanded';
@@ -117,16 +133,22 @@ export function ItemRow({
   const keysHidden = allKeys.length - keyLines.length;
 
   return (
-    <div className={`row row--${density}${item.readAt ? ' row--read' : ''}${nested ? ' row--grouped' : ''}`} style={{ background: bg }}>
+    <div
+      className={`row row--${density}${item.readAt ? ' row--read' : ''}${nested ? ' row--grouped' : ''}`}
+      style={{ background: bg }}
+      data-item-id={item.id}
+      // A row showing only its title can count as Glanced, never as a read summary.
+      data-glance-cap={showPreview || keyLines.length > 0 ? undefined : 'title'}
+    >
       {viewing && item.leadImage && <PictureViewer src={item.leadImage.src} alt={item.leadImage.alt ?? item.leadImage.title ?? ''} onClose={() => setViewing(false)} />}
       <div className="row__under" aria-hidden="true">
         <span style={{ opacity: dx > 20 ? 1 : 0 }}>
           {right.kind === 'save' ? <IconBookmark /> : <IconCheck />}
-          {right.label}
+          {sideLabel(right)}
         </span>
         <span style={{ opacity: dx < -20 ? 1 : 0 }}>
           {left.kind === 'save' ? <IconBookmark /> : <IconCheck />}
-          {left.label}
+          {sideLabel(left)}
         </span>
       </div>
       <div

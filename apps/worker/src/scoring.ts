@@ -1,6 +1,7 @@
 import { readJson, writeJson } from './ai';
 import { loadSettings } from './settings';
-import type { TopLean } from '@newsletterapp/shared';
+import { depthTotal, depthValue, type TopLean } from '@newsletterapp/shared';
+import { depthBySource } from './depth';
 import type { Env } from './env';
 import { now } from './ids';
 
@@ -12,15 +13,6 @@ import { now } from './ids';
 const DAY = 86_400_000;
 const LOOKBACK_DAYS = 7; // items this old or newer get rescored
 const AFFINITY_DAYS = 90; // reading history that counts towards a source's affinity
-
-interface SourceStats {
-  items: number;
-  opened: number;
-  saved: number;
-  interesting: number;
-  finished: number; // finish events at 70% or more
-  readSeconds: number;
-}
 
 interface ScoreRow {
   id: string;
@@ -36,35 +28,17 @@ interface ScoreRow {
   ai_status: string | null;
 }
 
-/** How much you have engaged with each source lately: 0 (never open it) to 1 (read nearly everything). */
+/**
+ * How much you have engaged with each source lately: 0 (always skip it) to 1 (keep or
+ * read nearly everything). Its value from how far you went with each item (see
+ * depth.ts), so a swipe without looking no longer counts as reading it.
+ */
 async function sourceAffinity(env: Env, since: number): Promise<Map<string, number>> {
-  const rows = await env.DB.prepare(
-    `SELECT items.source_id,
-       COUNT(*) AS items,
-       SUM(items.read_at IS NOT NULL) AS opened,
-       SUM(items.saved_at IS NOT NULL) AS saved,
-       SUM(items.interesting_at IS NOT NULL) AS interesting,
-       SUM(EXISTS (SELECT 1 FROM events WHERE events.item_id = items.id AND events.type = 'finish' AND events.value >= 70)) AS finished,
-       (SELECT COALESCE(SUM(value), 0) FROM events WHERE events.type = 'read_time'
-          AND events.item_id IN (SELECT id FROM items i2 WHERE i2.source_id = items.source_id AND i2.received_at >= ?1)) AS read_seconds
-     FROM items
-     WHERE items.received_at >= ?1 AND items.status IN ('inbox', 'archived') AND items.source_id IS NOT NULL
-     GROUP BY items.source_id`,
-  )
-    .bind(since)
-    .all<{ source_id: string } & { items: number; opened: number; saved: number; interesting: number; finished: number; read_seconds: number }>();
-
+  const rows = await depthBySource(env, since);
   const out = new Map<string, number>();
-  for (const r of rows.results) {
-    const s: SourceStats = { items: r.items, opened: r.opened, saved: r.saved, interesting: r.interesting, finished: r.finished, readSeconds: r.read_seconds };
-    if (s.items < 2) continue; // too new to judge; stays at the neutral default
-    const openRate = s.opened / s.items;
-    const finishRate = s.finished / s.items;
-    // A star says more than a save: it counts twice.
-    const saveRate = (s.saved + 2 * s.interesting) / s.items;
-    const minutesPerItem = s.readSeconds / 60 / s.items;
-    const affinity = 0.45 * openRate + 0.3 * finishRate + 0.15 * Math.min(1, saveRate * 3) + 0.1 * Math.min(1, minutesPerItem / 3);
-    out.set(r.source_id, Math.max(0, Math.min(1, affinity)));
+  for (const [id, r] of rows) {
+    if (depthTotal(r.depth) < 2) continue; // too new to judge; stays at the neutral default
+    out.set(id, Math.max(0, Math.min(1, (depthValue(r.depth) ?? 0) / 100)));
   }
   return out;
 }
@@ -114,10 +88,10 @@ export function scoreFor(row: ScoreRow, affinity: number | undefined, at: number
  * once a day and keep it, rather than reading 90 days of items and events every hour.
  */
 async function cachedAffinity(env: Env, at: number): Promise<Map<string, number>> {
-  const saved = await readJson<{ at: number; affinity: Record<string, number> }>(env, 'source_affinity');
+  const saved = await readJson<{ at: number; affinity: Record<string, number> }>(env, 'source_affinity_v2');
   if (saved && at - saved.at < DAY) return new Map(Object.entries(saved.affinity));
   const fresh = await sourceAffinity(env, at - AFFINITY_DAYS * DAY);
-  await writeJson(env, 'source_affinity', { at, affinity: Object.fromEntries(fresh) });
+  await writeJson(env, 'source_affinity_v2', { at, affinity: Object.fromEntries(fresh) });
   return fresh;
 }
 

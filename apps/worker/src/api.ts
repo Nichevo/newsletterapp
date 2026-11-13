@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { registerDeleting } from './deleting';
-import { DEFAULT_OLD_LINK_DAYS, DEFAULT_REDDIT_COMMENTS, OLD_LINK_CHOICES, REDDIT_COMMENT_CHOICES, isKeyKind, KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, SAVE_LOCAL_PART, type FileFilter, type KeyMark, type SaveAddressInfo } from '@newsletterapp/shared';
+import { emptyDepth, DEFAULT_OLD_LINK_DAYS, DEFAULT_REDDIT_COMMENTS, OLD_LINK_CHOICES, REDDIT_COMMENT_CHOICES, isKeyKind, KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, SAVE_LOCAL_PART, type FileFilter, type KeyMark, type SaveAddressInfo } from '@newsletterapp/shared';
 import type {
   Platform,
   AiMode,
@@ -65,6 +65,7 @@ import { registerHighlights } from './highlights';
 import { registerHighlightPages } from './highlight-pages';
 import { registerWebSearch } from './websearch';
 import { registerReading } from './reading';
+import { applyDepthEvent, depthBySource, registerDepth } from './depth';
 import type { AppVariables, Env } from './env';
 import { newId, now, slugify } from './ids';
 import { categoryFromRules, quickSummary } from './quick';
@@ -117,6 +118,7 @@ registerExport(app);
 registerUsage(app);
 registerBacklog(app);
 registerReading(app);
+registerDepth(app);
 registerPcHolds(app);
 registerTopics(app);
 registerTagList(app);
@@ -695,7 +697,7 @@ app.post('/api/items/:id/unsubscribe', async (c) => {
   return c.json(result);
 });
 
-type ItemAction = 'read' | 'unread' | 'save' | 'unsave' | 'interesting' | 'uninteresting' | 'archive' | 'unarchive';
+type ItemAction = 'read' | 'unread' | 'save' | 'unsave' | 'interesting' | 'uninteresting' | 'archive' | 'unarchive' | 'not_interested' | 'interested';
 // ?1 is the current time, ?2 the item id.
 const ITEM_ACTIONS: Record<ItemAction, { sql: string; event: ReadingEventType | null }> = {
   read: { sql: 'SELECT 1 WHERE ?1 > 0 AND ?2 != ?2', event: 'mark_read' }, // handled by markRead below
@@ -706,6 +708,14 @@ const ITEM_ACTIONS: Record<ItemAction, { sql: string; event: ReadingEventType | 
   uninteresting: { sql: 'UPDATE items SET interesting_at = NULL WHERE id = ?2 AND ?1 > 0', event: 'uninteresting' },
   archive: { sql: "UPDATE items SET status = 'archived', archived_at = ?1 WHERE id = ?2 AND status = 'inbox'", event: 'archive' },
   unarchive: { sql: "UPDATE items SET status = 'inbox', archived_at = NULL WHERE id = ?2 AND ?1 > 0 AND status = 'archived'", event: 'unarchive' },
+  // Not interested is a read with its own "how": read_via = 'not_interested' (marked read now if it wasn't).
+  // Undo turns it back into a plain read.
+  not_interested: { sql: "UPDATE items SET read_at = COALESCE(read_at, ?1), read_via = 'not_interested' WHERE id = ?2", event: 'not_interested' },
+  interested: {
+    sql: `UPDATE items SET read_via = CASE WHEN EXISTS (SELECT 1 FROM item_reads WHERE item_id = ?2 AND read_secs > 0) THEN 'reader' ELSE 'swipe' END
+          WHERE id = ?2 AND ?1 > 0 AND read_via = 'not_interested'`,
+    event: 'interested',
+  },
 };
 
 /** Marks the listed items read (as "bulk") or unread again, e.g. the inbox's "Mark these read" and its Undo. */
@@ -735,6 +745,7 @@ app.post('/api/items/:id/:action', async (c) => {
     const input = (await c.req.json().catch(() => null)) as ReadingEventInput | null;
     if (!input?.type) return c.json({ error: 'type required' }, 400);
     await logEvent(c.env, id, input.type, input.value, input.device);
+    await applyDepthEvent(c.env, id, input.type, input.value);
     if (input.type === 'link_click' && typeof input.url === 'string') {
       await recordLinkClick(c.env, id, input.url.slice(0, 2000)).catch((err: unknown) => console.error('link click not recorded', err));
     }
@@ -749,6 +760,10 @@ app.post('/api/items/:id/:action', async (c) => {
     await markRead(c.env, [id], 'swipe', deviceOf(c, body?.device));
   } else {
     await c.env.DB.prepare(def.sql).bind(now(), id).run();
+    if (action === 'not_interested') {
+      const body = (await c.req.json().catch(() => null)) as { device?: unknown } | null;
+      await c.env.DB.prepare('UPDATE items SET read_device = COALESCE(read_device, ?) WHERE id = ?').bind(deviceOf(c, body?.device), id).run();
+    }
   }
   if (def.event) await logEvent(c.env, id, def.event);
   const item = await loadItem(c.env, id);
@@ -979,21 +994,16 @@ async function backfillPictures(env: Env, sourceId: string) {
   if (jobs.length) await env.DB.batch(jobs);
 }
 
-// Items, reads and stars per source over the last 90 days: one grouped read of
-// those 90 days' items, only when Your sources or a source page is open.
+// Items, reads (looked at, not just swiped), stars and how far you went with them,
+// per source over the last 90 days: one grouped read of those 90 days' items,
+// only when Your sources, a source page or Statistics is open.
 app.get('/api/sources/activity', async (c) => {
   const t = now();
   const from = t - 90 * 86_400_000;
-  const [rows, created] = await Promise.all([
-    c.env.DB.prepare(
-      `SELECT source_id, COUNT(*) AS items, SUM(read_at IS NOT NULL) AS reads, SUM(interesting_at IS NOT NULL) AS stars, MIN(received_at) AS first
-       FROM items WHERE status IN ('inbox', 'archived') AND received_at >= ? AND source_id IS NOT NULL GROUP BY source_id`,
-    )
-      .bind(from)
-      .all<{ source_id: string; items: number; reads: number | null; stars: number | null; first: number }>(),
+  const [byId, created] = await Promise.all([
+    depthBySource(c.env, from, t),
     c.env.DB.prepare('SELECT id, created_at FROM sources').all<{ id: string; created_at: number }>(),
   ]);
-  const byId = new Map(rows.results.map((r) => [r.source_id, r]));
   const out: SourceActivity[] = created.results.map((s) => {
     const r = byId.get(s.id);
     return {
@@ -1003,6 +1013,7 @@ app.get('/api/sources/activity', async (c) => {
       items: r?.items ?? 0,
       reads: r?.reads ?? 0,
       stars: r?.stars ?? 0,
+      depth: r?.depth ?? emptyDepth(),
     };
   });
   return c.json(out);
