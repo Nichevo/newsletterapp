@@ -8,6 +8,11 @@ import {
   TEXT_SIZES,
   getHideSponsored,
   getSwipeReadSide,
+  getLongSwipePx,
+  setLongSwipePx,
+  LONG_SWIPE_MIN,
+  LONG_SWIPE_MAX,
+  LONG_SWIPE_DEFAULT,
   getNotesPlace,
   setNotesPlace,
   type NotesPlace,
@@ -419,6 +424,7 @@ function ReadingSection() {
   const [speed, setSpeed] = useState(getReadingSpeed());
   const [hideSponsored, setHide] = useState(getHideSponsored());
   const [swipeRead, setSwipeRead] = useState<SwipeReadSide>(getSwipeReadSide());
+  const [longPx, setLongPx] = useState(getLongSwipePx());
   const [notesPlace, setNotesPlaceState] = useState<NotesPlace>(getNotesPlace());
   const density = useDensity();
   const opts = useViewOptions();
@@ -550,6 +556,43 @@ function ReadingSection() {
             ))}
           </div>
           <span className="hint">The other way saves the item for later.</span>
+        </div>
+        <div className="field">
+          <label className="label" htmlFor="long-swipe">
+            Long swipe distance: <b>{longPx} px</b>
+            <Help topic="swipe" />
+          </label>
+          <input
+            id="long-swipe"
+            type="range"
+            min={LONG_SWIPE_MIN}
+            max={LONG_SWIPE_MAX}
+            step={5}
+            value={longPx}
+            onChange={(e) => {
+              const px = Number(e.target.value);
+              setLongPx(px);
+              setLongSwipePx(px);
+            }}
+          />
+          <span className="hint">
+            How far you pull before it switches to Not interested (read side) or Star and read (save side). A normal swipe counts at about 90 px. Kept on this
+            device.
+            {longPx !== LONG_SWIPE_DEFAULT && (
+              <>
+                {' '}
+                <button
+                  className="linkbtn"
+                  onClick={() => {
+                    setLongPx(LONG_SWIPE_DEFAULT);
+                    setLongSwipePx(LONG_SWIPE_DEFAULT);
+                  }}
+                >
+                  Back to {LONG_SWIPE_DEFAULT} px
+                </button>
+              </>
+            )}
+          </span>
         </div>
         {(['reddit', 'youtube'] as AppSite[]).map((site) => (
           <OpenInPicker key={site} site={site} />
