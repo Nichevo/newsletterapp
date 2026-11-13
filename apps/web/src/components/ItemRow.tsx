@@ -15,9 +15,8 @@ const PLATFORM_CHIP = { reddit: 'Reddit', youtube: 'YouTube', github: 'GitHub' }
 
 const THRESHOLD = 88; // px of travel before a swipe counts
 const MAX = 120;
-/** A side with a long swipe goes further: past this share of the row's width (at least LONG_MIN px) it does the long action. */
-const LONG_SHARE = 0.36;
-const LONG_MIN = 140;
+/** A side with a long swipe goes further: past this many px it does the long action (same on every screen width). */
+const LONG_AT = 130;
 
 /** What a swipe to one side does: the handler, its label and which look it gets. */
 export interface SwipeAction {
@@ -59,15 +58,13 @@ export function ItemRow({
   const start = useRef<{ x: number; y: number; id: number } | null>(null);
   const axis = useRef<'x' | 'y' | null>(null);
   const moved = useRef(false);
-  const width = useRef(400);
-  const longAt = () => Math.max(LONG_MIN, width.current * LONG_SHARE);
+  const longAt = () => LONG_AT;
   const sideOf = (d: number) => (d < 0 ? left : right);
   const isLong = (d: number) => Boolean(sideOf(d).long) && Math.abs(d) >= longAt();
 
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     start.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
-    width.current = e.currentTarget.getBoundingClientRect().width || 400;
     axis.current = null;
     moved.current = false;
     setSnapping(false);
