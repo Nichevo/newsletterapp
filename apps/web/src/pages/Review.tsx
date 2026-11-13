@@ -74,6 +74,13 @@ export function ReviewPage({ on }: { on: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
   const [showEarlier, setShowEarlier] = useState(false);
+  // After Done: a short line at the bottom with Undo, while the next review (or the caught-up screen) shows.
+  const [toast, setToast] = useState<{ text: string; id: string } | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [toast]);
 
   const loadList = () =>
     api
@@ -85,8 +92,9 @@ export function ReviewPage({ on }: { on: boolean }) {
     void loadList();
   }, []);
 
-  // Which review to show: the one in the address, else the newest one not yet done, else the newest.
-  const currentId = id ?? list?.find((r) => !r.readAt)?.id ?? list?.[0]?.id ?? null;
+  // Which review to show: the one in the address, else the newest one not yet done.
+  // When every review is done, /review shows the caught-up screen with the past reviews.
+  const currentId = id ?? list?.find((r) => !r.readAt)?.id ?? null;
   useEffect(() => {
     if (!currentId) return;
     let alive = true;
@@ -147,6 +155,21 @@ export function ReviewPage({ on }: { on: boolean }) {
 
   const kind = shown?.kind ?? 'week';
   const earlier = (list ?? []).filter((r) => r.kind === kind && r.id !== currentId);
+  const caughtUp = !id && list !== null && list.length > 0 && !currentId;
+
+  /** Done slid the review away: go on to the next one not yet done, or the caught-up screen. */
+  function afterDone(r: Review, note: string) {
+    setToast({ text: note, id: r.id });
+    void loadList();
+    navigate('/review', { replace: !!id });
+  }
+
+  async function undo(reviewId: string) {
+    setToast(null);
+    await api.reviewUndone(reviewId);
+    await loadList();
+    navigate(`/review/${reviewId}`);
+  }
 
   return (
     <div className="page">
@@ -163,7 +186,7 @@ export function ReviewPage({ on }: { on: boolean }) {
                   key={k}
                   aria-pressed={kind === k}
                   onClick={() => {
-                    const r = list?.find((x) => x.kind === k);
+                    const r = list?.find((x) => x.kind === k && !x.readAt) ?? list?.find((x) => x.kind === k);
                     if (r) navigate(`/review/${r.id}`);
                   }}
                 >
@@ -178,10 +201,10 @@ export function ReviewPage({ on }: { on: boolean }) {
         </div>
       </header>
 
-      {earlier.length > 0 && (
+      {!caughtUp && earlier.length > 0 && (
         <div className="tabs">
           <button className="pill" aria-pressed={!showEarlier} onClick={() => setShowEarlier((v) => !v)}>
-            {showEarlier ? 'Hide earlier reviews' : `Earlier reviews (${earlier.length})`}
+            {showEarlier ? 'Hide past reviews' : `Past reviews (${earlier.length})`}
           </button>
           {showEarlier &&
             earlier.map((r) => (
@@ -202,12 +225,54 @@ export function ReviewPage({ on }: { on: boolean }) {
         </div>
       )}
       {currentId && !shown && !error && list && list.length > 0 && <div className="spinner">Loading…</div>}
-      {shown && <ReviewView review={shown} onChange={setReview} onDone={() => void loadList()} />}
+      {caughtUp && list && (
+        <div className="rv-caught">
+          <div className="empty">
+            <h2>All caught up</h2>
+            <p>Every review is done. The next weekly review is built on the day and hour set in Settings › Reviews.</p>
+          </div>
+          <h2 className="rv-h">
+            <span>Past reviews</span>
+          </h2>
+          <ul className="rv-past">
+            {list.map((r) => (
+              <li key={r.id}>
+                <Link to={`/review/${r.id}`}>
+                  <span className="rv-past__label">{r.label}</span>
+                  <span className="rv-past__kind">{r.kind === 'month' ? 'Month' : 'Week'}</span>
+                  <span className="rv-past__state">{r.readAt ? 'Done' : r.status === 'done' ? 'Not done' : 'Being written'}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {shown && <ReviewView key={shown.id} review={shown} onChange={setReview} onDone={() => void loadList()} onFinished={afterDone} />}
+      {toast && (
+        <div className="toast" role="status">
+          {toast.text}
+          <button className="toast__undo" onClick={() => void undo(toast.id)}>
+            Undo
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-function ReviewView({ review, onChange, onDone }: { review: Review; onChange: (r: Review) => void; onDone: () => void }) {
+function ReviewView({
+  review,
+  onChange,
+  onDone,
+  onFinished,
+}: {
+  review: Review;
+  onChange: (r: Review) => void;
+  onDone: () => void;
+  /** Called once the review has slid away after Done. */
+  onFinished: (r: Review, note: string) => void;
+}) {
+  const [leaving, setLeaving] = useState(false);
   const navigate = useNavigate();
   const p = review.pack;
   const w = review.written;
@@ -244,9 +309,13 @@ function ReviewView({ review, onChange, onDone }: { review: Review; onChange: (r
   async function done() {
     try {
       const r = await api.reviewDone(review.id, markRead === true);
-      setNote(r.itemsRead > 0 ? `Done. ${r.itemsRead} item${r.itemsRead === 1 ? '' : 's'} marked read.` : 'Done.');
-      onChange({ ...review, readAt: r.readAt });
-      onDone();
+      const note = r.itemsRead > 0 ? `Review done. ${r.itemsRead} item${r.itemsRead === 1 ? '' : 's'} marked read.` : 'Review done.';
+      const finished = { ...review, readAt: r.readAt };
+      // Slide it away, then move on. With reduced motion the CSS skips the slide.
+      setLeaving(true);
+      window.scrollTo({ top: 0 });
+      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      window.setTimeout(() => onFinished(finished, note), reduce ? 0 : 320);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not mark it done');
     }
