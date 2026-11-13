@@ -1,4 +1,4 @@
-import type { Me } from '@newsletterapp/shared';
+import { NO_STATUS, type Counts, type Me } from '@newsletterapp/shared';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError, api } from './api';
@@ -34,22 +34,18 @@ import { StoriesPage, StoryPagePage } from './pages/Story';
 import { StoryStatsPage } from './pages/StoryStats';
 import { LinkPage, StudiesPage, StudyPage } from './pages/Studies';
 import { KeyStatsPage } from './pages/KeyStats';
+import { StatusIncidentPagePage, StatusPage } from './pages/Status';
+import { StatusSettingsPage } from './pages/StatusSettings';
 
 // The Topics map pulls in the chart layout code, so it loads only when opened.
 const TopicsPage = lazy(() => import('./pages/Topics').then((m) => ({ default: m.TopicsPage })));
 
-export interface Counts {
-  inbox: number;
-  unread: number;
-  saved: number;
-  interesting: number;
-  pendingSenders: number;
-}
+export type { Counts };
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [authError, setAuthError] = useState<ApiError | null>(null);
-  const [counts, setCounts] = useState<Counts>({ inbox: 0, unread: 0, saved: 0, interesting: 0, pendingSenders: 0 });
+  const [counts, setCounts] = useState<Counts>({ inbox: 0, unread: 0, saved: 0, interesting: 0, pendingSenders: 0, status: NO_STATUS });
   const location = useLocation();
 
   const refreshCounts = useCallback(() => {
@@ -151,6 +147,9 @@ export default function App() {
           }
         />
         <Route path="/tags" element={<TagsPage />} />
+        <Route path="/status" element={<StatusPage onChanged={refreshCounts} />} />
+        <Route path="/status/:id" element={<StatusIncidentPagePage />} />
+        <Route path="/settings/status" element={<StatusSettingsPage onChanged={refreshCounts} />} />
         <Route path="/story/:id" element={<StoryPagePage />} />
         <Route path="/studies" element={<StudiesPage />} />
         <Route path="/study/:id" element={<StudyPage />} />

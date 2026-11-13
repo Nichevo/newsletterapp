@@ -1,4 +1,9 @@
 import type {
+  Counts,
+  StatusIncidentPage,
+  StatusSettings,
+  StatusSettingsView,
+  StatusView,
   FetchPageStatus,
   SavePageResult,
   SearchResponse,
@@ -118,7 +123,18 @@ const post = <T>(path: string, body?: unknown) =>
 
 export const api = {
   me: () => get<Me>('/api/me'),
-  counts: () => get<{ inbox: number; unread: number; saved: number; interesting: number; pendingSenders: number }>('/api/counts'),
+  counts: () => get<Counts>('/api/counts'),
+
+  // System status (service status pages)
+  status: () => get<StatusView>('/api/status'),
+  statusCheck: () => post<StatusView>('/api/status/check'),
+  statusIncident: (id: string) => get<StatusIncidentPage>(`/api/status/incidents/${encodeURIComponent(id)}`),
+  statusSettings: () => get<StatusSettingsView>('/api/status/settings'),
+  saveStatusSettings: (patch: Partial<StatusSettings>) => put<StatusSettingsView>('/api/status/settings', patch),
+  updateStatusService: (id: string, patch: { enabled?: boolean; only?: string[]; name?: string }) =>
+    put<StatusSettingsView>(`/api/status/services/${encodeURIComponent(id)}`, patch),
+  addStatusService: (name: string, url: string) => post<StatusSettingsView>('/api/status/services', { name, url }),
+  removeStatusService: (id: string) => request<StatusSettingsView>(`/api/status/services/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   listItems: (params: {
     view: ItemView;

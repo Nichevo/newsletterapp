@@ -13,7 +13,8 @@ import { FilterBar, type Filters } from '../components/FilterBar';
 import { ItemRow, type RowGroup, type SwipeAction } from '../components/ItemRow';
 import { getSwipeReadSide, setViewOptions } from '../prefs';
 import { todayLabel } from '../format';
-import { IconPlus, IconRefresh, IconSearch, IconSparkle } from '../icons';
+import { IconPlus, IconPulse, IconRefresh, IconSearch, IconSparkle } from '../icons';
+import { StatusDot, statusButtonLabel } from './Status';
 
 const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'interesting', 'likely', 'archived'];
 
@@ -367,6 +368,12 @@ export function InboxPage({
           <button className="iconbtn" aria-label="Refresh" onClick={() => void load(false)}>
             <IconRefresh />
           </button>
+          {mode === 'inbox' && counts.status.level !== 'off' && (
+            <Link to="/status" className="iconbtn statusbtn" aria-label={statusButtonLabel(counts.status)} title={statusButtonLabel(counts.status)}>
+              <IconPulse />
+              <StatusDot level={counts.status.level} />
+            </Link>
+          )}
           <Link to="/search" className="iconbtn" aria-label="Search" title="Search">
             <IconSearch />
           </Link>
@@ -392,6 +399,22 @@ export function InboxPage({
         saved={mode === 'inbox' ? (savedFilters ?? undefined) : undefined}
         onSaved={mode === 'inbox' && savedFilters ? (list) => void storeFilters(list) : undefined}
       />
+
+      {mode === 'inbox' && counts.status.banner && counts.status.open > 0 && counts.status.top && (
+        <Link to="/status" className={`notice notice--status notice--${counts.status.level}`}>
+          <div className="notice__text">
+            <span className="notice__title">
+              {counts.status.open === 1
+                ? `${counts.status.top.service}: ${counts.status.level === 'major' ? 'outage' : 'problem'}`
+                : `${counts.status.open} services have problems`}
+            </span>
+            <span className="notice__sub">
+              {counts.status.open === 1 ? counts.status.top.title : `Newest: ${counts.status.top.service}, ${counts.status.top.title}`}
+            </span>
+          </div>
+          <span className="btn btn--small">Status</span>
+        </Link>
+      )}
 
       {mode === 'inbox' && counts.pendingSenders > 0 && (
         <Link to="/senders" className="notice notice--amber">

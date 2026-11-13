@@ -158,3 +158,8 @@ export const IconSearch = (p: Props) => (
     <path d="M16 16l4.5 4.5" />
   </svg>
 );
+export const IconPulse = (p: Props) => (
+  <svg {...base(p)}>
+    <path d="M3 12h4l2-5 4 10 2-5h6" />
+  </svg>
+);

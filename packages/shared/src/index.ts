@@ -11,7 +11,9 @@ export * from './highlights';
 export * from './files';
 export * from './keysentences';
 export * from './reviews';
+export * from './status';
 import { DEFAULT_REVIEW_SETTINGS, type ReviewSettings } from './reviews';
+import type { StatusSummary } from './status';
 
 /** 'ai' = an article written by the AI from a highlight (the "AI notes" source). */
 export type ItemKind = 'newsletter' | 'feed' | 'site' | 'ai';
@@ -614,6 +616,17 @@ export interface ReadingEventInput {
   device?: 'phone' | 'desktop';
   /** link_click: the link that was tapped (its site counts towards feed suggestions). */
   url?: string;
+}
+
+/** The numbers the inbox and tab bar show, read in one go. */
+export interface Counts {
+  inbox: number;
+  unread: number;
+  saved: number;
+  interesting: number;
+  pendingSenders: number;
+  /** System status: what the inbox's Status button and banner show. */
+  status: StatusSummary;
 }
 
 export interface Me {

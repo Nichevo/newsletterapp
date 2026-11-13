@@ -125,6 +125,7 @@ export function SettingsPage({
             title="PC helper and AI"
             sub="What gets summarised, models, prompts, highlight prompts, web search, usage limits and cost"
           />
+          <MenuRow to="/settings/status" title="System status" sub="Status pages for Apple, Google, Microsoft and more; the inbox's Status button and banner" />
           <MenuRow to="/tags" title="All tags" sub="Every AI tag with how many items carry it; search, sort and open a tag's page" />
           <MenuRow to="/stats" title="Statistics" sub="What arrives and what you read; how the AI summaries are doing" />
           <MenuRow to="/settings/export" title="Backup and export" sub="Your feeds as OPML, newsletters as CSV, or everything as JSON" />
