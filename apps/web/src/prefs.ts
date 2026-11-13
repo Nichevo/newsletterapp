@@ -61,6 +61,20 @@ export function setSwipeReadSide(side: SwipeReadSide) {
   write('inbox:swipeReadSide', side);
 }
 
+/** How far (px) a pull goes before it switches to the long swipe (Not interested / star and read), on this device. */
+export const LONG_SWIPE_MIN = 105;
+export const LONG_SWIPE_MAX = 260;
+export const LONG_SWIPE_DEFAULT = 130;
+
+export function getLongSwipePx(): number {
+  const n = Number(read('inbox:longSwipePx'));
+  return Number.isFinite(n) && n >= LONG_SWIPE_MIN && n <= LONG_SWIPE_MAX ? n : LONG_SWIPE_DEFAULT;
+}
+
+export function setLongSwipePx(px: number) {
+  write('inbox:longSwipePx', String(Math.round(Math.min(LONG_SWIPE_MAX, Math.max(LONG_SWIPE_MIN, px)))));
+}
+
 /** Reading speed for the minutes shown on items, on this device. */
 export const READING_SPEEDS = [180, 230, 300, 400] as const;
 

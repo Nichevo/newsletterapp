@@ -7,7 +7,7 @@ import { useDensity, useViewOptions } from './DensityToggle';
 import { TagChip } from './TagChip';
 import { keysShown, kindDot } from '../keySentences';
 import { readingMinutes, shortTime } from '../format';
-import { setViewOptions } from '../prefs';
+import { getLongSwipePx, setViewOptions } from '../prefs';
 import { IconBookmark, IconCheck, IconHighlight, IconSparkle } from '../icons';
 
 const KIND_CHIP: Record<ItemSummary['kind'], string> = { newsletter: 'Newsletter', feed: 'Feed', site: 'Site', ai: 'AI note' };
@@ -15,8 +15,6 @@ const PLATFORM_CHIP = { reddit: 'Reddit', youtube: 'YouTube', github: 'GitHub' }
 
 const THRESHOLD = 88; // px of travel before a swipe counts
 const MAX = 120;
-/** A side with a long swipe goes further: past this many px it does the long action (same on every screen width). */
-const LONG_AT = 130;
 
 /** What a swipe to one side does: the handler, its label and which look it gets. */
 export interface SwipeAction {
@@ -58,7 +56,8 @@ export function ItemRow({
   const start = useRef<{ x: number; y: number; id: number } | null>(null);
   const axis = useRef<'x' | 'y' | null>(null);
   const moved = useRef(false);
-  const longAt = () => LONG_AT;
+  // A side with a long swipe goes further: past this many px (Settings > Reading, on this device) it does the long action.
+  const longAt = () => getLongSwipePx();
   const sideOf = (d: number) => (d < 0 ? left : right);
   const isLong = (d: number) => Boolean(sideOf(d).long) && Math.abs(d) >= longAt();
 
