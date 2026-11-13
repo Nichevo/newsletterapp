@@ -3956,3 +3956,84 @@ a.chip { text-decoration: none; }
   overflow-wrap: anywhere;
   font-size: 14.5px;
 }
+
+/* Review: Done slides the review away; past reviews of the same kind; unread dot on Week/Month */
+.rv {
+  transition:
+    transform 0.3s ease-in,
+    opacity 0.3s ease-in;
+}
+
+.rv--leaving {
+  transform: translateX(-60%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rv {
+    transition: none;
+  }
+}
+
+.rv-pick {
+  position: relative;
+}
+
+.rv-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber-ink);
+}
+
+.rv-past {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.rv-past li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.rv-past li:first-child {
+  border-top: 0;
+}
+
+.rv-past a {
+  color: var(--teal-ink);
+  font-weight: 600;
+  min-width: 0;
+}
+
+.rv-past__state {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--teal-tint);
+  color: var(--teal-ink);
+}
+
+.rv-past__state--new {
+  background: var(--amber-tint);
+  color: var(--amber-ink);
+}
+
+.rv-caught .empty {
+  padding-bottom: 8px;
+}

@@ -9,8 +9,9 @@ import type {
   ReviewSourceChange,
   ReviewSourceRow,
   WebSearchView,
+  AppSettings,
 } from '@newsletterapp/shared';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { Arcs, LineChart, Movers, PairBars, Spark } from '../components/ReviewCharts';
@@ -66,14 +67,31 @@ const vsUsual = (now: number, usual: number) => {
 const weekTick = (at: number) => new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 const monthTick = (at: number) => new Date(at + 15 * 86_400_000).toLocaleDateString(undefined, { month: 'short' });
 
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const hourText = (h: number) => `${((h + 11) % 12) + 1} ${h < 12 ? 'am' : 'pm'}`;
+
+/** "Sunday at 6 pm" / "1 December at 6 pm": when the next review of this kind is built. */
+function nextBuild(kind: ReviewKind, settings: AppSettings | null): string | null {
+  const r = settings?.reviews;
+  if (!r) return null;
+  if (kind === 'week') return r.weekly ? `${WEEKDAYS[r.weekDay] ?? 'Sunday'} at ${hourText(r.hour)}` : null;
+  if (!r.monthly) return null;
+  const now = new Date();
+  const month = new Date(now.getFullYear(), now.getMonth() + 1, 1).toLocaleDateString(undefined, { month: 'long' });
+  return `1 ${month} at ${hourText(r.hour)}`;
+}
+
 export function ReviewPage({ on }: { on: boolean }) {
-  const { id } = useParams<{ id?: string }>();
+  // The address is /review, /review/week, /review/month or /review/<id>.
+  const { id: param } = useParams<{ id?: string }>();
+  const kindParam: ReviewKind | null = param === 'week' || param === 'month' ? param : null;
+  const id = param && !kindParam ? param : undefined;
   const navigate = useNavigate();
   const [list, setList] = useState<ReviewListItem[] | null>(null);
   const [review, setReview] = useState<Review | null>(null);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
-  const [showEarlier, setShowEarlier] = useState(false);
   // After Done: a short line at the bottom with Undo, while the next review (or the caught-up screen) shows.
   const [toast, setToast] = useState<{ text: string; id: string } | null>(null);
   useEffect(() => {
@@ -90,11 +108,19 @@ export function ReviewPage({ on }: { on: boolean }) {
 
   useEffect(() => {
     void loadList();
+    void api
+      .settings()
+      .then(setSettings)
+      .catch(() => undefined);
   }, []);
 
-  // Which review to show: the one in the address, else the newest one not yet done.
-  // When every review is done, /review shows the caught-up screen with the past reviews.
-  const currentId = id ?? list?.find((r) => !r.readAt)?.id ?? null;
+  const unread = (k: ReviewKind) => list?.find((r) => r.kind === k && !r.readAt) ?? null;
+  // Weekly and monthly are kept apart: each has its own next review and its own past list.
+  // Plain /review opens whichever has something unread, the week first.
+  const fromId = id ? (list?.find((r) => r.id === id)?.kind ?? review?.kind ?? null) : null;
+  const kind: ReviewKind = kindParam ?? fromId ?? (unread('week') ? 'week' : unread('month') ? 'month' : 'week');
+  const currentId = id ?? unread(kind)?.id ?? null;
+
   useEffect(() => {
     if (!currentId) return;
     let alive = true;
@@ -117,14 +143,14 @@ export function ReviewPage({ on }: { on: boolean }) {
     };
   }, [currentId]);
 
-  const kinds = new Set(list?.map((r) => r.kind));
+  const monthlyOn = settings?.reviews.monthly === true || (list?.some((r) => r.kind === 'month') ?? false);
   const shown = review && review.id === currentId ? review : null;
 
-  async function build(kind: ReviewKind) {
+  async function build(k: ReviewKind) {
     setBuilding(true);
     setError(null);
     try {
-      const r = await api.buildReview(kind);
+      const r = await api.buildReview(k);
       await loadList();
       setReview(r);
       navigate(`/review/${r.id}`);
@@ -153,15 +179,19 @@ export function ReviewPage({ on }: { on: boolean }) {
     );
   }
 
-  const kind = shown?.kind ?? 'week';
-  const earlier = (list ?? []).filter((r) => r.kind === kind && r.id !== currentId);
-  const caughtUp = !id && list !== null && list.length > 0 && !currentId;
+  const ofKind = (list ?? []).filter((r) => r.kind === kind);
+  const past = ofKind.filter((r) => r.id !== currentId);
+  const caughtUp = !id && list !== null && !currentId;
+  const next = nextBuild(kind, settings);
+  const noun = kind === 'month' ? 'monthly' : 'weekly';
 
-  /** Done slid the review away: go on to the next one not yet done, or the caught-up screen. */
+  /** Done slid the review away: go on to the next one of the same kind, or its caught-up screen. */
   function afterDone(r: Review, note: string) {
+    window.scrollTo({ top: 0 });
     setToast({ text: note, id: r.id });
+    setList((l) => l?.map((x) => (x.id === r.id ? { ...x, readAt: r.readAt } : x)) ?? l);
     void loadList();
-    navigate('/review', { replace: !!id });
+    navigate(`/review/${r.kind}`, { replace: true });
   }
 
   async function undo(reviewId: string) {
@@ -171,26 +201,38 @@ export function ReviewPage({ on }: { on: boolean }) {
     navigate(`/review/${reviewId}`);
   }
 
+  const pastList = past.length > 0 && (
+    <section className="rv-sec">
+      <h2 className="rv-h">
+        <span>Past {noun} reviews</span>
+      </h2>
+      <ul className="rv-past">
+        {past.map((r) => (
+          <li key={r.id}>
+            <Link to={`/review/${r.id}`}>{r.label}</Link>
+            <span className={`rv-past__state${r.readAt ? '' : ' rv-past__state--new'}`}>
+              {r.readAt ? 'Done' : r.status === 'done' ? 'Not read' : 'Being written'}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+
   return (
     <div className="page">
       <header className="topbar">
         <div className="topbar__titles">
           <h1>{kind === 'month' ? 'Your month' : 'Your week'}</h1>
-          {shown && <span className="topbar__eyebrow">{shown.pack.label}</span>}
+          <span className="topbar__eyebrow">{shown ? shown.pack.label : caughtUp && list ? 'All caught up' : ''}</span>
         </div>
         <div className="rv-top">
-          {kinds.size > 1 && (
+          {monthlyOn && (
             <div className="segmented segmented--small" role="group" aria-label="Weekly or monthly">
               {(['week', 'month'] as const).map((k) => (
-                <button
-                  key={k}
-                  aria-pressed={kind === k}
-                  onClick={() => {
-                    const r = list?.find((x) => x.kind === k && !x.readAt) ?? list?.find((x) => x.kind === k);
-                    if (r) navigate(`/review/${r.id}`);
-                  }}
-                >
+                <button key={k} aria-pressed={kind === k} onClick={() => navigate(`/review/${k}`)} className="rv-pick">
                   {k === 'week' ? 'Week' : 'Month'}
+                  {k !== kind && unread(k) && <i className="rv-dot" aria-label="not read yet" />}
                 </button>
               ))}
             </div>
@@ -201,53 +243,33 @@ export function ReviewPage({ on }: { on: boolean }) {
         </div>
       </header>
 
-      {!caughtUp && earlier.length > 0 && (
-        <div className="tabs">
-          <button className="pill" aria-pressed={!showEarlier} onClick={() => setShowEarlier((v) => !v)}>
-            {showEarlier ? 'Hide past reviews' : `Past reviews (${earlier.length})`}
-          </button>
-          {showEarlier &&
-            earlier.map((r) => (
-              <button key={r.id} className="pill" onClick={() => navigate(`/review/${r.id}`)}>
-                {r.label}
-                {r.readAt ? ' ✓' : ''}
-              </button>
-            ))}
-        </div>
-      )}
-
       {error && <div className="error">{error}</div>}
       {list === null && !error && <div className="spinner">Loading…</div>}
-      {list && list.length === 0 && (
-        <div className="empty">
-          <h2>No review yet</h2>
-          <p>The weekly review is built on the day and hour set in Settings › Reviews. Tap “Build now” for one covering the last 7 days.</p>
-        </div>
-      )}
-      {currentId && !shown && !error && list && list.length > 0 && <div className="spinner">Loading…</div>}
-      {caughtUp && list && (
-        <div className="rv-caught">
+      {currentId && !shown && !error && list && <div className="spinner">Loading…</div>}
+      {caughtUp && (
+        <div className="rv rv-caught">
           <div className="empty">
-            <h2>All caught up</h2>
-            <p>Every review is done. The next weekly review is built on the day and hour set in Settings › Reviews.</p>
+            {ofKind.length > 0 ? (
+              <>
+                <h2>All caught up</h2>
+                <p>{next ? `Next ${noun} review: ${next}.` : `Every ${noun} review is done.`}</p>
+              </>
+            ) : (
+              <>
+                <h2>No {noun} review yet</h2>
+                <p>
+                  {next ? `The first one is built ${next}.` : `${kind === 'month' ? 'Monthly' : 'Weekly'} reviews are off in Settings › Reviews.`} Tap “Build
+                  now” for one covering the {kind === 'month' ? 'last month' : 'last 7 days'}.
+                </p>
+              </>
+            )}
           </div>
-          <h2 className="rv-h">
-            <span>Past reviews</span>
-          </h2>
-          <ul className="rv-past">
-            {list.map((r) => (
-              <li key={r.id}>
-                <Link to={`/review/${r.id}`}>
-                  <span className="rv-past__label">{r.label}</span>
-                  <span className="rv-past__kind">{r.kind === 'month' ? 'Month' : 'Week'}</span>
-                  <span className="rv-past__state">{r.readAt ? 'Done' : r.status === 'done' ? 'Not done' : 'Being written'}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          {pastList}
         </div>
       )}
-      {shown && <ReviewView key={shown.id} review={shown} onChange={setReview} onDone={() => void loadList()} onFinished={afterDone} />}
+      {shown && (
+        <ReviewView key={shown.id} review={shown} onChange={setReview} onDone={() => void loadList()} onFinished={afterDone} after={pastList || null} />
+      )}
       {toast && (
         <div className="toast" role="status">
           {toast.text}
@@ -265,12 +287,15 @@ function ReviewView({
   onChange,
   onDone,
   onFinished,
+  after,
 }: {
   review: Review;
   onChange: (r: Review) => void;
   onDone: () => void;
   /** Called once the review has slid away after Done. */
   onFinished: (r: Review, note: string) => void;
+  /** Shown under the review: the past reviews of this kind. */
+  after: ReactNode;
 }) {
   const [leaving, setLeaving] = useState(false);
   const navigate = useNavigate();
@@ -313,7 +338,6 @@ function ReviewView({
       const finished = { ...review, readAt: r.readAt };
       // Slide it away, then move on. With reduced motion the CSS skips the slide.
       setLeaving(true);
-      window.scrollTo({ top: 0 });
       const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       window.setTimeout(() => onFinished(finished, note), reduce ? 0 : 320);
     } catch (err) {
@@ -371,7 +395,7 @@ function ReviewView({
   ];
 
   return (
-    <div className="rv">
+    <div className={`rv${leaving ? ' rv--leaving' : ''}`}>
       {writing && (
         <p className="rv-status">
           {review.written.writtenAt ? 'The PC is looking up a few more things.' : 'The PC is writing this review. The charts and lists below are ready; its words and web findings fill in when it has.'}
@@ -806,6 +830,7 @@ function ReviewView({
           </>
         )}
       </section>
+      {after}
     </div>
   );
 }
