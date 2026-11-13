@@ -211,17 +211,19 @@ export function InboxPage({
     try {
       patch(await api.itemAction(item.id, 'read'));
       onChanged();
-      // A plain read and a clear "no" look the same as a swipe; one tap here tells them apart.
-      showToast('Marked read', undefined, 5000, { label: 'Not interested', run: () => void markNotInterested(item.id) });
     } catch {
       patch(item);
     }
   }
 
-  async function markNotInterested(id: string) {
+  /** The long read swipe: marks it read as Not interested, with Undo (back to a plain read). */
+  async function markNotInterested(item: ItemSummary) {
+    const id = item.id;
     setToast(null);
+    patch({ ...item, readAt: item.readAt ?? Date.now(), readVia: 'not_interested', notInterestedAt: Date.now() });
     try {
       patch(await api.itemAction(id, 'not_interested'));
+      onChanged();
       showToast('Marked not interested', () => {
         setToast(null);
         api
@@ -230,6 +232,7 @@ export function InboxPage({
           .catch(() => showToast('Could not undo'));
       });
     } catch {
+      patch(item);
       showToast('Could not mark it not interested');
     }
   }
@@ -304,12 +307,41 @@ export function InboxPage({
   const readSide = getSwipeReadSide();
   // On an item already read, the read swipe flips to Mark unread.
   const readAction = (item: ItemSummary): SwipeAction =>
-    item.readAt ? { run: markUnread, label: 'Mark unread', kind: 'read' } : { run: markRead, label: 'Mark read', kind: 'read' };
+    item.readAt
+      ? { run: markUnread, label: 'Mark unread', kind: 'read' }
+      : { run: markRead, label: 'Mark read', kind: 'read', long: { run: (i) => void markNotInterested(i), label: 'Not interested' } };
   const saveAction = (item: ItemSummary): SwipeAction => ({
     run: toggleSave,
     label: item.savedAt ? 'Remove from saved' : 'Save for later',
     kind: 'save',
+    ...(item.interestingAt ? {} : { long: { run: (i: ItemSummary) => void starAndRead(i), label: 'Star, read' } }),
   });
+
+  /** The long save swipe: stars it as Interesting and marks it read, with Undo. */
+  async function starAndRead(item: ItemSummary) {
+    const wasUnread = !item.readAt;
+    setToast(null);
+    patch({ ...item, interestingAt: Date.now(), readAt: item.readAt ?? Date.now() });
+    try {
+      await api.itemAction(item.id, 'interesting');
+      patch(wasUnread ? await api.itemAction(item.id, 'read') : await api.item(item.id));
+      onChanged();
+      showToast('Starred as Interesting and marked read', () => {
+        setToast(null);
+        api
+          .itemAction(item.id, 'uninteresting')
+          .then(() => (wasUnread ? api.itemAction(item.id, 'unread') : api.item(item.id)))
+          .then((i) => {
+            patch(i);
+            onChanged();
+          })
+          .catch(() => showToast('Could not undo'));
+      });
+    } catch {
+      patch(item);
+      showToast('Could not star it');
+    }
+  }
 
   async function toggleSave(item: ItemSummary) {
     const action = item.savedAt ? 'unsave' : 'save';

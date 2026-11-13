@@ -20,6 +20,8 @@
   --purple-ink: #4d3a8c;
   --swipe-read: #4a5259;
   --swipe-save: #0b6b66;
+  --swipe-long: #b4441a;
+  --swipe-star: #b26a12;
   /* Key sentence colours (the line colour; tints live with the marks in keySentences.ts). */
   --ks-main: #2f62c9;
   --ks-evidence: #1f8a46;
@@ -66,6 +68,8 @@
     --purple-ink: #c3b4f0;
     --swipe-read: #5b646c;
     --swipe-save: #0f7f79;
+    --swipe-long: #c2532a;
+    --swipe-star: #c27c1c;
     --ks-main: #7aa5ff;
     --ks-evidence: #6fd393;
     --ks-example: #b79cf5;
