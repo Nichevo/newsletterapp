@@ -61,6 +61,18 @@ export function setSwipeReadSide(side: SwipeReadSide) {
   write('inbox:swipeReadSide', side);
 }
 
+/** Reading speed for the minutes shown on items, on this device. */
+export const READING_SPEEDS = [180, 230, 300, 400] as const;
+
+export function getReadingSpeed(): number {
+  const n = Number(read('reader:wordsPerMinute'));
+  return (READING_SPEEDS as readonly number[]).includes(n) ? n : 230;
+}
+
+export function setReadingSpeed(wpm: number) {
+  write('reader:wordsPerMinute', String(wpm));
+}
+
 /** Where Live page opens Reddit and YouTube posts on Android: their app (the default) or the browser. */
 export type OpenIn = 'app' | 'browser';
 export type AppSite = 'reddit' | 'youtube';

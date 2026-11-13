@@ -4,7 +4,8 @@
 // where they sit on the page. Runs on the PC because reading a PDF takes far
 // more time than a free Cloudflare Worker gets.
 
-import { PDF_MAX_PAGES, articleText, countWords, type Article, type ArticleImage } from '@newsletterapp/shared';
+import { articleText, countWords, type Article, type ArticleImage } from '@newsletterapp/shared';
+import { pcLimits } from './limits';
 import { deflateSync } from 'node:zlib';
 import { getDocumentProxy, getResolvedPDFJS, renderPageAsImage } from 'unpdf';
 import { loadCanvas, type CanvasModule } from './canvas';
@@ -437,7 +438,7 @@ export async function pdfArticle(input: Uint8Array): Promise<Article & { pages: 
     const meta = await pdf.getMetadata().catch(() => null);
     const info = (meta?.info ?? {}) as Record<string, unknown>;
     const pageCount = pdf.numPages;
-    const upTo = Math.min(pageCount, PDF_MAX_PAGES);
+    const upTo = Math.min(pageCount, pcLimits.pdfMaxPages);
     const { OPS } = await getResolvedPDFJS();
     const ops = OPS as unknown as Record<string, number>;
 

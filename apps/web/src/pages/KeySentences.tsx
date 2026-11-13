@@ -1,6 +1,7 @@
 import type { KeyKind, KeySentenceSettings, ModelInfo } from '@newsletterapp/shared';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { getReadingSpeed } from '../prefs';
 import { api } from '../api';
 import { IconBack } from '../icons';
 import { kindDot } from '../keySentences';
@@ -119,7 +120,7 @@ export function KeySentencesPage({ onChange }: { onChange: (on: boolean) => void
                       onChange={(e) => setDraft((d) => ({ ...d, minWords: e.target.value.replace(/\D/g, '') }))}
                       onBlur={() => saveNumber('minWords', 'minWords')}
                     />
-                    <span className="hint">About {Math.max(1, Math.round(s.minWords / 230))} minutes of reading. Shorter ones can still be done from the reader.</span>
+                    <span className="hint">About {Math.max(1, Math.round(s.minWords / getReadingSpeed()))} minutes of reading. Shorter ones can still be done from the reader.</span>
                   </div>
                   {categories.length > 0 && (
                     <div className="field">

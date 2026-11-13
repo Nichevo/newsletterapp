@@ -1,5 +1,5 @@
 import { keysShown } from '../keySentences';
-import { MAX_REVIEW_SEARCHES, REVIEW_CHART_WEEKS, REVIEW_PARTS, type AppSettings, type Me, type ReviewKind, type ReviewQuality, type ReviewSettings, type Source, type SummaryKind } from '@newsletterapp/shared';
+import { AI_MAX_CHARS_CHOICES, PDF_PAGES_CHOICES, STORY_DAYS_CHOICES, MAX_REVIEW_SEARCHES, REVIEW_CHART_WEEKS, REVIEW_PARTS, type AppSettings, type Me, type ReviewKind, type ReviewQuality, type ReviewSettings, type Source, type SummaryKind } from '@newsletterapp/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
@@ -12,6 +12,9 @@ import {
   setNotesPlace,
   type NotesPlace,
   getTextSize,
+  getReadingSpeed,
+  setReadingSpeed,
+  READING_SPEEDS,
   setDensity,
   setHideSponsored,
   setSwipeReadSide,
@@ -135,6 +138,7 @@ export function SettingsPage({
       {error && <div className="error">{error}</div>}
 
       <ReadingSection />
+      {settings && <RankingSection settings={settings} onSave={save} />}
       {settings && <StoriesSection settings={settings} onSave={save} />}
       {settings && <ReviewsSection settings={settings} onSave={save} />}
 
@@ -311,6 +315,62 @@ export function AiSummariesSection({ settings, onSave }: { settings: AppSettings
           />
           <span className="hint">Used for the “why it matters” line in AI summaries.</span>
         </div>
+        <Choice
+          label="Longest text the AI reads"
+          help="aiMaxChars"
+          value={settings.tuning.aiMaxChars}
+          options={AI_MAX_CHARS_CHOICES.map((n) => [n, `${n / 1000}k`] as const)}
+          onChange={(v) => void onSave({ tuning: { ...settings.tuning, aiMaxChars: v } })}
+          width={220}
+        />
+        <span className="hint">
+          Characters; 24k is about 4,000 words. The rest of a longer article is cut. Bigger is slower and needs more of the graphics card's memory.
+        </span>
+        <Choice
+          label="PDF pages to read"
+          help="pdfMaxPages"
+          value={settings.tuning.pdfMaxPages}
+          options={PDF_PAGES_CHOICES.map((n) => [n, String(n)] as const)}
+          onChange={(v) => void onSave({ tuning: { ...settings.tuning, pdfMaxPages: v } })}
+          width={180}
+        />
+      </section>
+    </div>
+  );
+}
+
+/** Top sort and Likely interesting: how the app ranks and picks for you. */
+function RankingSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
+  const t = settings.tuning;
+  return (
+    <div className="section">
+      <span className="label">Sorting</span>
+      <section className="card">
+        <Choice
+          label="Top sort leans towards"
+          help="topLean"
+          value={t.topLean}
+          options={[
+            ['newest', 'Newest'],
+            ['balanced', 'Balanced'],
+            ['favourites', 'Favourites'],
+          ]}
+          onChange={(v) => void onSave({ tuning: { ...t, topLean: v } })}
+          width={260}
+        />
+        <span className="hint">Favourites means the sources you read, save and star most.</span>
+        <Choice
+          label="Likely interesting shows"
+          help="likelyShare"
+          value={t.likelyShare}
+          options={[
+            [10, 'Fewer'],
+            [15, 'Normal'],
+            [25, 'More'],
+          ]}
+          onChange={(v) => void onSave({ tuning: { ...t, likelyShare: v } })}
+          width={220}
+        />
       </section>
     </div>
   );
@@ -345,6 +405,7 @@ function OpenInPicker({ site }: { site: AppSite }) {
 /** Text size and sponsored-section hiding, remembered on this device only. */
 function ReadingSection() {
   const [size, setSize] = useState<TextSize>(getTextSize());
+  const [speed, setSpeed] = useState(getReadingSpeed());
   const [hideSponsored, setHide] = useState(getHideSponsored());
   const [swipeRead, setSwipeRead] = useState<SwipeReadSide>(getSwipeReadSide());
   const [notesPlace, setNotesPlaceState] = useState<NotesPlace>(getNotesPlace());
@@ -371,6 +432,17 @@ function ReadingSection() {
           </div>
           <span className="hint">Applies to newsletter text in the reader on this device.</span>
         </div>
+        <Choice
+          label="Reading speed (words a minute)"
+          help="readingSpeed"
+          value={speed}
+          options={READING_SPEEDS.map((n) => [n, String(n)] as const)}
+          onChange={(v) => {
+            setReadingSpeed(v);
+            setSpeed(v);
+          }}
+          width={220}
+        />
         <div className="field">
           <label>Inbox view<Help topic="inboxView" /></label>
           <div className="segmented" role="group" aria-label="Inbox view">
@@ -764,6 +836,14 @@ function StoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (
           value={st.notes}
           onChange={(v) => void onSave({ stories: { ...st, notes: v } })}
         />
+        <Choice
+          label="Join a story across (days)"
+          help="storyDays"
+          value={st.joinDays ?? 30}
+          options={STORY_DAYS_CHOICES.map((n) => [n, String(n)] as const)}
+          onChange={(v) => void onSave({ stories: { ...st, joinDays: v } })}
+          width={260}
+        />
         <OptionSwitch
           label="Summarise every story automatically"
           help="storyAuto"
@@ -813,6 +893,39 @@ function StoriesSection({ settings, onSave }: { settings: AppSettings; onSave: (
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+/** A labelled row of buttons, one per choice. */
+export function Choice<T extends string | number>({
+  label,
+  help,
+  value,
+  options,
+  onChange,
+  width,
+}: {
+  label: string;
+  help?: HelpTopic;
+  value: T;
+  options: readonly (readonly [T, string])[];
+  onChange: (v: T) => void;
+  width?: number;
+}) {
+  return (
+    <div className="switchrow">
+      <span style={{ fontSize: 14 }}>
+        {label}
+        {help && <Help topic={help} />}
+      </span>
+      <div className="segmented" role="group" aria-label={label} style={width ? { width } : undefined}>
+        {options.map(([v, text]) => (
+          <button key={String(v)} aria-pressed={value === v} onClick={() => onChange(v)}>
+            {text}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

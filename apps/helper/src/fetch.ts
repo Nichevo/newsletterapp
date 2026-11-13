@@ -311,7 +311,7 @@ async function pageJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult>
   const asFeed = parseFeed(page.body, page.url, 60);
   if (asFeed) return { jobId: job.id, ok: true, title: asFeed.title, entries: asFeed.entries };
 
-  const links = extractLinks(page.body, page.url, job.linkHint);
+  const links = extractLinks(page.body, page.url, job.linkHint, Date.now(), job.oldLinkDays ?? 30);
   if (links.length === 0) {
     const tip = !job.render && looksScripted(page.body) ? ' The page looks built by JavaScript: switch on "Needs a browser".' : '';
     return { jobId: job.id, ok: false, error: `No article links found on the page.${tip}` };
@@ -449,7 +449,8 @@ interface RedditComment {
 }
 
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const TOP_COMMENTS = 8;
+/** Top comments added to a Reddit post: the source's setting, for the job in hand. */
+let TOP_COMMENTS = 8;
 
 /**
  * Reddit turns away programs that pretend to be a browser more often than ones
@@ -466,7 +467,7 @@ async function redditJsonComments(url: string): Promise<RedditComment[] | null> 
   const u = new URL(url);
   u.hash = '';
   u.pathname = u.pathname.replace(/\/$/, '') + '.json';
-  u.search = '?limit=15&depth=1&sort=top&raw_json=1';
+  u.search = '?limit=25&depth=1&sort=top&raw_json=1';
   for (const agent of REDDIT_AGENTS) {
     for (const host of ['www.reddit.com', 'old.reddit.com']) {
       u.hostname = host;
@@ -512,7 +513,7 @@ async function redditFeedComments(url: string): Promise<RedditComment[] | null> 
   u.hash = '';
   u.hostname = 'www.reddit.com';
   u.pathname = u.pathname.replace(/\/$/, '') + '/.rss';
-  u.search = '?sort=top&depth=1&limit=15';
+  u.search = '?sort=top&depth=1&limit=25';
   for (const agent of REDDIT_AGENTS) {
     try {
       const res = await fetch(u.toString(), { headers: { ...FETCH_HEADERS, 'User-Agent': agent }, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
@@ -593,6 +594,7 @@ async function redditComments(url: string, cfg: LocalConfig): Promise<Article | 
 async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult> {
   if (isRedditPost(job.url)) {
     // Only the comments: the post itself is already in the app from the feed.
+    TOP_COMMENTS = typeof job.redditComments === 'number' && job.redditComments > 0 ? Math.min(job.redditComments, 25) : 8;
     const article = await redditComments(job.url, cfg).catch(() => null);
     return article ? { jobId: job.id, ok: true, article } : { jobId: job.id, ok: false, error: `Reddit gave no comments (or turned the PC away): ${redditTrail.join('; ')}`.slice(0, 300) };
   }

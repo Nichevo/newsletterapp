@@ -8,6 +8,8 @@ import { IconBack } from '../icons';
 import { StartWithPicker } from './Add';
 import { DailyCapPicker } from './AddBuilders';
 import { Help } from '../components/Help';
+import { Choice } from './Settings';
+import { OLD_LINK_CHOICES, REDDIT_COMMENT_CHOICES } from '@newsletterapp/shared';
 
 const AI_LABEL: Record<AiMode, string> = { default: 'Default', on: 'On', off: 'Off' };
 
@@ -373,6 +375,14 @@ function FetchSection({ source, onUpdate, onCheck }: { source: Source; onUpdate:
             <span className="hint" style={{ margin: 0 }}>
               Websites are always fetched by your PC: finding and cleaning up articles is too much work for the free Cloudflare plan.
             </span>
+            <Choice
+              label="Skip links older than (days)"
+              help="srcOldLinks"
+              value={source.oldLinkDays}
+              options={OLD_LINK_CHOICES.map((n) => [n, n === 0 ? 'Never' : String(n)] as const)}
+              onChange={(v) => onUpdate({ oldLinkDays: v })}
+              width={260}
+            />
           </>
         )}
         <label className="switchrow">
@@ -481,6 +491,16 @@ function PostFilterSection({ source, onUpdate }: { source: Source; onUpdate: (p:
               Key releases are versions like 2.0 or 2.5. Patch fixes such as 2.5.1 are skipped. Betas means alpha, beta, rc, preview and nightly.
             </span>
           </>
+        )}
+        {source.platform === 'reddit' && (
+          <Choice
+            label="Comments to add"
+            help="srcRedditComments"
+            value={source.redditComments}
+            options={REDDIT_COMMENT_CHOICES.map((n) => [n, n === 0 ? 'None' : String(n)] as const)}
+            onChange={(v) => onUpdate({ redditComments: v })}
+            width={220}
+          />
         )}
         {(isYoutube || f.skipShorts) && (
           <label className="switchrow">
