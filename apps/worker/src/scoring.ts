@@ -26,6 +26,7 @@ interface ScoreRow {
   saved_at: number | null;
   interesting_at: number | null;
   ai_status: string | null;
+  likely?: number | null;
 }
 
 /**
@@ -76,6 +77,8 @@ export function scoreFor(row: ScoreRow, affinity: number | undefined, at: number
   if (row.sponsored) score -= 5;
   if (row.saved_at) score += 10;
   if (row.interesting_at) score += 15;
+  // Close to what you marked Not interested (and not to your stars): pushed down the Top sort.
+  if (row.likely === -1) score -= 15;
   if (row.word_count !== null && row.word_count < 120) score -= 10; // a teaser or a notice
   // Freshness: full marks for today, fading (Balanced: to -10 after a week).
   const ageDays = Math.max(0, (at - row.received_at) / DAY);
@@ -100,7 +103,7 @@ export async function scoreRecentItems(env: Env): Promise<number> {
   const at = now();
   const [affinity, settings] = await Promise.all([cachedAffinity(env, at), loadSettings(env)]);
   const rows = await env.DB.prepare(
-    `SELECT id, source_id, received_at, why_it_matters, key_points, thin_content, sponsored, word_count, saved_at, interesting_at, ai_status
+    `SELECT id, source_id, received_at, why_it_matters, key_points, thin_content, sponsored, word_count, saved_at, interesting_at, ai_status, likely
      FROM items WHERE received_at >= ? AND status IN ('inbox', 'archived')`,
   )
     .bind(at - LOOKBACK_DAYS * DAY)

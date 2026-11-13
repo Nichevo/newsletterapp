@@ -1,4 +1,18 @@
-import { DEPTH_LEVELS, DEPTH_SECONDS, DEPTH_UNREAD_DAYS, emptyDepth, type DepthCounts, type GlanceInput, type ReadingEventType, type SourceDepthDetail } from '@newsletterapp/shared';
+import {
+  DEPTH_LEVELS,
+  DEPTH_SECONDS,
+  DEPTH_UNREAD_DAYS,
+  depthTotal,
+  emptyDepth,
+  type DepthCounts,
+  type GlanceInput,
+  type ReadingEventType,
+  type SourceDepthDetail,
+  type TopicSkipRow,
+  type TopicSkips,
+} from '@newsletterapp/shared';
+import { readJson, writeJson } from './ai';
+import { isSavedPages, sourcePostFilter } from './db';
 import type { Hono } from 'hono';
 import type { AppVariables, Env } from './env';
 import { now } from './ids';
@@ -102,7 +116,90 @@ export async function applyDepthEvent(env: Env, itemId: string, type: ReadingEve
     .run();
 }
 
+const TOPIC_DAYS = 90;
+const TOPIC_MIN_ITEMS = 8; // a topic needs this many items to be judged
+const TOPIC_SOURCE_MIN = 5; // and a source under it this many
+const TOPIC_CACHE_MS = 6 * 3_600_000;
+
+/**
+ * How far you went with each topic tag's items over the last 90 days, and per source
+ * under each tag: one grouped read of the tag rows in that period (through the
+ * item_tags_time index), kept for 6 hours so opening Statistics again costs one row.
+ */
+async function topicSkips(env: Env, fresh: boolean): Promise<TopicSkips> {
+  const at = now();
+  if (!fresh) {
+    const cached = await readJson<TopicSkips>(env, 'topic_skips');
+    if (cached && at - cached.at < TOPIC_CACHE_MS) return cached;
+  }
+  const from = at - TOPIC_DAYS * DAY;
+  const [rows, sources] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT tag, MAX(label) AS label, source_id, lvl, COUNT(*) AS n FROM (
+         SELECT it.tag, it.label, items.source_id, ${levelSql('items', 'ir', unreadCutoff(at))} AS lvl
+         FROM item_tags it INDEXED BY item_tags_time
+           JOIN items ON items.id = it.item_id
+           LEFT JOIN item_reads ir ON ir.item_id = items.id
+         WHERE it.received_at >= ? AND items.status IN ('inbox', 'archived') AND items.kind != 'ai')
+       WHERE lvl IS NOT NULL GROUP BY tag, source_id, lvl`,
+    ).bind(from),
+    env.DB.prepare('SELECT id, name, kind, url, post_filter FROM sources'),
+  ]);
+  const src = new Map(
+    ((sources?.results ?? []) as { id: string; name: string; kind: string; url: string | null; post_filter: string | null }[]).map((s) => [s.id, s]),
+  );
+  const all = emptyDepth();
+  const byTag = new Map<string, { label: string; depth: DepthCounts; bySource: Map<string, DepthCounts> }>();
+  for (const r of (rows?.results ?? []) as { tag: string; label: string; source_id: string | null; lvl: number; n: number }[]) {
+    const level = DEPTH_LEVELS[r.lvl];
+    if (!level) continue;
+    all[level] += r.n;
+    const t = byTag.get(r.tag) ?? { label: r.label, depth: emptyDepth(), bySource: new Map<string, DepthCounts>() };
+    t.depth[level] += r.n;
+    if (r.source_id) {
+      const d = t.bySource.get(r.source_id) ?? emptyDepth();
+      d[level] += r.n;
+      t.bySource.set(r.source_id, d);
+    }
+    byTag.set(r.tag, t);
+  }
+  const topics: TopicSkipRow[] = [];
+  for (const [tag, t] of byTag) {
+    if (depthTotal(t.depth) < TOPIC_MIN_ITEMS) continue;
+    topics.push({
+      tag,
+      label: t.label,
+      depth: t.depth,
+      sources: [...t.bySource]
+        .filter(([id, d]) => src.has(id) && depthTotal(d) >= TOPIC_SOURCE_MIN)
+        .map(([id, d]) => {
+          const s = src.get(id)!;
+          const skipWords = sourcePostFilter(s)
+            .skip.split(',')
+            .map((w) => w.trim().toLowerCase())
+            .filter(Boolean);
+          return {
+            sourceId: id,
+            name: s.name,
+            depth: d,
+            // Post filters work on feeds and website watches (not newsletters, not single saved pages).
+            canFilter: s.kind === 'feed' || (s.kind === 'site' && !isSavedPages(s)),
+            skipping: skipWords.includes(tag) || skipWords.includes(t.label.toLowerCase()),
+          };
+        }),
+    });
+  }
+  // The busiest topics, so the cached copy stays small.
+  topics.sort((a, b) => depthTotal(b.depth) - depthTotal(a.depth));
+  const out: TopicSkips = { days: TOPIC_DAYS, all, topics: topics.slice(0, 300), at };
+  await writeJson(env, 'topic_skips', out);
+  return out;
+}
+
 export function registerDepth(app: App) {
+  /** Topics you skip (and read): Statistics > Reading. ?fresh=1 works it out again now. */
+  app.get('/api/stats/topic-skips', async (c) => c.json(await topicSkips(c.env, c.req.query('fresh') === '1')));
+
   /** Seconds inbox rows sat at the reading line, sent once when you leave the inbox. */
   app.post('/api/items/glances', async (c) => {
     const input = (await c.req.json().catch(() => null)) as GlanceInput | null;

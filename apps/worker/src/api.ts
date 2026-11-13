@@ -147,6 +147,8 @@ const VIEW_WHERE: Record<ItemView, string> = {
   interesting: "items.interesting_at IS NOT NULL AND items.status != 'dropped'",
   // Matches the partial index items_likely.
   likely: "items.likely = 1 AND items.status = 'inbox' AND items.read_at IS NULL",
+  // Matches the partial index items_unlikely (migration 0045).
+  unlikely: "items.likely = -1 AND items.status = 'inbox' AND items.read_at IS NULL",
   archived: "items.status = 'archived'",
 };
 
@@ -236,13 +238,15 @@ app.get('/api/items', async (c) => {
 
   const where: string[] = [VIEW_WHERE[view]];
   const binds: unknown[] = [];
+  // "Probably not for you" can be left out of the Inbox and Unread lists (Settings > Reading); its own view still has them.
+  if ((view === 'inbox' || view === 'unread') && (await loadSettings(c.env)).tuning.hideUnlikely) where.push('items.likely IS NOT -1');
   if (sourceId) where.push(...sourceWhere(sourceId, binds));
   if (kind) where.push(...typeWhere(kind, binds));
   if (category) where.push(...categoryWhere(category, binds));
   // Counts for the inbox header, before the cursor narrows the query: only when filtered
   // (the unfiltered totals come from /api/counts) and only on the first page.
   const countSql =
-    !cursor && (sourceId || kind || category || view === 'interesting' || view === 'likely')
+    !cursor && (sourceId || kind || category || view === 'interesting' || view === 'likely' || view === 'unlikely')
       ? `SELECT COUNT(*) AS shown, SUM(items.read_at IS NULL) AS unread FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE ${where.join(' AND ')}`
       : null;
   const countBinds = [...binds];

@@ -62,6 +62,14 @@ export const HELP = {
   likelyShare: h('Likely interesting shows', [
     'Your PC compares recent items with the ones you starred, and flags the closest as Likely interesting. Fewer shows the closest 10%, Normal 15%, More 25%.',
   ], 'Needs at least 5 starred items, looks at the last 30 days, and never flags an item that is not fairly close.'),
+  topicSkips: h('Topics you skip', [
+    'The same levels as for sources (Not interested, Skipped, Glanced, Read the summary, Read the article, Kept), grouped by the topic tags the AI gives each item. A topic shows here when you skip or mark Not interested well more than your usual share of its items.',
+    'Skipped from one source, read from others: a topic you nearly always skip from one source, though you go further with it from the others. For feeds and websites, one tap adds the word to that source\'s skip list, so new posts mentioning it in the title stay out.',
+  ], 'Topics need 8 items in the last 90 days, and a source 5 items under a topic. Worked out at most every 6 hours.'),
+  unlikely: h('Probably not for you', [
+    'Your PC compares recent unread items with the ones you marked Not interested (a long swipe on the read side) and with your stars. An item close to your Not interested marks, and not closer to your stars, is flagged "Probably not for you".',
+    'Flagged items sink in the Top sort and show a small tag. With the switch on, they also leave the All and Unread lists; the "Probably not for you" view in the filter always has them, so nothing is lost.',
+  ], 'Needs at least 5 Not interested marks and the PC helper running. Uses the same share of items as Likely interesting, and looks at the last 30 days.'),
   storyDays: h('Join a story across', [
     'How far apart in time two articles can be and still join the same story. Longer catches slow-moving stories (court cases, product launches) but risks joining unrelated follow-ups.',
     'Usual: 30 days. A change applies to new articles.',

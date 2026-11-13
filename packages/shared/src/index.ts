@@ -67,6 +67,8 @@ export interface ItemSummary {
   notInterestedAt: number | null;
   /** Close in meaning to what you marked Interesting (worked out on the PC helper). */
   likely: boolean;
+  /** Close in meaning to what you marked Not interested, and not to your stars: "Probably not for you". */
+  unlikely: boolean;
   archivedAt: number | null;
   hasHtml: boolean;
   /** Goes up each time the saved copy is replaced (e.g. Fetch full page); part of the body's address so a new copy isn't served from cache. */
@@ -395,7 +397,7 @@ export interface BulkReadInput {
   action: 'read' | 'unread';
 }
 
-export type ItemView = 'inbox' | 'unread' | 'saved' | 'interesting' | 'likely' | 'archived';
+export type ItemView = 'inbox' | 'unread' | 'saved' | 'interesting' | 'likely' | 'unlikely' | 'archived';
 
 /** Per-source AI switch. "default" follows the setting for the source's kind. */
 export type AiMode = 'default' | 'on' | 'off';
@@ -722,6 +724,8 @@ export interface TuningSettings {
   likelyShare: number;
   /** What the Top sort leans towards. */
   topLean: TopLean;
+  /** Leave "Probably not for you" items out of the Inbox and Unread lists (they stay in their own view). */
+  hideUnlikely: boolean;
 }
 
 export const AI_MAX_CHARS_CHOICES = [12_000, 24_000, 48_000, 96_000] as const;
@@ -734,7 +738,7 @@ export const OLD_LINK_CHOICES = [7, 30, 90, 0] as const;
 export const DEFAULT_REDDIT_COMMENTS = 8;
 export const DEFAULT_OLD_LINK_DAYS = 30;
 
-export const DEFAULT_TUNING: TuningSettings = { aiMaxChars: 24_000, pdfMaxPages: 60, likelyShare: 15, topLean: 'balanced' };
+export const DEFAULT_TUNING: TuningSettings = { aiMaxChars: 24_000, pdfMaxPages: 60, likelyShare: 15, topLean: 'balanced', hideUnlikely: false };
 
 export interface SavedFilter {
   name: string;
@@ -1060,7 +1064,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.8.1';
+export const HELPER_VERSION = '0.9.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -1122,6 +1126,9 @@ export interface LikelyState {
   likely: string[];
   /** Share (%) of recent items to flag; older apps leave it out (15). */
   share?: number;
+  /** Items marked Not interested (newest first), and those flagged "Probably not for you" now. Older apps leave both out. */
+  notInterested?: string[];
+  unlikely?: string[];
 }
 
 export interface HelperJob {
@@ -1335,6 +1342,22 @@ export interface SourceDepthDetail {
   summaryInInbox: number;
   summaryInReader: number;
   liveOpened: number;
+}
+
+/** How far you went with items under one topic tag, and per source under it (last 90 days). */
+export interface TopicSkipRow {
+  tag: string;
+  label: string;
+  depth: DepthCounts;
+  /** The same topic from each source, where there are at least a few items. */
+  sources: { sourceId: string; name: string; depth: DepthCounts; canFilter: boolean; skipping: boolean }[];
+}
+export interface TopicSkips {
+  days: number;
+  /** All tagged items together: the average to compare each topic with. */
+  all: DepthCounts;
+  topics: TopicSkipRow[];
+  at: number;
 }
 
 /** Seconds inbox rows spent at the reading line, sent in one go when you leave the inbox. */

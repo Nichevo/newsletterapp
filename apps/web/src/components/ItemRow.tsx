@@ -119,7 +119,7 @@ export function ItemRow({
   const kindClass = `chip chip--${item.kind}`;
   const preview = item.summary ?? item.preheader ?? item.snippet;
   const expanded = density === 'expanded';
-  const hasTags = item.file || item.savedAt || item.interestingAt || item.likely || item.category || item.sponsored || item.tags.length > 0;
+  const hasTags = item.file || item.savedAt || item.interestingAt || item.likely || (item.unlikely && !item.readAt) || item.category || item.sponsored || item.tags.length > 0;
   const showTags = hasTags && (expanded ? opts.expandedTags : density === 'card' && opts.cardTags);
   const showPreview = preview && (expanded ? true : density === 'card' && opts.cardLines > 0);
   const previewLines = expanded ? (opts.expandedFullSummary ? 'unset' : 4) : opts.cardLines;
@@ -281,6 +281,7 @@ export function ItemRow({
             {item.savedAt && <span className="chip chip--warn">Saved</span>}
             {item.interestingAt && <span className="chip chip--warn">★ Interesting</span>}
             {item.likely && !item.interestingAt && !item.readAt && <span className="chip chip--outline">Likely interesting</span>}
+            {item.unlikely && !item.interestingAt && !item.readAt && <span className="chip chip--outline chip--unlikely">Probably not for you</span>}
             {item.category && <span className="chip chip--category">{item.category}</span>}
             {item.sponsored && <span className="chip chip--outline">Sponsored</span>}
             {item.tags.map((t) => (

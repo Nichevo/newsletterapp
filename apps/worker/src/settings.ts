@@ -94,7 +94,7 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     ? input.savedFilters
         .map((f) => ({
           name: str(f?.name, 40),
-          view: (['inbox', 'unread', 'saved', 'interesting', 'likely', 'archived'] as const).find((v) => v === f?.view) ?? 'inbox',
+          view: (['inbox', 'unread', 'saved', 'interesting', 'likely', 'unlikely', 'archived'] as const).find((v) => v === f?.view) ?? 'inbox',
           sort: (['newest', 'oldest', 'top'] as const).find((v) => v === f?.sort) ?? 'newest',
           source: typeof f?.source === 'string' ? f.source.slice(0, 2000) || null : null,
           category: typeof f?.category === 'string' ? str(f.category, 400) || null : null,
@@ -154,6 +154,7 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     pdfMaxPages: oneOf(tu.pdfMaxPages, PDF_PAGES_CHOICES, bt.pdfMaxPages),
     likelyShare: oneOf(tu.likelyShare, LIKELY_SHARE_CHOICES, bt.likelyShare),
     topLean: tu.topLean === 'newest' || tu.topLean === 'balanced' || tu.topLean === 'favourites' ? tu.topLean : bt.topLean,
+    hideUnlikely: typeof tu.hideUnlikely === 'boolean' ? tu.hideUnlikely : (bt.hideUnlikely ?? false),
   };
   // Plain email addresses only, lower-case, no duplicates.
   const saveSenders = Array.isArray(input.saveSenders)
