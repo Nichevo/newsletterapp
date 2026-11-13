@@ -1,5 +1,7 @@
-import type { ReadingStats } from '@newsletterapp/shared';
-import { useEffect, useState } from 'react';
+import { DEPTH_LEVELS, depthTotal, depthValue, emptyDepth, sourceVerdict, type ReadingStats, type Source, type SourceActivity, type SourceVerdict } from '@newsletterapp/shared';
+import { DepthBar, DepthLegend, VerdictPill } from '../components/DepthBar';
+import { Fragment, useEffect, useState } from 'react';
+import { Help } from '../components/Help';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { dayTick, RangeSwitch, shortDate } from '../components/BarChart';
@@ -15,7 +17,7 @@ const ago = (at: number | null) => {
   return days === 0 ? 'today' : days === 1 ? 'yesterday' : days < 30 ? `${days} days ago` : shortDate(at);
 };
 
-const VIA_LABEL = { reader: 'Read in the reader', swipe: 'Swiped or marked read', digest: 'Marked read from the digest', bulk: 'Marked read in bulk' } as const;
+const VIA_LABEL = { reader: 'Read in the reader', swipe: 'Swiped or marked read', digest: 'Marked read from the digest', bulk: 'Marked read in bulk', not_interested: 'Marked not interested' } as const;
 const DEVICE_LABEL = { phone: 'On the phone', desktop: 'On a PC' } as const;
 const KIND_LABEL = { newsletter: 'Newsletters', feed: 'Feeds', site: 'Websites', ai: 'AI notes' } as const;
 
@@ -51,6 +53,7 @@ export function ReadingStatsPage() {
           <Glance data={data} />
           <Daily data={data} />
           <Backlog data={data} />
+          <SourcesByValue />
 
           <div className="section">
             <span className="label">By newsletter and category</span>
@@ -335,6 +338,90 @@ function HowYouRead({ data: { how, days } }: { data: ReadingStats }) {
           </table>
         </div>
         <span className="hint">Items marked read in the last {days} days. Items read before the app started recording this are left out.</span>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * How far you go with what arrives, over all sources, and how many sources fall
+ * under each verdict. Uses the same 90-day activity read as Your sources.
+ */
+function SourcesByValue() {
+  const [rows, setRows] = useState<{ activity: SourceActivity[]; sources: Source[] } | null>(null);
+  useEffect(() => {
+    Promise.all([api.sourceActivity(), api.sources()])
+      .then(([activity, sources]) => setRows({ activity, sources }))
+      .catch(() => undefined);
+  }, []);
+  if (!rows) return null;
+  const names = new Map(rows.sources.map((s) => [s.id, s]));
+  const live = rows.activity.filter((a) => names.has(a.sourceId) && !names.get(a.sourceId)!.pausedAt);
+  const all = emptyDepth();
+  for (const a of live) for (const l of DEPTH_LEVELS) all[l] += a.depth[l];
+  if (depthTotal(all) === 0) return null;
+  const verdicts = new Map<SourceVerdict, SourceActivity[]>();
+  for (const a of live) {
+    const v = sourceVerdict(a.depth);
+    verdicts.set(v, [...(verdicts.get(v) ?? []), a]);
+  }
+  const skipped = [...(verdicts.get('always_skipped') ?? []), ...(verdicts.get('mostly_skipped') ?? [])];
+  const skippedItems = skipped.reduce((n, a) => n + a.items, 0);
+  const allItems = live.reduce((n, a) => n + a.items, 0);
+  const order: SourceVerdict[] = ['keeper', 'summary', 'mixed', 'mostly_skipped', 'always_skipped', 'too_few'];
+  const show: Partial<Record<SourceVerdict, string>> = { keeper: 'keeper', summary: 'summary', mostly_skipped: 'skipped', always_skipped: 'skipped' };
+  const lowest = [...live]
+    .filter((a) => depthTotal(a.depth) >= 8)
+    .sort((a, b) => (depthValue(a.depth) ?? 0) - (depthValue(b.depth) ?? 0))
+    .slice(0, 5);
+  return (
+    <div className="section">
+      <span className="label">
+        How far you go, last 90 days<Help topic="srcValue" />
+      </span>
+      <section className="card">
+        <DepthBar depth={all} big />
+        <DepthLegend depth={all} percent />
+      </section>
+      <span className="label">Sources by value</span>
+      <section className="card">
+        <div className="kv">
+          {order
+            .filter((v) => verdicts.get(v)?.length)
+            .map((v) => {
+              const n = verdicts.get(v)!.length;
+              const to = show[v];
+              return (
+                <Fragment key={v}>
+                  <span>{to ? <Link to={`/settings/sources?show=${to}`}><VerdictPill verdict={v} /></Link> : <VerdictPill verdict={v} />}</span>
+                  <b>{n}</b>
+                </Fragment>
+              );
+            })}
+        </div>
+        {skipped.length > 0 && (
+          <span className="hint" style={{ margin: 0 }}>
+            {skipped.length} mostly skipped source{skipped.length === 1 ? '' : 's'} sent {skippedItems} item{skippedItems === 1 ? '' : 's'}: {pct(skippedItems, allItems)} of
+            everything that arrived.{' '}
+            <Link to="/settings/sources?show=skipped">Look at {skipped.length === 1 ? 'it' : 'them'}</Link>
+          </span>
+        )}
+        {lowest.length > 0 && (
+          <>
+            <span className="label" style={{ marginTop: 4 }}>
+              Lowest value
+            </span>
+            {lowest.map((a) => (
+              <Link key={a.sourceId} to={`/source/${a.sourceId}`} className="depthrow" style={{ color: 'inherit', textDecoration: 'none' }}>
+                <span style={{ flex: '0 1 40%', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>
+                  {names.get(a.sourceId)?.name}
+                </span>
+                <DepthBar depth={a.depth} />
+                <span className="depthrow__value">{depthValue(a.depth)}</span>
+              </Link>
+            ))}
+          </>
+        )}
       </section>
     </div>
   );

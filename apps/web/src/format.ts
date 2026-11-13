@@ -175,7 +175,7 @@ export function activityView(
   const unread = items > 0 && (a?.reads ?? 0) === 0;
   const line = [
     `${rate(perMonth)} / month`,
-    `read ${rate(readsPerMonth)} / month`,
+    `looked at ${rate(readsPerMonth)} / month`,
     a?.stars ? `★ ${a.stars}` : '',
     source.lastReceivedAt ? `last ${agoText(source.lastReceivedAt, now)}` : `no ${noun}s yet`,
   ]
@@ -186,7 +186,7 @@ export function activityView(
       ? `Quiet: no ${noun}s for ${agoText(source.lastReceivedAt, now).replace(' ago', '')}`
       : `Quiet: nothing since it was added`
     : unread
-      ? `Unread: you haven't read any of the last ${items} ${noun}${items === 1 ? '' : 's'}`
+      ? `Unread: you haven't looked at any of the last ${items} ${noun}${items === 1 ? '' : 's'}`
       : null;
   return { perMonth, readsPerMonth, quiet, unread, line, flag };
 }

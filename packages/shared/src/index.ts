@@ -63,6 +63,8 @@ export interface ItemSummary {
   savedAt: number | null;
   /** Starred as Interesting: it mattered (separate from Save for later). */
   interestingAt: number | null;
+  /** Marked read as "Not interested": a clear no, kept apart from a plain read. */
+  notInterestedAt: number | null;
   /** Close in meaning to what you marked Interesting (worked out on the PC helper). */
   likely: boolean;
   archivedAt: number | null;
@@ -139,7 +141,7 @@ export interface ItemStory {
   followed: boolean;
 }
 
-export type ReadVia = 'reader' | 'swipe' | 'bulk' | 'digest';
+export type ReadVia = 'reader' | 'swipe' | 'bulk' | 'digest' | 'not_interested';
 export type ReadDevice = 'phone' | 'desktop';
 
 /** Why an item was linked into its story, for "Why these are linked" on the story page. */
@@ -614,7 +616,11 @@ export type ReadingEventType =
   | 'open_original'
   | 'story_link' // tapped a link in a story banner, story page or inbox group
   | 'story_split' // "Not part of this story"
-  | 'story_join'; // "Same story" under "Close, but not linked"
+  | 'story_join' // "Same story" under "Close, but not linked"
+  | 'summary_time' // value = reader seconds with the AI summary in view
+  | 'article_time' // value = reader seconds in the article itself
+  | 'not_interested'
+  | 'interested';
 
 export interface ReadingEventInput {
   type: ReadingEventType;
@@ -1249,8 +1255,91 @@ export interface SourceActivity {
   /** Days the rates are worked out over: 90, or fewer for a source added since. */
   days: number;
   items: number;
+  /** Items you looked at (glanced or more); a swipe without looking doesn't count. */
   reads: number;
   stars: number;
+  /** How far you went with its items, counted by DEPTH_LEVELS (items not looked at yet are left out). */
+  depth: DepthCounts;
+}
+
+// ---------- How far you went with an item (source value) ----------
+
+/** From "Not interested" to "Kept"; an item's level is the highest it reached. */
+export const DEPTH_LEVELS = ['not_interested', 'skipped', 'glanced', 'summary', 'article', 'kept'] as const;
+export type DepthLevel = (typeof DEPTH_LEVELS)[number];
+export const DEPTH_LABEL: Record<DepthLevel, string> = {
+  not_interested: 'Not interested',
+  skipped: 'Skipped',
+  glanced: 'Glanced',
+  summary: 'Read the summary',
+  article: 'Read the article',
+  kept: 'Kept',
+};
+/** Points each level is worth towards a source's 0-100 value. */
+export const DEPTH_POINTS: Record<DepthLevel, number> = { not_interested: 0, skipped: 0, glanced: 10, summary: 50, article: 80, kept: 100 };
+/** The seconds that move an item up a level (first cut, to tune after real use). */
+export const DEPTH_SECONDS = { glance: 4, summary: 15, article: 30 } as const;
+/** Unread items this old count as skipped. */
+export const DEPTH_UNREAD_DAYS = 14;
+/** Fewer items than this and a source gets no verdict yet. */
+export const DEPTH_MIN_ITEMS = 8;
+
+export type DepthCounts = Record<DepthLevel, number>;
+
+export type SourceVerdict = 'keeper' | 'summary' | 'mixed' | 'mostly_skipped' | 'always_skipped' | 'too_few';
+export const VERDICT_LABEL: Record<SourceVerdict, string> = {
+  keeper: 'Keeper',
+  summary: 'Summary is enough',
+  mixed: 'Mixed',
+  mostly_skipped: 'Mostly skipped',
+  always_skipped: 'Always skipped',
+  too_few: 'Too few yet',
+};
+
+export function depthTotal(d: DepthCounts): number {
+  return DEPTH_LEVELS.reduce((n, l) => n + d[l], 0);
+}
+
+/** 0-100 from how far you went with each item; null when nothing was looked at yet. */
+export function depthValue(d: DepthCounts): number | null {
+  const total = depthTotal(d);
+  if (!total) return null;
+  return Math.round(DEPTH_LEVELS.reduce((n, l) => n + d[l] * DEPTH_POINTS[l], 0) / total);
+}
+
+/** The plain-words verdict on a source, from its depth counts. Information only: nothing acts on it. */
+export function sourceVerdict(d: DepthCounts): SourceVerdict {
+  const total = depthTotal(d);
+  if (total < DEPTH_MIN_ITEMS) return 'too_few';
+  const skipped = (d.not_interested + d.skipped) / total;
+  if (skipped >= 0.9 && total >= 10 && d.kept === 0) return 'always_skipped';
+  if (skipped >= 0.75) return 'mostly_skipped';
+  const value = depthValue(d) ?? 0;
+  if (d.kept / total >= 0.1 || value >= 60) return 'keeper';
+  if (d.summary / total >= 0.35 && d.summary > d.article) return 'summary';
+  return 'mixed';
+}
+
+export function emptyDepth(): DepthCounts {
+  return { not_interested: 0, skipped: 0, glanced: 0, summary: 0, article: 0, kept: 0 };
+}
+
+/** One source's reading in more detail, for its own page. */
+export interface SourceDepthDetail {
+  /** Last 30 days, 30-60 days ago, 60-90 days ago. */
+  buckets: DepthCounts[];
+  summarySecs: number;
+  articleSecs: number;
+  glanceSecs: number;
+  /** Items whose summary was read in the inbox (at the reading line) and in the reader. */
+  summaryInInbox: number;
+  summaryInReader: number;
+  liveOpened: number;
+}
+
+/** Seconds inbox rows spent at the reading line, sent in one go when you leave the inbox. */
+export interface GlanceInput {
+  items: { id: string; secs: number }[];
 }
 
 export interface ReadingSourceRow {

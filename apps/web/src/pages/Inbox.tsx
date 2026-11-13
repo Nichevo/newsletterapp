@@ -1,6 +1,7 @@
 import { SavedTabs } from './Highlights';
 import type { ItemListResponse, ItemSummary, ItemView, Me, SavedFilter, Source } from '@newsletterapp/shared';
 import { FILE_FILTERS, KEY_KINDS } from '@newsletterapp/shared';
+import { useGlanceTracker } from '../glance';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { rememberList } from '../readingList';
@@ -95,14 +96,15 @@ export function InboxPage({
   const [listCounts, setListCounts] = useState<ItemListResponse['counts'] | null>(null);
   // Sources with items in the chosen category, kept while a source is then picked so the others stay on offer.
   const [catSources, setCatSources] = useState<{ category: string; ids: string[] } | null>(null);
-  const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
+  const [toast, setToast] = useState<{ text: string; undo?: () => void; action?: { label: string; run: () => void } } | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
-  function showToast(text: string, undo?: () => void, ms = 6000) {
+  function showToast(text: string, undo?: () => void, ms = 6000, action?: { label: string; run: () => void }) {
     window.clearTimeout(toastTimer.current);
-    setToast({ text, undo });
+    setToast({ text, undo, action });
     toastTimer.current = window.setTimeout(() => setToast(null), ms);
   }
+  useGlanceTracker(true);
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
   // Back from the reader after Delete: offer Undo for a few seconds.
@@ -209,8 +211,26 @@ export function InboxPage({
     try {
       patch(await api.itemAction(item.id, 'read'));
       onChanged();
+      // A plain read and a clear "no" look the same as a swipe; one tap here tells them apart.
+      showToast('Marked read', undefined, 5000, { label: 'Not interested', run: () => void markNotInterested(item.id) });
     } catch {
       patch(item);
+    }
+  }
+
+  async function markNotInterested(id: string) {
+    setToast(null);
+    try {
+      patch(await api.itemAction(id, 'not_interested'));
+      showToast('Marked not interested', () => {
+        setToast(null);
+        api
+          .itemAction(id, 'interested')
+          .then(patch)
+          .catch(() => showToast('Could not undo'));
+      });
+    } catch {
+      showToast('Could not mark it not interested');
     }
   }
 
@@ -534,6 +554,11 @@ export function InboxPage({
       {toast && (
         <div className="toast" role="status">
           {toast.text}
+          {toast.action && (
+            <button className="toast__undo" onClick={toast.action.run}>
+              {toast.action.label}
+            </button>
+          )}
           {toast.undo && (
             <button className="toast__undo" onClick={toast.undo}>
               Undo

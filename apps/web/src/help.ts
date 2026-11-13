@@ -263,6 +263,11 @@ export const HELP = {
   srcFloodGuard: h('Flood guard', [
     'Past this many new posts in a day, extra posts skip the inbox. Go to Archived keeps them searchable but away from the AI; Bin them drops them for good. Usual: 30 a day.',
   ], 'Each check brings in at most 25 new posts; any more come in with the next check if they are still in the feed.'),
+  srcValue: h('How you read this source', [
+    'Each item gets the furthest level you reached: Not interested (you said so), Skipped (marked read with under 4 seconds looking at it, or left unread for two weeks), Glanced (4 to 15 seconds), Read the summary (15+ seconds with the AI summary in view, in the inbox or the reader), Read the article (30+ seconds in the article, scrolled most of it, or opened the Live page), Kept (starred, saved or highlighted).',
+    'Inbox time only counts for the row at the reading line, a third of the way down the screen, while you are not flicking past.',
+    'The value is the average of 0 (Not interested, Skipped), 10 (Glanced), 50 (Summary), 80 (Article) and 100 (Kept). Visits from before this was added count their reader time as article time.',
+  ], 'Information only: the app never pauses or removes a source on its own. Not now hides the suggestion on this device for 60 days.'),
 } satisfies Record<string, HelpEntry>;
 
 export type HelpTopic = keyof typeof HELP;

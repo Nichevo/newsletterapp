@@ -1,4 +1,6 @@
-import type { AiMode, AppSettings, DiscoverResult, FullTextMode, Source, SourceActivity, SourceUpdate } from '@newsletterapp/shared';
+import { depthTotal, depthValue, sourceVerdict } from '@newsletterapp/shared';
+import type { AiMode, AppSettings, DiscoverResult, FullTextMode, Source, SourceActivity, SourceDepthDetail, SourceUpdate } from '@newsletterapp/shared';
+import { DepthBar, DepthLegend, VerdictPill, valueColour } from '../components/DepthBar';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
@@ -168,6 +170,16 @@ export function SourcePage() {
             )}
             {done && <span className="hint">{done}</span>}
           </div>
+
+          {activity && (
+            <SourceValue
+              source={source}
+              activity={activity}
+              noun={noun}
+              canFilter={isWeb}
+              onPause={() => void update({ paused: true })}
+            />
+          )}
 
           <div className="section">
             <span className="label">Category<Help topic="srcCategory" /></span>
@@ -433,7 +445,7 @@ function PostFilterSection({ source, onUpdate }: { source: Source; onUpdate: (p:
   const isYoutube = /youtube\.com\/feeds\//i.test(source.feedUrl ?? '');
   const flooded = source.floodAt !== null && source.floodAt > Date.now() - 86_400_000 && source.floodCount > 0;
   return (
-    <div className="section">
+    <div className="section" id="which-posts">
       <span className="label">Which posts get in<Help topic="srcPostFilter" /></span>
       <section className="card">
         {flooded && (
@@ -755,6 +767,163 @@ function RhythmNote({ source }: { source: Source }) {
       <strong>When it posts:</strong> {summary} {checking}
       {source.rhythm && source.rhythm.posts > 0 ? ` Learnt from its last ${source.rhythm.posts} posts.` : ''}
     </span>
+  );
+}
+
+const NOT_NOW_DAYS = 60;
+const notNowKey = (id: string) => `sourceValueNotNow:${id}`;
+function notNowUntil(id: string): number {
+  try {
+    return Number(localStorage.getItem(notNowKey(id))) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function secsText(s: number): string {
+  if (s < 60) return `${s} s`;
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  return `${(s / 3600).toFixed(1)} h`;
+}
+
+/**
+ * How you read this source: how far you went with its items over the last 90 days,
+ * in 30-day steps, with a plain suggestion when you mostly skip it. Information
+ * only: nothing is paused or removed unless you tap it.
+ */
+function SourceValue({
+  source,
+  activity,
+  noun,
+  canFilter,
+  onPause,
+}: {
+  source: Source;
+  activity: SourceActivity;
+  noun: string;
+  canFilter: boolean;
+  onPause: () => void;
+}) {
+  const [detail, setDetail] = useState<SourceDepthDetail | null>(null);
+  const [hidden, setHidden] = useState(() => notNowUntil(source.id) > Date.now());
+  useEffect(() => {
+    api
+      .sourceDepth(source.id)
+      .then(setDetail)
+      .catch(() => undefined);
+  }, [source.id]);
+  const d = activity.depth;
+  const total = depthTotal(d);
+  const value = depthValue(d);
+  const verdict = sourceVerdict(d);
+  const low = verdict === 'mostly_skipped' || verdict === 'always_skipped';
+  const skippedPct = total ? Math.round(((d.not_interested + d.skipped) / total) * 100) : 0;
+  const nouns = `${noun}s`;
+  const trend = (() => {
+    if (!detail) return '';
+    const [now, , old] = detail.buckets.map((b) => depthValue(b));
+    if (now == null || old == null || depthTotal(detail.buckets[0]!) < 3 || depthTotal(detail.buckets[2]!) < 3) return '';
+    if (now <= old - 8) return ', and less each month';
+    if (now >= old + 8) return ', but more lately';
+    return '';
+  })();
+  const notNow = () => {
+    try {
+      localStorage.setItem(notNowKey(source.id), String(Date.now() + NOT_NOW_DAYS * 86_400_000));
+    } catch {
+      /* this device only; fine without */
+    }
+    setHidden(true);
+  };
+  return (
+    <div className="section">
+      <span className="label">
+        How you read this source<Help topic="srcValue" />
+      </span>
+      <section className="card">
+        {total === 0 ? (
+          <span className="hint" style={{ margin: 0 }}>
+            Nothing to go on yet: none of its {nouns} from the last 90 days has been looked at, marked read or left unread for two weeks.
+          </span>
+        ) : (
+          <>
+            <div className="inline" style={{ alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: 26, fontVariantNumeric: 'tabular-nums', color: valueColour(value) }}>{value ?? '–'}</strong>
+              <span className="hint" style={{ margin: 0 }}>
+                value out of 100 · last 90 days · {total} {total === 1 ? noun : nouns}
+              </span>
+              <VerdictPill verdict={verdict} />
+            </div>
+            <DepthBar depth={d} big />
+            <DepthLegend depth={d} />
+            {detail && (
+              <div className="depthmonths" aria-label="By 30 days">
+                {(['Last 30 days', '30–60 days ago', '60–90 days ago'] as const).map((label, n) => {
+                  const b = detail.buckets[n]!;
+                  return (
+                    <div key={label}>
+                      <span>{label}</span>
+                      <DepthBar depth={b} />
+                      <em>{depthTotal(b) ? (depthValue(b) ?? '') : '–'}</em>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {detail && (
+              <div className="kv">
+                <span>Summaries read in the inbox</span>
+                <b>{detail.summaryInInbox}</b>
+                <span>Summaries read in the reader</span>
+                <b>{detail.summaryInReader}</b>
+                <span>Time on AI summaries</span>
+                <b>{secsText(detail.summarySecs)}</b>
+                <span>Time in articles</span>
+                <b>{secsText(detail.articleSecs)}</b>
+                <span>Live page or web version opened</span>
+                <b>{detail.liveOpened}</b>
+              </div>
+            )}
+            {low && !hidden && !source.pausedAt && (
+              <div className="depthnote depthnote--low">
+                <strong>
+                  You skip {skippedPct}% of these{trend}
+                  {d.kept === 0 ? ', and kept none.' : '.'}
+                </strong>{' '}
+                {canFilter ? 'Pause it, let fewer posts in, or leave it?' : 'Pause it, or leave it?'}
+                <div className="inline" style={{ marginTop: 8, flexWrap: 'wrap' }}>
+                  <button className="btn btn--small btn--primary" onClick={onPause}>
+                    Pause
+                  </button>
+                  {canFilter && (
+                    <button className="btn btn--small" onClick={() => document.getElementById('which-posts')?.scrollIntoView({ behavior: 'smooth' })}>
+                      Which posts get in ↓
+                    </button>
+                  )}
+                  <button className="btn btn--small" onClick={notNow}>
+                    Not now
+                  </button>
+                </div>
+              </div>
+            )}
+            {verdict === 'summary' && (
+              <div className="depthnote">
+                <strong>The AI summary is usually enough for this one.</strong> You read {Math.round((d.summary / total) * 100)}% of its summaries
+                {d.kept ? ` and kept ${d.kept}` : ''}.
+              </div>
+            )}
+            {verdict === 'keeper' && (
+              <div className="depthnote">
+                <strong>One you value.</strong> You went into the article or kept {Math.round(((d.article + d.kept) / total) * 100)}% of its {nouns}.
+              </div>
+            )}
+            <span className="hint" style={{ margin: 0 }}>
+              Unread {nouns} count as skipped after two weeks. Information only: nothing is paused or removed unless you tap it.
+            </span>
+          </>
+        )}
+      </section>
+    </div>
   );
 }
 

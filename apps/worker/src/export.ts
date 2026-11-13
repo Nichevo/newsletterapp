@@ -110,9 +110,10 @@ ${body}
     const rows = await c.env.DB.prepare(
       `SELECT items.rowid AS n, items.id, items.kind, items.status, items.subject, sources.name AS source, items.from_name, items.from_email,
          items.to_address, items.received_at, items.read_at, items.read_via, items.read_device, items.saved_at, items.interesting_at,
+         ir.glance_secs, ir.summary_secs, ir.article_secs, ir.read_secs, ir.scroll_pct, ir.live_opened,
          items.archived_at, COALESCE(items.category, sources.category) AS category, items.tags, items.summary, items.key_points,
          items.why_it_matters, items.preheader, items.word_count, items.web_url, items.score, items.sponsored
-       FROM items LEFT JOIN sources ON sources.id = items.source_id
+       FROM items LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN item_reads ir ON ir.item_id = items.id
        WHERE items.rowid > ? AND items.status != 'dropped' ORDER BY items.rowid LIMIT ${PAGE}`,
     )
       .bind(after)

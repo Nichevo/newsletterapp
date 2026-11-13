@@ -14,6 +14,7 @@ import {
   type ReviewStory,
   type ReviewTrends,
 } from '@newsletterapp/shared';
+import { levelSql } from './depth';
 import { storyTitle } from './db';
 import { dayKey, leadStories } from './digest';
 import type { Env } from './env';
@@ -31,6 +32,7 @@ interface Row {
   id: string;
   r: number; // received_at
   rd: number | null; // read_at
+  lk: number | null; // 1 when you looked at it (glanced or more), not just swiped it away
   st: number | null; // interesting_at
   s: string | null; // source_id
   sy: string | null; // story_id
@@ -40,10 +42,10 @@ interface Row {
   acat: string | null; // the AI's first category
 }
 
-const ITEM_SQL = `SELECT items.id, items.received_at AS r, items.read_at AS rd, items.interesting_at AS st, items.source_id AS s, items.story_id AS sy,
+const ITEM_SQL = `SELECT items.id, items.received_at AS r, items.read_at AS rd, (${levelSql('items', 'ir', 0)} >= 2) AS lk, items.interesting_at AS st, items.source_id AS s, items.story_id AS sy,
     COALESCE(items.category, sources.category, json_extract(items.ai_category, '$[0]'), 'Other') AS cat,
     sources.category AS scat, items.category AS icat, json_extract(items.ai_category, '$[0]') AS acat
-  FROM items INDEXED BY items_received LEFT JOIN sources ON sources.id = items.source_id
+  FROM items INDEXED BY items_received LEFT JOIN sources ON sources.id = items.source_id LEFT JOIN item_reads ir ON ir.item_id = items.id
   WHERE items.received_at >= ? AND items.received_at < ? AND items.status != 'dropped' AND items.kind != 'ai'`;
 
 interface SourceInfo {
@@ -390,7 +392,7 @@ function weekSources(items: Row[], sources: Map<string, SourceInfo>, stars: Revi
     if (src.paused_at) continue;
     const list = bySource.get(src.id) ?? [];
     const week = list.filter((i) => i.r >= from);
-    const read = week.filter((i) => i.rd).length;
+    const read = week.filter((i) => i.lk).length;
     const prior = new Array<number>(12).fill(0);
     for (const i of list) {
       const w = bucketOf(i.r, from, WEEK);
@@ -398,7 +400,7 @@ function weekSources(items: Row[], sources: Map<string, SourceInfo>, stars: Revi
     }
     const usual = avg(prior);
     if (src.created_at >= from && src.created_at < to) {
-      out.push({ id: src.id, name: src.name, kind: 'new', rank: 0, detail: `Added ${shortDate(src.created_at, tz)}. ${plural(week.length, 'post')} so far, you read ${read}.` });
+      out.push({ id: src.id, name: src.name, kind: 'new', rank: 0, detail: `Added ${shortDate(src.created_at, tz)}. ${plural(week.length, 'post')} so far, you looked at ${read}.` });
       continue;
     }
     if (src.created_at < from - 4 * WEEK) {
@@ -420,8 +422,8 @@ function weekSources(items: Row[], sources: Map<string, SourceInfo>, stars: Revi
         continue;
       }
       const month = list.filter((i) => i.r >= from - 3 * WEEK);
-      if (month.length >= 6 && month.every((i) => !i.rd)) {
-        out.push({ id: src.id, name: src.name, kind: 'unopened', rank: 4, detail: `${week.length} of its posts this week and ${month.length} in 4 weeks; none read.` });
+      if (month.length >= 6 && month.every((i) => !i.lk)) {
+        out.push({ id: src.id, name: src.name, kind: 'unopened', rank: 4, detail: `${week.length} of its posts this week and ${month.length} in 4 weeks; none looked at.` });
         continue;
       }
     }
@@ -628,7 +630,7 @@ function monthSources(items: Row[], sources: Map<string, SourceInfo>, from: numb
   let allRead = 0;
   for (const l of bySource.values()) {
     allPosts += l.length;
-    allRead += l.filter((i) => i.rd).length;
+    allRead += l.filter((i) => i.lk).length;
   }
   const avgShare = pct(allRead, allPosts);
   const rows: (ReviewSourceRow & { rank: number })[] = [];
@@ -639,14 +641,14 @@ function monthSources(items: Row[], sources: Map<string, SourceInfo>, from: numb
     const src = sources.get(id);
     if (!src || src.paused_at) continue;
     const posts = list.length;
-    const read = list.filter((i) => i.rd).length;
+    const read = list.filter((i) => i.lk).length;
     const stars = list.filter((i) => i.st).length;
     const lastMonth = list.filter((i) => i.r >= from).length;
     const share = pct(read, posts);
-    const base = `${plural(posts, 'post')}, read ${read} (${share}%), ${plural(stars, 'star')}.`;
+    const base = `${plural(posts, 'post')}, looked at ${read} (${share}%), ${plural(stars, 'star')}.`;
     if (starTop && starTop.id === id && stars >= 3) rows.push({ id, name: src.name, verdict: 'best', rank: 0, detail: `${base} Your most starred source.` });
     else if (src.created_at >= to - 60 * DAY && posts >= 3 && share > avgShare)
-      rows.push({ id, name: src.name, verdict: 'settling', rank: 1, detail: `Added ${shortDate(src.created_at, tz)}. Read share ${share}%, above your ${avgShare}% average.` });
+      rows.push({ id, name: src.name, verdict: 'settling', rank: 1, detail: `Added ${shortDate(src.created_at, tz)}. Looked at ${share}%, above your ${avgShare}% average.` });
     else if (posts >= 10 && read === 0) rows.push({ id, name: src.name, verdict: 'unopened', rank: 3, detail: `${base} Pause it, or add a post filter?` });
     else if (posts >= 60 && share < 10 && stars === 0) rows.push({ id, name: src.name, verdict: 'low', rank: 2, detail: `${base} Pause it, or add a post filter?` });
     else if (lastMonth === 0 && posts >= 4) {

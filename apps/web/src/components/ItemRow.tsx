@@ -117,7 +117,13 @@ export function ItemRow({
   const keysHidden = allKeys.length - keyLines.length;
 
   return (
-    <div className={`row row--${density}${item.readAt ? ' row--read' : ''}${nested ? ' row--grouped' : ''}`} style={{ background: bg }}>
+    <div
+      className={`row row--${density}${item.readAt ? ' row--read' : ''}${nested ? ' row--grouped' : ''}`}
+      style={{ background: bg }}
+      data-item-id={item.id}
+      // A row showing only its title can count as Glanced, never as a read summary.
+      data-glance-cap={showPreview || keyLines.length > 0 ? undefined : 'title'}
+    >
       {viewing && item.leadImage && <PictureViewer src={item.leadImage.src} alt={item.leadImage.alt ?? item.leadImage.title ?? ''} onClose={() => setViewing(false)} />}
       <div className="row__under" aria-hidden="true">
         <span style={{ opacity: dx > 20 ? 1 : 0 }}>
