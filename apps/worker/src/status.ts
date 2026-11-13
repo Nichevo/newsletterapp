@@ -2,6 +2,15 @@ import type { Hono } from 'hono';
 import {
   DEFAULT_STATUS_SETTINGS,
   FETCH_HEADERS,
+  HOME_KINDS,
+  HOME_RADIUS_KM,
+  parseChorus,
+  parseOneNz,
+  parseVector,
+  type ChorusIncident,
+  type HomeArea,
+  type OneNzOutageGroup,
+  type VectorInput,
   NO_STATUS,
   STATUS_KEEP_DAYS,
   STATUS_KINDS,
@@ -42,8 +51,10 @@ const MIN = 60_000;
 const DAY = 86_400_000;
 const SETTINGS_KEY = 'status_settings';
 const SUMMARY_KEY = 'status_summary';
-/** Services checked per cron run (each is one small fetch). */
-const PER_RUN = 6;
+/** Fetches a cron run may spend on status pages (the free plan allows 50 per run, feeds use some). */
+const FETCH_BUDGET = 14;
+/** Fetches one check of each kind costs. */
+const FETCH_COST: Partial<Record<StatusKind, number>> = { onenz: 4, vector: 5, chorus: 2 };
 /** An open incident nobody has updated for this long is taken as over. */
 const STALE_OPEN = 14 * DAY;
 const MAX_BYTES = 3_000_000;
@@ -94,11 +105,27 @@ const words = (raw: string | null): string[] => {
 
 // ---------- Settings ----------
 
+function normalizeHome(input: unknown, base: HomeArea | null): HomeArea | null {
+  if (input === null) return null;
+  if (!input || typeof input !== 'object') return base;
+  const h = input as Partial<HomeArea>;
+  const lat = Number(h.lat);
+  const lng = Number(h.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return base;
+  return {
+    label: typeof h.label === 'string' ? h.label.trim().slice(0, 60) : '',
+    lat: Math.round(lat * 1e5) / 1e5,
+    lng: Math.round(lng * 1e5) / 1e5,
+    radiusKm: HOME_RADIUS_KM.includes(h.radiusKm as number) ? (h.radiusKm as number) : (base?.radiusKm ?? 5),
+  };
+}
+
 export function normalizeStatusSettings(input: Partial<StatusSettings>, base: StatusSettings = DEFAULT_STATUS_SETTINGS): StatusSettings {
   return {
     banner: typeof input.banner === 'boolean' ? input.banner : base.banner,
     minMinutes: STATUS_MIN_MINUTES.includes(input.minMinutes as number) ? (input.minMinutes as number) : base.minMinutes,
     keepDays: STATUS_KEEP_DAYS.includes(input.keepDays as number) ? (input.keepDays as number) : base.keepDays,
+    home: 'home' in input ? normalizeHome(input.home, base.home) : (base.home ?? null),
   };
 }
 
@@ -133,6 +160,89 @@ async function fetchStatus(url: string): Promise<string> {
     throw new Error('The status feed is too big');
   }
   return (await res.text()).slice(0, MAX_BYTES);
+}
+
+async function fetchJson<T>(url: string, init: { headers?: Record<string, string>; method?: string; body?: string } = {}): Promise<T> {
+  const res = await fetch(url, {
+    method: init.method ?? 'GET',
+    headers: { 'User-Agent': FETCH_HEADERS['User-Agent'] ?? 'Mozilla/5.0', Accept: 'application/json, */*;q=0.8', ...init.headers },
+    body: init.body,
+    redirect: 'follow',
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) {
+    await res.body?.cancel();
+    throw new Error(`${new URL(url).hostname} answered ${res.status}`);
+  }
+  const text = (await res.text()).slice(0, MAX_BYTES);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`${new URL(url).hostname} didn’t send data`);
+  }
+}
+
+async function fetchConfigText(url: string): Promise<string> {
+  const res = await fetch(url, { headers: { ...FETCH_HEADERS }, redirect: 'follow', signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) {
+    await res.body?.cancel();
+    throw new Error(`${new URL(url).hostname} answered ${res.status}`);
+  }
+  return (await res.text()).slice(0, 500_000);
+}
+
+const ONENZ_GRAPHQL = 'https://api.public.one.nz/vf/public/brightspot-delivery-graphql-rest/delivery/graphql';
+
+/**
+ * Home outages: each provider's own outage map reads these, with the access
+ * details its page hands every visitor (read fresh each time, so a change on
+ * their side doesn't break the check).
+ */
+async function readHome(kind: StatusKind, home: HomeArea, t: number): Promise<ParsedStatus> {
+  if (kind === 'onenz') {
+    const config = await fetchJson<{ outages?: { label?: string; cmsId?: string }[] }>('https://one.nz/getconfigvalues/outage-config.json');
+    const groups: OneNzOutageGroup[] = [];
+    for (const o of (config.outages ?? []).slice(0, 4)) {
+      if (!o.cmsId || !/^[\w-]+$/.test(o.cmsId)) continue;
+      const query = `{ outage:vodafonenz_networkoutage_NetworkOutageView(id:"${o.cmsId}") { name outageType items { ... on vodafonenz_networkoutage_NetworkOutageItemView { createdDate description etaFix location locations status } } } }`;
+      const r = await fetchJson<{ data?: { outage?: { outageType?: string; items?: OneNzOutageGroup['items'] } | null } }>(ONENZ_GRAPHQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+      groups.push({ label: o.label ?? r.data?.outage?.outageType ?? 'Network', items: r.data?.outage?.items ?? [] });
+    }
+    return parseOneNz(groups, home, t);
+  }
+  if (kind === 'chorus') {
+    const config = await fetchJson<{ OUTAGES?: { HOST?: string; AUTH?: string } }>('https://www.chorus.co.nz/config.json');
+    const host = config.OUTAGES?.HOST;
+    const auth = config.OUTAGES?.AUTH;
+    if (!host || !auth || !/^https:\/\/[\w.-]+\.chorus\.co\.nz\//.test(host)) throw new Error('Chorus changed how its outage map is set up');
+    const list = await fetchJson<ChorusIncident[]>(`${host.replace(/\/$/, '')}/incidents?includePolygons=false`, {
+      headers: { Authorization: auth, 'Accept-Encoding': 'gzip' },
+    });
+    return parseChorus(Array.isArray(list) ? list : [], home, t);
+  }
+  if (kind === 'vector') {
+    const js = await fetchConfigText('https://help.vector.co.nz/config.js');
+    const val = (name: string) => new RegExp(`(?:^|[\\s{,])${name}\\s*:\\s*["']([^"']+)["']`).exec(js)?.[1] ?? null;
+    const base = val('apiBaseUrl');
+    const key = val('apikey');
+    const centre = val('outageCentreBaseUrl');
+    const centreKey = val('outageCentreApikey');
+    const ok = (u: string | null) => !!u && /^https:\/\/[\w.-]+\.vector\.co\.nz\//.test(u);
+    if (!ok(base) || !key || !ok(centre) || !centreKey) throw new Error('Vector changed how its outage map is set up');
+    const join = (b: string, path: string) => `${b.replace(/\/$/, '')}/${path}`;
+    const [unplanned, plannedShapes, planned, alert] = await Promise.all([
+      fetchJson<VectorInput['unplanned']>(join(base!, 'outagereporter/outages/shapes'), { headers: { apikey: key } }),
+      fetchJson<VectorInput['plannedShapes']>(join(centre!, 'v1/outages/planned-outages/shapes'), { headers: { apikey: centreKey } }),
+      fetchJson<VectorInput['planned']>(join(centre!, 'v1/outages/planned-outages/future'), { headers: { apikey: centreKey } }),
+      fetchJson<VectorInput['alert']>(join(base!, 'outagereporter/lses'), { headers: { apikey: key } }).catch(() => null),
+    ]);
+    return parseVector({ unplanned, plannedShapes, planned: Array.isArray(planned) ? planned : [], alert }, home, t);
+  }
+  throw new Error('Not a home outage check');
 }
 
 function fingerprint(p: ParsedIncident): string {
@@ -230,11 +340,17 @@ async function applyParsed(env: Env, svc: ServiceRow, parsed: ParsedStatus, t: n
   for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
 }
 
-async function checkService(env: Env, svc: ServiceRow, keepDays: number): Promise<void> {
+async function checkService(env: Env, svc: ServiceRow, settings: StatusSettings): Promise<void> {
   const t = now();
+  const keepDays = settings.keepDays;
   try {
-    const body = await fetchStatus(svc.feed_url);
-    const parsed = parseStatus(svc.kind, body, t);
+    let parsed: ParsedStatus;
+    if (HOME_KINDS.includes(svc.kind)) {
+      if (!settings.home) throw new Error('Set your home area in Settings > System status');
+      parsed = await readHome(svc.kind, settings.home, t);
+    } else {
+      parsed = parseStatus(svc.kind, await fetchStatus(svc.feed_url), t);
+    }
     await applyParsed(env, svc, parsed, t, keepDays);
     const open = await env.DB.prepare("SELECT COUNT(*) AS n FROM status_incidents INDEXED BY status_incidents_open WHERE state = 'open' AND service_id = ?")
       .bind(svc.id)
@@ -284,11 +400,17 @@ export async function runStatusChecks(env: Env, hourly: boolean): Promise<void> 
   const t = now();
   const settings = await loadStatusSettings(env);
   const due = await env.DB.prepare(
-    'SELECT * FROM status_services WHERE enabled = 1 AND (next_check_at IS NULL OR next_check_at <= ?) ORDER BY COALESCE(next_check_at, 0) LIMIT ?',
+    'SELECT * FROM status_services WHERE enabled = 1 AND (next_check_at IS NULL OR next_check_at <= ?) ORDER BY COALESCE(next_check_at, 0) LIMIT 12',
   )
-    .bind(t, PER_RUN)
+    .bind(t)
     .all<ServiceRow>();
-  for (const svc of due.results) await checkService(env, svc, settings.keepDays);
+  let budget = FETCH_BUDGET;
+  for (const svc of due.results) {
+    const cost = FETCH_COST[svc.kind] ?? 1;
+    if (cost > budget) continue;
+    budget -= cost;
+    await checkService(env, svc, settings);
+  }
   if (hourly) {
     const cutoff = t - settings.keepDays * DAY;
     await env.DB.batch([
@@ -456,8 +578,15 @@ export function registerStatus(app: App) {
 
   app.put('/api/status/settings', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Partial<StatusSettings>;
-    const settings = normalizeStatusSettings(body, await loadStatusSettings(c.env));
+    const before = await loadStatusSettings(c.env);
+    const settings = normalizeStatusSettings(body, before);
     await writeJson(c.env, SETTINGS_KEY, settings);
+    // A new home area: the home checks run again on the next cron run.
+    if (JSON.stringify(settings.home) !== JSON.stringify(before.home)) {
+      await c.env.DB.prepare(`UPDATE status_services SET next_check_at = NULL WHERE kind IN (${HOME_KINDS.map(() => '?').join(', ')})`)
+        .bind(...HOME_KINDS)
+        .run();
+    }
     await refreshStatusSummary(c.env);
     return c.json(await settingsView(c.env));
   });
@@ -505,7 +634,7 @@ export function registerStatus(app: App) {
       .bind(id, name, found.kind, found.feedUrl, new URL(found.feedUrl).origin + '/', now())
       .run();
     const row = await c.env.DB.prepare('SELECT * FROM status_services WHERE id = ?').bind(id).first<ServiceRow>();
-    if (row) await checkService(c.env, row, (await loadStatusSettings(c.env)).keepDays);
+    if (row) await checkService(c.env, row, await loadStatusSettings(c.env));
     await refreshStatusSummary(c.env);
     return c.json(await settingsView(c.env));
   });
@@ -528,7 +657,7 @@ export function registerStatus(app: App) {
   app.post('/api/status/check', async (c) => {
     const settings = await loadStatusSettings(c.env);
     const services = await c.env.DB.prepare('SELECT * FROM status_services WHERE enabled = 1 ORDER BY sort LIMIT 20').all<ServiceRow>();
-    await Promise.all(services.results.map((s) => checkService(c.env, s, settings.keepDays)));
+    await Promise.all(services.results.map((s) => checkService(c.env, s, settings)));
     await refreshStatusSummary(c.env);
     return c.json(await statusView(c.env));
   });
