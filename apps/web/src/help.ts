@@ -33,9 +33,9 @@ export const HELP = {
   ], 'All shows up to 200 per item; a note says when some are left out.'),
   swipe: h('Swipe to mark read', [
     'Which way you swipe a row to mark it read. The other way saves it for later.',
-    'Pull further (about half the row) for the long version: on the read side it marks it read as Not interested; on the save side it stars it as Interesting and marks it read. The label changes when you pass the point, and the phone gives a little buzz.',
+    'Pull further (about a third of the row) for the long version: on the read side it marks it read as Not interested; on the save side it stars it as Interesting and marks it read. The label changes when you pass the point, and the phone gives a little buzz.',
     'Usual: right. Saved on this device only.',
-  ], 'A swipe counts after about 90 pixels of travel; the long version after half the row (at least 180 pixels).'),
+  ], 'A swipe counts after about 90 pixels of travel; the long version after about a third of the row (at least 140 pixels).'),
   openIn: h('Live page for Reddit and YouTube', [
     'When you open the live page of a Reddit or YouTube post on an Android phone, whether it opens in their app or in the browser.',
     'If the app is not installed, the browser opens it anyway.',

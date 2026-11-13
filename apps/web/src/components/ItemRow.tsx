@@ -16,8 +16,8 @@ const PLATFORM_CHIP = { reddit: 'Reddit', youtube: 'YouTube', github: 'GitHub' }
 const THRESHOLD = 88; // px of travel before a swipe counts
 const MAX = 120;
 /** A side with a long swipe goes further: past this share of the row's width (at least LONG_MIN px) it does the long action. */
-const LONG_SHARE = 0.5;
-const LONG_MIN = 180;
+const LONG_SHARE = 0.36;
+const LONG_MIN = 140;
 
 /** What a swipe to one side does: the handler, its label and which look it gets. */
 export interface SwipeAction {
