@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { registerDeleting } from './deleting';
-import { isKeyKind, KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, SAVE_LOCAL_PART, type FileFilter, type KeyMark, type SaveAddressInfo } from '@newsletterapp/shared';
+import { DEFAULT_OLD_LINK_DAYS, DEFAULT_REDDIT_COMMENTS, OLD_LINK_CHOICES, REDDIT_COMMENT_CHOICES, isKeyKind, KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, SAVE_LOCAL_PART, type FileFilter, type KeyMark, type SaveAddressInfo } from '@newsletterapp/shared';
 import type {
   Platform,
   AiMode,
@@ -1070,6 +1070,10 @@ app.post('/api/sources/:id', async (c) => {
   if (typeof input.waitHours === 'number') set('wait_hours = ?', Math.min(Math.max(Math.round(input.waitHours), 0), 72));
   if (typeof input.bundle === 'boolean') set('bundle = ?', input.bundle ? 1 : 0);
   if (typeof input.floodSkip === 'boolean') set('flood_skip = ?', input.floodSkip ? 1 : 0);
+  if (typeof input.redditComments === 'number' && (REDDIT_COMMENT_CHOICES as readonly number[]).includes(input.redditComments))
+    set('reddit_comments = ?', input.redditComments === DEFAULT_REDDIT_COMMENTS ? null : input.redditComments);
+  if (typeof input.oldLinkDays === 'number' && (OLD_LINK_CHOICES as readonly number[]).includes(input.oldLinkDays))
+    set('old_link_days = ?', input.oldLinkDays === DEFAULT_OLD_LINK_DAYS ? null : input.oldLinkDays);
   if (typeof input.followLink === 'boolean') set('follow_link = ?', input.followLink ? 1 : 0);
   if (input.postFilter !== undefined) set('post_filter = ?', JSON.stringify(normalizePostFilter(input.postFilter)));
   if (typeof input.dailyCap === 'number') set('daily_cap = ?', Math.min(Math.max(Math.round(input.dailyCap), 0), 500));
@@ -1178,6 +1182,10 @@ app.put('/api/settings', async (c) => {
     await c.env.DB.batch(
       switchedOn.map((k) => c.env.DB.prepare("UPDATE sources SET ai_since = ? WHERE kind = ? AND ai_mode = 'default'").bind(now(), k)),
     );
+  }
+  // A new Top sort lean shows straight away rather than at the next hourly rescore.
+  if (settings.tuning.topLean !== before.tuning.topLean) {
+    c.executionCtx.waitUntil(scoreRecentItems(c.env).catch((err: unknown) => console.error('rescore failed', err)));
   }
   return c.json(settings);
 });

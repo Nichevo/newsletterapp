@@ -47,9 +47,24 @@ export const HELP = {
     'Folds away blocks that look like sponsor messages in newsletters, with a note saying how many and a tap to show them.',
     'Saved on this device only.',
   ], 'A block over about 1,500 characters is never treated as sponsored.'),
-  readingTime: h('Reading time', [
-    'The minutes shown on each item assume 230 words a minute. An article counts as finished in Reading statistics once you have scrolled 70% of it.',
+  readingTime: h('Reading', [
+    'These choices are saved on this device only, so the phone and the PC can differ.',
+  ], 'An article counts as finished in Reading statistics once you have scrolled 70% of it.'),
+  readingSpeed: h('Reading speed', [
+    'How many words a minute you read, for the minutes shown on each item and for the length hint in Key sentences. Usual: 230.',
+    'Saved on this device only.',
   ]),
+  topLean: h('Top sort leans towards', [
+    'The Top sort gives every recent item a score. Balanced mixes how much you engage with its source, what the summary says, stars and saves, and freshness.',
+    'Newest lets age count for much more, so today’s items rise. Favourites lets the sources you read, save and star most count for more, and age for less. The weekly and monthly reviews use the same score.',
+  ], 'A change shows within a minute or so; the last 7 days of items are rescored.'),
+  likelyShare: h('Likely interesting shows', [
+    'Your PC compares recent items with the ones you starred, and flags the closest as Likely interesting. Fewer shows the closest 10%, Normal 15%, More 25%.',
+  ], 'Needs at least 5 starred items, looks at the last 30 days, and never flags an item that is not fairly close.'),
+  storyDays: h('Join a story across', [
+    'How far apart in time two articles can be and still join the same story. Longer catches slow-moving stories (court cases, product launches) but risks joining unrelated follow-ups.',
+    'Usual: 30 days. A change applies to new articles.',
+  ], 'The same news from several sources is still only grouped as one inbox row within 2 days.'),
 
   // ---------- Settings > Stories ----------
   storyGroup: h('Same news as one inbox row', [
@@ -67,7 +82,7 @@ export const HELP = {
   storyCategories: h('Stories by category', [
     'Normal uses the matching level from Statistics > Stories. Stricter needs a closer match and a shared specific tag, which suits comics or anything whose titles look alike. Off keeps a category out of stories.',
     'A change applies to new articles; you are asked whether to rematch the old ones.',
-  ], 'Articles join a story when they are up to 30 days apart. A story page shows up to 300 articles.'),
+  ], 'A story page shows up to 300 articles.'),
 
   // ---------- Settings > Reviews ----------
   reviewWeekly: h('Weekly review', [
@@ -107,7 +122,15 @@ export const HELP = {
   aiByKind: h('AI summaries by type', [
     'Which types of item go to the AI on your PC. Usual: newsletters on, feeds and websites off, since feeds can be busy.',
     'Switching a type on does new items only; a source’s own page can go back further or override this. Everything gets the free quick summary either way.',
-  ], 'The AI reads the first 24,000 characters (about 4,000 words) of an item. Each item gets 3 tries; after 5 failures in a row the AI pauses itself.'),
+  ], 'Each item gets 3 tries; after 5 failures in a row the AI pauses itself.'),
+  aiMaxChars: h('Longest text the AI reads', [
+    'How much of an item’s text the AI on your PC reads, in characters (24k is about 4,000 words). Anything past that is cut, so long articles and PDFs are summarised from their start.',
+    'Bigger reads more but is slower and uses more of the graphics card’s memory; the PC sizes the model’s memory to fit. Usual: 24k. Applies to summaries, highlight questions and studies; key sentences send long articles in pieces of this size.',
+  ]),
+  pdfMaxPages: h('PDF pages to read', [
+    'How many pages of a PDF your PC reads into the article. The rest are noted at the end with a link to the PDF. Usual: 60.',
+    'More pages take the PC longer, and the AI still only reads as much text as the setting above allows.',
+  ], 'A PDF keeps up to 40 pictures, and the PC downloads PDFs up to 60 MB.'),
   aiOffCategories: h('Categories without AI', [
     'Items in a struck-through category skip the AI, for things like comics where a summary adds nothing. A source set to AI On still goes.',
   ]),
@@ -181,7 +204,7 @@ export const HELP = {
   ]),
   ksModel: h('Key sentences model', [
     'Which model finds key sentences. The answer is only sentence numbers and kinds, so a smaller, quicker model often does well. Usual: the same as summaries.',
-  ], 'Long articles are sent in pieces of up to 24,000 characters each.'),
+  ], 'Long articles are sent in pieces the size of "Longest text the AI reads".'),
   ksExtra: h('Extra instructions', ['Added to the key sentences prompt, for things like "prefer sentences with numbers".']),
   ksRoundups: h('Link roundups', [
     'Lists of links (daily roundups, "what we’re reading") are skipped on Auto. An article counts as one when it has at least this many links per 100 words, or its paragraphs are shorter than this on average.',
@@ -209,7 +232,15 @@ export const HELP = {
   ], 'If the PC has not fetched the article within 12 hours, the AI summarises the teaser instead.'),
   srcLinkHint: h('Only links containing', [
     'For website watches: only links whose address contains this text count as new posts, e.g. /blog/ or /comic/. Leave empty to take every article-like link.',
-  ], 'Up to 10 new articles are fetched per check, and links dated over 30 days old are skipped.'),
+  ], 'Up to 10 new articles are fetched per check.'),
+  srcOldLinks: h('Skip links older than', [
+    'Links on the page whose address carries a date (like /2024/05/) older than this are skipped, so a watched page does not pull in its archive. Never takes them all.',
+    'Usual: 30 days. Links without a date are always taken.',
+  ]),
+  srcRedditComments: h('Reddit comments to add', [
+    'How many of the top comments your PC adds under each Reddit post. None skips the PC’s fetch for this subreddit altogether. Usual: 8.',
+    'Pairs well with "Bring new posts in" so the comments have time to build up.',
+  ]),
   srcBrowser: h('Needs a browser', [
     'For pages built by JavaScript, which look empty to a plain fetch. Your PC opens them in a hidden Edge or Chrome window. Slower, so only when needed.',
   ]),
@@ -225,7 +256,7 @@ export const HELP = {
   srcPostFilter: h('Which posts get in', [
     'Only posts mentioning: a post must have one of these words in its title. Skip posts mentioning: posts with any of these are left out. Separate words with commas.',
     'Left-out posts are only remembered as seen. Changes apply to new posts.',
-  ], 'Reddit posts come with their top 8 comments.'),
+  ]),
   srcWait: h('Bring new posts in', [
     'Wait until a post is this old before it comes in, so votes and comments build up first. Handy for Reddit. Usual: straight away.',
   ]),

@@ -409,7 +409,7 @@ export async function assignStories(env: Env, max: number): Promise<number> {
       const lines = pairLines(th, shift, sameSource, rowMode === 'strict' || theirMode === 'strict', sameSource ? sourceLine : null);
       const news = sim >= th.news && days <= NEWS_DAYS && !sameSource && n.source_id !== row.source_id;
       const story =
-        news || (days <= STORY_DAYS && sim >= lines.story && shared.length > 0) || (lines.alone !== null && days <= ALONE_DAYS && sim >= lines.alone);
+        news || (days <= (settings.joinDays ?? STORY_DAYS) && sim >= lines.story && shared.length > 0) || (lines.alone !== null && days <= ALONE_DAYS && sim >= lines.alone);
       if (!story) continue;
       // Same news beats a later step; then closeness, shared tags and joining an existing story.
       const score = (news ? 1 : 0) + sim + 0.04 * shared.length + (n.story_id ? 0.02 : 0);
@@ -860,7 +860,7 @@ export function registerStories(app: App) {
       if (off) reason = `Stories are off for ${off.cat}`;
       else if (n.story_closed) reason = `Meaning ${f(sim)}, but its story is closed`;
       else if (item.story_split || n.story_split) reason = 'One of them was taken out of a story by hand';
-      else if (days > STORY_DAYS) reason = `Meaning ${f(sim)}, but more than ${STORY_DAYS} days apart`;
+      else if (days > (settings.stories.joinDays ?? STORY_DAYS)) reason = `Meaning ${f(sim)}, but more than ${settings.stories.joinDays ?? STORY_DAYS} days apart`;
       else if (sim < storyLine) reason = `Meaning ${f(sim)}; a story needs ${f(storyLine)} plus a shared specific tag`;
       else if (shared.length === 0)
         reason =

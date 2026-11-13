@@ -257,7 +257,8 @@ export class Embeddings {
         scored.push([id, top.reduce((a, b) => a + b, 0) / top.length]);
       }
       scored.sort((a, b) => b[1] - a[1]);
-      const cut = Math.max(scored[Math.floor(scored.length * LIKELY_SHARE)]?.[1] ?? 1, LIKELY_FLOOR);
+      const share = typeof state.share === 'number' && state.share > 0 && state.share <= 50 ? state.share / 100 : LIKELY_SHARE;
+      const cut = Math.max(scored[Math.floor(scored.length * share)]?.[1] ?? 1, LIKELY_FLOOR);
       for (const [id, score] of scored) if (score >= cut) next.add(id);
     }
     const now = new Set(state.likely);

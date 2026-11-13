@@ -548,7 +548,8 @@ function pathDate(pathname: string): { time: number; hasSlug: boolean } | null {
  * few weeks is taken even with short text ("Permalink"), since comic and blog
  * pages often link their newest post that way.
  */
-export function extractLinks(html: string, pageUrl: string, hint?: string | null, now = Date.now()): PageLink[] {
+/** `oldDays`: skip links dated older than this many days (0 = keep them all). */
+export function extractLinks(html: string, pageUrl: string, hint?: string | null, now = Date.now(), oldDays = OLD_LINK_DAYS): PageLink[] {
   const page = new URL(pageUrl);
   const content = withoutChrome(html, false);
   const found = new Map<string, PageLink>();
@@ -563,7 +564,7 @@ export function extractLinks(html: string, pageUrl: string, hint?: string | null
     const heading = /<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/i.exec(m[2] ?? '')?.[1];
     const text = stripTags(heading ?? m[2] ?? '') || attr(`<a ${m[1] ?? ''}>`, 'title') || '';
     const dated = pathDate(u.pathname);
-    if (dated && dated.time < now - OLD_LINK_DAYS * 86_400_000) continue;
+    if (dated && oldDays > 0 && dated.time < now - oldDays * 86_400_000) continue;
     if (hint) {
       if (!url.includes(hint)) continue;
     } else {

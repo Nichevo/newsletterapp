@@ -1,4 +1,5 @@
 import type { FeedRhythm, SourceActivity } from '@newsletterapp/shared';
+import { getReadingSpeed } from './prefs';
 
 const DAY = 86_400_000;
 
@@ -35,12 +36,10 @@ export function todayLabel(): string {
   return new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
-const WORDS_PER_MINUTE = 230;
-
 /** Rough reading time from the item's word count, or from its text. */
 export function readingMinutes(source: number | string | null | undefined): number {
   const words = typeof source === 'number' ? source : source ? source.trim().split(/\s+/).length : 0;
-  return Math.max(1, Math.round(words / WORDS_PER_MINUTE));
+  return Math.max(1, Math.round(words / getReadingSpeed()));
 }
 
 const PROVIDER_LABEL: Record<string, string> = { ollama: 'Ollama on your PC', anthropic: 'Claude (hosted)' };

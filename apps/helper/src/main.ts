@@ -32,6 +32,7 @@ import {
   toMarks,
 } from './keysentences';
 import { itemText, parseOutput } from './text';
+import { maxChars, updateLimits } from './limits';
 
 // The PC helper: every minute it checks in with the app, answers any
 // questions about highlighted text first, does any feed, website or
@@ -115,7 +116,7 @@ function userMessage(job: Pick<HelperJob, 'sourceName' | 'fromName' | 'subject' 
     `Sender: ${job.sourceName ?? job.fromName ?? 'unknown'}`,
     `Subject: ${job.subject}`,
     '',
-    itemText(job.html, job.text, c.maxChars),
+    itemText(job.html, job.text, maxChars(c.maxChars)),
   ].join('\n');
 }
 
@@ -165,7 +166,7 @@ function askMessage(job: AskJob, c: LocalConfig, lookups: Lookups): string {
     `Subject: ${job.subject}`,
     '',
     'Article:',
-    itemText(job.html, job.text, c.maxChars),
+    itemText(job.html, job.text, maxChars(c.maxChars)),
     '',
     `Highlighted passage: "${job.quote}"`,
     ...(job.question ? [`Question: ${job.question}`] : []),
@@ -380,7 +381,7 @@ async function keySentences(config: HelperConfig) {
         continue;
       }
       const max = maxMarks(split.sentences.length, job.maxShare);
-      const pieces = promptPieces(split, cfg.maxChars);
+      const pieces = promptPieces(split, maxChars(cfg.maxChars));
       const valid = new Set(split.sentences.map((s) => s.n));
       let seconds = 0;
       let watts: number | undefined;
@@ -454,7 +455,7 @@ async function studiesAndLinks(config: HelperConfig) {
         let studies: ReturnType<typeof parseRefsReply> = [];
         if (cands.length) {
           doing(`studies in "${title}"`);
-          const user = [`Title: ${job.subject}`, `From: ${job.sourceName ?? 'unknown'}`, '', refsPromptText(cands).slice(0, cfg.maxChars)].join('\n');
+          const user = [`Title: ${job.subject}`, `From: ${job.sourceName ?? 'unknown'}`, '', refsPromptText(cands).slice(0, maxChars(cfg.maxChars))].join('\n');
           const started = performance.now();
           const meter = powerMeter();
           let reply: string;
@@ -566,6 +567,7 @@ async function tick(): Promise<number> {
   }
   currentModels = config.models;
   askPollSeconds = config.askPollSeconds ?? askPollSeconds;
+  updateLimits(config);
   // Questions about highlights come first: someone is waiting for those.
   doing('answering questions');
   if (config.asksWaiting && !config.paused) await answerAsks(config.models);

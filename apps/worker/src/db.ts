@@ -1,5 +1,5 @@
 import { parseRhythm } from './rhythm';
-import { DEFAULT_DAILY_CAP, EMPTY_POST_FILTER, fileTypeLabel, normalizePostFilter, platformOf, type PostFilter } from '@newsletterapp/shared';
+import { DEFAULT_DAILY_CAP, DEFAULT_OLD_LINK_DAYS, DEFAULT_REDDIT_COMMENTS, EMPTY_POST_FILTER, fileTypeLabel, normalizePostFilter, platformOf, type PostFilter } from '@newsletterapp/shared';
 import type {
   AiMode,
   AiStatus,
@@ -80,6 +80,8 @@ export interface SourceRow {
   follow_link?: number | null;
   key_sentences?: string | null;
   flood_skip?: number | null;
+  reddit_comments?: number | null;
+  old_link_days?: number | null;
   post_filter?: string | null;
   daily_cap?: number | null;
   flood_at?: number | null;
@@ -407,6 +409,8 @@ export function toSource(
     platform: platformOf(row.feed_url),
     followLink: row.follow_link === 1,
     floodSkip: row.flood_skip === 1,
+    redditComments: row.reddit_comments ?? DEFAULT_REDDIT_COMMENTS,
+    oldLinkDays: row.old_link_days ?? DEFAULT_OLD_LINK_DAYS,
     postFilter: sourcePostFilter(row),
     dailyCap: row.daily_cap ?? DEFAULT_DAILY_CAP,
     floodAt: row.flood_at ?? null,
