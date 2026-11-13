@@ -1,4 +1,4 @@
-import { DEPTH_LEVELS, depthTotal, depthValue, emptyDepth, sourceVerdict, type ReadingStats, type Source, type SourceActivity, type SourceVerdict } from '@newsletterapp/shared';
+import { DEPTH_LEVELS, depthTotal, depthValue, emptyDepth, sourceVerdict, type DepthCounts, type ReadingStats, type Source, type SourceActivity, type SourceVerdict, type TopicSkips } from '@newsletterapp/shared';
 import { DepthBar, DepthLegend, VerdictPill } from '../components/DepthBar';
 import { Fragment, useEffect, useState } from 'react';
 import { Help } from '../components/Help';
@@ -54,6 +54,7 @@ export function ReadingStatsPage() {
           <Daily data={data} />
           <Backlog data={data} />
           <SourcesByValue />
+          <TopicsYouSkip />
 
           <div className="section">
             <span className="label">By newsletter and category</span>
@@ -423,6 +424,157 @@ function SourcesByValue() {
           </>
         )}
       </section>
+    </div>
+  );
+}
+
+const skipShare = (d: DepthCounts) => {
+  const total = depthTotal(d);
+  return total ? (d.not_interested + d.skipped) / total : 0;
+};
+const pctOf = (x: number) => `${Math.round(x * 100)}%`;
+const tagHref = (tag: string) => `/tag/${encodeURIComponent(tag)}`;
+
+/**
+ * Topics (AI tags) you mostly skip or mark Not interested, compared with your
+ * average, and topics you skip from one source but read from others, with a
+ * one-tap "skip posts mentioning it" for that source's post filter.
+ */
+function TopicsYouSkip() {
+  const [data, setData] = useState<TopicSkips | null>(null);
+  const [added, setAdded] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .topicSkips()
+      .then(setData)
+      .catch(() => undefined);
+  }, []);
+  if (!data || data.topics.length === 0) return null;
+  const avg = skipShare(data.all);
+  const line = Math.max(0.6, avg + 0.15);
+  const skipped = data.topics
+    .filter((t) => skipShare(t.depth) >= line)
+    .sort((a, b) => skipShare(b.depth) - skipShare(a.depth) || depthTotal(b.depth) - depthTotal(a.depth))
+    .slice(0, 10);
+  const valued = data.topics
+    .filter((t) => (depthValue(t.depth) ?? 0) >= 45)
+    .sort((a, b) => (depthValue(b.depth) ?? 0) - (depthValue(a.depth) ?? 0))
+    .slice(0, 5);
+  // A topic you skip from one source but read from the others.
+  const pairs = data.topics
+    .flatMap((t) =>
+      t.sources.map((s) => {
+        const rest = emptyDepth();
+        for (const l of DEPTH_LEVELS) rest[l] = t.depth[l] - s.depth[l];
+        return { t, s, rest };
+      }),
+    )
+    .filter(
+      ({ s, rest }) =>
+        skipShare(s.depth) >= 0.8 && depthTotal(rest) >= 5 && (depthValue(rest) ?? 0) >= (depthValue(s.depth) ?? 0) + 15,
+    )
+    .sort((a, b) => depthTotal(b.s.depth) - depthTotal(a.s.depth))
+    .slice(0, 8);
+
+  async function skipWord(sourceId: string, word: string) {
+    setError(null);
+    try {
+      const source = (await api.sources()).find((x) => x.id === sourceId);
+      if (!source) return;
+      const f = source.postFilter;
+      const words = f.skip
+        .split(',')
+        .map((w) => w.trim())
+        .filter(Boolean);
+      if (!words.some((w) => w.toLowerCase() === word.toLowerCase())) words.push(word);
+      await api.updateSource(sourceId, { postFilter: { ...f, skip: words.join(', ') } });
+      setAdded((prev) => new Set(prev).add(`${sourceId}:${word}`));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the filter');
+    }
+  }
+
+  return (
+    <div className="section">
+      <span className="label">
+        Topics you skip, last {data.days} days<Help topic="topicSkips" />
+      </span>
+      <section className="card">
+        {skipped.length === 0 ? (
+          <span className="hint" style={{ margin: 0 }}>
+            No topic stands out yet: you skip {pctOf(avg)} of tagged items overall, and no topic is far above that.
+          </span>
+        ) : (
+          <>
+            <span className="hint" style={{ margin: 0 }}>
+              You skip or mark Not interested {pctOf(avg)} of tagged items overall. These topics are well above that:
+            </span>
+            {skipped.map((t) => (
+              <Link key={t.tag} to={tagHref(t.tag)} className="depthrow" style={{ color: 'inherit', textDecoration: 'none' }}>
+                <span style={{ flex: '0 1 40%', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>
+                  {t.label}
+                </span>
+                <DepthBar depth={t.depth} />
+                <span className="depthrow__value" style={{ minWidth: 70, fontWeight: 500, fontSize: 12 }}>
+                  {pctOf(skipShare(t.depth))} of {depthTotal(t.depth)}
+                </span>
+              </Link>
+            ))}
+          </>
+        )}
+        {valued.length > 0 && (
+          <>
+            <span className="label" style={{ marginTop: 4 }}>
+              Topics you go into most
+            </span>
+            {valued.map((t) => (
+              <Link key={t.tag} to={tagHref(t.tag)} className="depthrow" style={{ color: 'inherit', textDecoration: 'none' }}>
+                <span style={{ flex: '0 1 40%', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>
+                  {t.label}
+                </span>
+                <DepthBar depth={t.depth} />
+                <span className="depthrow__value">{depthValue(t.depth)}</span>
+              </Link>
+            ))}
+          </>
+        )}
+      </section>
+      {pairs.length > 0 && (
+        <>
+          <span className="label">Skipped from one source, read from others</span>
+          <section className="card">
+            {pairs.map(({ t, s, rest }) => {
+              const done = s.skipping || added.has(`${s.sourceId}:${t.label}`);
+              return (
+                <div key={`${t.tag}:${s.sourceId}`} style={{ display: 'grid', gap: 6 }}>
+                  <span style={{ fontSize: 14 }}>
+                    You skip <Link to={tagHref(t.tag)}>{t.label}</Link> from <Link to={`/source/${s.sourceId}`}>{s.name}</Link> (
+                    {pctOf(skipShare(s.depth))} of {depthTotal(s.depth)}), but go further with it from other sources (value {depthValue(rest)} against{' '}
+                    {depthValue(s.depth)}).
+                  </span>
+                  {s.canFilter &&
+                    (done ? (
+                      <span className="hint" style={{ margin: 0 }}>
+                        {s.name} now skips new posts mentioning “{t.label}”.
+                      </span>
+                    ) : (
+                      <div className="inline">
+                        <button className="btn btn--small" onClick={() => void skipWord(s.sourceId, t.label)}>
+                          Skip new {s.name} posts mentioning “{t.label}”
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              );
+            })}
+            {error && <span className="hint">{error}</span>}
+            <span className="hint" style={{ margin: 0 }}>
+              The skip goes in that source's "Which posts get in" filter, which checks post titles; change or remove it on the source's page.
+            </span>
+          </section>
+        </>
+      )}
     </div>
   );
 }

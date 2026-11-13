@@ -70,7 +70,7 @@ export class AppClient {
   refsClaim = (max: number) => this.call<{ jobs: RefJob[] }>('POST', '/api/helper/refs/claim', { max });
   refsResult = (r: RefResult) => this.call<{ ok: boolean; status: string; studies: number }>('POST', '/api/helper/refs/result', r);
   likelyState = () => this.call<LikelyState>('GET', '/api/helper/likely');
-  likelySave = (set: string[], unset: string[]) => this.call<{ ok: boolean }>('POST', '/api/helper/likely', { set, unset });
+  likelySave = (set: string[], unset: string[], flag: 1 | -1 = 1) => this.call<{ ok: boolean }>('POST', '/api/helper/likely', { set, unset, flag });
   linksClaim = (max: number) => this.call<{ jobs: LinkJob[] }>('POST', '/api/helper/suggest/links/claim', { max });
   linksResult = (results: LinkResult[]) => this.call<{ ok: boolean }>('POST', '/api/helper/suggest/links/result', { results });
   suggestStart = () => this.call<SuggestRun>('POST', '/api/helper/suggest/start', {});

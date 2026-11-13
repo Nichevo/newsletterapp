@@ -43,17 +43,24 @@ export async function embedHeartbeat(env: Env, hb: HelperHeartbeat, likelyShare 
       // A different store on the PC (new install, lost file or another model): embed everything again.
       await env.DB.batch([
         env.DB.prepare('UPDATE items SET embedded_at = NULL WHERE embedded_at IS NOT NULL'),
-        env.DB.prepare('UPDATE items SET likely = NULL WHERE likely = 1'),
+        env.DB.prepare('UPDATE items SET likely = NULL WHERE likely IN (1, -1)'),
       ]);
       await writeJson(env, 'embed_store', { store: hb.embedStore.slice(0, 100), since: now() });
     }
   }
-  const [waiting, stars] = await env.DB.batch([
+  const [waiting, stars, notInterested] = await env.DB.batch([
     env.DB.prepare(`SELECT 1 AS w FROM ${FROM_WAITING} WHERE ${WAITING} LIMIT 1`),
     env.DB.prepare('SELECT COUNT(*) AS n, MAX(interesting_at) AS at FROM items WHERE interesting_at IS NOT NULL'),
+    // Through the partial index items_not_interested (migration 0045): only those rows are read.
+    env.DB.prepare("SELECT COUNT(*) AS n, MAX(read_at) AS at FROM items INDEXED BY items_not_interested WHERE read_via = 'not_interested'"),
   ]);
   const s = stars?.results[0] as { n: number; at: number | null } | undefined;
-  return { embedWaiting: (waiting?.results.length ?? 0) > 0, interestingKey: `${s?.n ?? 0}:${s?.at ?? 0}:${likelyShare}` };
+  const ni = notInterested?.results[0] as { n: number; at: number | null } | undefined;
+  // Changes when a star or a Not interested is added or taken away: the PC then rescores both flags.
+  return {
+    embedWaiting: (waiting?.results.length ?? 0) > 0,
+    interestingKey: `${s?.n ?? 0}:${s?.at ?? 0}:${likelyShare}:${ni?.n ?? 0}:${ni?.at ?? 0}`,
+  };
 }
 
 /** The text an item is embedded from: what it is about, without the full body. */
@@ -152,22 +159,37 @@ export function registerEmbed(app: App) {
   /** Which items are marked Interesting, and which are flagged Likely interesting now. */
   app.get('/api/helper/likely', async (c) => {
     const settings = await loadSettings(c.env);
-    const [stars, likely] = await c.env.DB.batch([
+    const [stars, likely, notInterested, unlikely] = await c.env.DB.batch([
       c.env.DB.prepare('SELECT id FROM items WHERE interesting_at IS NOT NULL ORDER BY interesting_at DESC LIMIT 500'),
       c.env.DB.prepare('SELECT id FROM items WHERE likely = 1 ORDER BY received_at DESC LIMIT 2000'),
+      c.env.DB.prepare("SELECT id FROM items INDEXED BY items_not_interested WHERE read_via = 'not_interested' ORDER BY read_at DESC LIMIT 500"),
+      c.env.DB.prepare('SELECT id FROM items INDEXED BY items_unlikely WHERE likely = -1 ORDER BY received_at DESC LIMIT 2000'),
     ]);
     const ids = (r: D1Result | undefined) => ((r?.results ?? []) as { id: string }[]).map((x) => x.id);
-    return c.json({ interesting: ids(stars), likely: ids(likely), share: settings.tuning.likelyShare } satisfies LikelyState);
+    return c.json({
+      interesting: ids(stars),
+      likely: ids(likely),
+      share: settings.tuning.likelyShare,
+      notInterested: ids(notInterested),
+      unlikely: ids(unlikely),
+    } satisfies LikelyState);
   });
 
   /** Flags changes only, so a rescore writes a handful of rows rather than every recent item. */
   app.post('/api/helper/likely', async (c) => {
-    const input = (await c.req.json().catch(() => null)) as { set?: string[]; unset?: string[] } | null;
+    const input = (await c.req.json().catch(() => null)) as { set?: string[]; unset?: string[]; flag?: number } | null;
+    // flag -1 = "Probably not for you"; anything else is Likely interesting (older helpers send no flag).
+    const flag = input?.flag === -1 ? -1 : 1;
     const set = (Array.isArray(input?.set) ? input.set : []).filter((x) => typeof x === 'string').slice(0, 500);
     const unset = (Array.isArray(input?.unset) ? input.unset : []).filter((x) => typeof x === 'string').slice(0, 2000);
     const stmts = [
-      ...set.map((id) => c.env.DB.prepare('UPDATE items SET likely = 1 WHERE id = ?').bind(id)),
-      ...unset.map((id) => c.env.DB.prepare('UPDATE items SET likely = NULL WHERE id = ?').bind(id)),
+      // Likely interesting wins over Probably not for you; an "unset" only clears its own kind.
+      ...set.map((id) =>
+        flag === 1
+          ? c.env.DB.prepare('UPDATE items SET likely = 1 WHERE id = ?').bind(id)
+          : c.env.DB.prepare('UPDATE items SET likely = -1 WHERE id = ? AND likely IS NOT 1').bind(id),
+      ),
+      ...unset.map((id) => c.env.DB.prepare('UPDATE items SET likely = NULL WHERE id = ?1 AND likely = ?2').bind(id, flag)),
     ];
     for (let i = 0; i < stmts.length; i += 100) await c.env.DB.batch(stmts.slice(i, i + 100));
     return c.json({ ok: true });

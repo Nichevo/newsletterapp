@@ -12,6 +12,7 @@ import type {
   TopicsData,
   SourceActivity,
   SourceDepthDetail,
+  TopicSkips,
   GlanceInput,
   Address,
   AddressMonth,
@@ -176,6 +177,7 @@ export const api = {
     }).catch(() => undefined);
   },
   sourceDepth: (id: string) => get<SourceDepthDetail>(`/api/sources/${id}/depth`),
+  topicSkips: (fresh = false) => get<TopicSkips>(`/api/stats/topic-skips${fresh ? '?fresh=1' : ''}`),
   bulkRead: (input: BulkReadInput) => post<{ changed: number }>('/api/items/bulk-read', { ...input, device: isPhone() }),
   rawUrl: (id: string) => `/api/items/${id}/raw`,
   storyBanner: (id: string) => get<StoryBanner | null>(`/api/items/${id}/story`),

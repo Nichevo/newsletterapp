@@ -1,4 +1,4 @@
-import type { EmbedResult, HelperConfig } from '@newsletterapp/shared';
+import type { EmbedResult, HelperConfig, LikelyState } from '@newsletterapp/shared';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,6 +21,10 @@ const RECENT_MS = 30 * 86_400_000;
 const LIKELY_SHARE = 0.15;
 const LIKELY_FLOOR = 0.55;
 const MIN_STARS = 5;
+/** Probably not for you: close to what you marked Not interested, by at least this much more than to your stars. */
+const MIN_NOT_INTERESTED = 5;
+const UNLIKELY_FLOOR = 0.6;
+const UNLIKELY_MARGIN = 0.03;
 /** Items per embedding call, and per claim. */
 const BATCH = 16;
 const CLAIM = 64;
@@ -240,6 +244,48 @@ export class Embeddings {
     return { fit, near };
   }
 
+  /** The average similarity to the three closest of `marks` (one oddball mark isn't enough). */
+  private static closest3(v: Float32Array, marks: Float32Array[]): number {
+    const top = marks.map((m) => dot(v, m)).sort((a, b) => b - a).slice(0, 3);
+    return top.length ? top.reduce((a, b) => a + b, 0) / top.length : 0;
+  }
+
+  /**
+   * Flags recent items close in meaning to the ones marked Not interested, and not
+   * closer to the stars: "Probably not for you". Same share of items as Likely
+   * interesting, never an item already Likely interesting. Sends only the changes.
+   */
+  private async rescoreUnlikely(state: LikelyState, stars: Float32Array[], likely: Set<string>) {
+    if (!state.notInterested || !state.unlikely) return; // an older app that doesn't know the flag
+    const marked = new Set(state.notInterested);
+    const nis = state.notInterested.map((id) => this.items.get(id)?.v).filter((v): v is Float32Array => Boolean(v));
+    const next = new Set<string>();
+    if (nis.length >= MIN_NOT_INTERESTED) {
+      const since = Date.now() - RECENT_MS;
+      const starred = new Set(state.interesting);
+      const scored: [string, number][] = [];
+      for (const [id, e] of this.items) {
+        if (e.at < since || marked.has(id) || starred.has(id) || likely.has(id)) continue;
+        const no = Embeddings.closest3(e.v, nis);
+        const yes = stars.length ? Embeddings.closest3(e.v, stars) : 0;
+        if (no >= UNLIKELY_FLOOR && no >= yes + UNLIKELY_MARGIN) scored.push([id, no]);
+      }
+      scored.sort((a, b) => b[1] - a[1]);
+      const share = typeof state.share === 'number' && state.share > 0 && state.share <= 50 ? state.share / 100 : LIKELY_SHARE;
+      // Of the recent items, at most the same share as Likely interesting.
+      let recent = 0;
+      for (const e of this.items.values()) if (e.at >= since) recent += 1;
+      for (const [id] of scored.slice(0, Math.floor(recent * share))) next.add(id);
+    }
+    const now = new Set(state.unlikely);
+    const set = [...next].filter((id) => !now.has(id));
+    const unset = [...now].filter((id) => !next.has(id));
+    if (set.length || unset.length) {
+      await this.app.likelySave(set, unset, -1);
+      log(`probably not for you: ${next.size} flagged (+${set.length} -${unset.length}) from ${nis.length} Not interested marks`);
+    }
+  }
+
   /** Flags recent items close in meaning to the ones marked Interesting; sends only the changes. */
   private async rescore() {
     const state = await this.app.likelyState();
@@ -268,5 +314,6 @@ export class Embeddings {
       await this.app.likelySave(set, unset);
       log(`likely interesting: ${next.size} flagged (+${set.length} -${unset.length}) from ${stars.length} stars`);
     }
+    await this.rescoreUnlikely(state, stars, next);
   }
 }

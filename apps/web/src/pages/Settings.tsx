@@ -371,6 +371,17 @@ function RankingSection({ settings, onSave }: { settings: AppSettings; onSave: (
           onChange={(v) => void onSave({ tuning: { ...t, likelyShare: v } })}
           width={220}
         />
+        <label className="switchrow">
+          <span style={{ fontSize: 15 }}>
+            Leave "Probably not for you" out of the inbox
+            <Help topic="unlikely" />
+          </span>
+          <input type="checkbox" checked={t.hideUnlikely} onChange={(e) => void onSave({ tuning: { ...t, hideUnlikely: e.target.checked } })} />
+        </label>
+        <span className="hint">
+          Your PC flags unread items close to the ones you marked Not interested. They always sink in the Top sort; with this on they
+          also leave the All and Unread lists and wait under the "Probably not for you" view.
+        </span>
       </section>
     </div>
   );

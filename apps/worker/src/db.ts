@@ -257,6 +257,7 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<Summa
     interestingAt: row.interesting_at ?? null,
     notInterestedAt: row.read_via === 'not_interested' ? row.read_at : null,
     likely: row.likely === 1,
+    unlikely: row.likely === -1,
     archivedAt: row.archived_at,
     hasHtml: row.has_html === 1,
     bodyVersion: row.body_v ?? 0,

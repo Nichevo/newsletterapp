@@ -4182,3 +4182,8 @@ a.chip { text-decoration: none; }
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
+
+.chip--unlikely {
+  color: var(--red-ink);
+  border-color: var(--red-ink);
+}
