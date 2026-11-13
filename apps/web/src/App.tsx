@@ -25,6 +25,7 @@ import { ExportPage } from './pages/Export';
 import { SearchPage } from './pages/Search';
 import { SourcesPage } from './pages/Sources';
 import { SuggestedPage } from './pages/Suggested';
+import { FollowListPage, FollowLookupPage } from './pages/Follow';
 import { SuggestedLearntPage } from './pages/SuggestedLearnt';
 import { ReadingStatsPage } from './pages/ReadingStats';
 import { StatsPage } from './pages/Stats';
@@ -132,6 +133,9 @@ export default function App() {
         <Route path="/settings/send" element={<SendPagesPage />} />
         <Route path="/settings/sources" element={<SourcesPage />} />
         <Route path="/settings/sources/suggested" element={<SuggestedPage />} />
+        <Route path="/settings/sources/follow" element={<FollowListPage />} />
+        <Route path="/follow" element={<FollowListPage />} />
+        <Route path="/follow/:id" element={<FollowLookupPage />} />
         <Route path="/settings/sources/suggested/learnt" element={<SuggestedLearntPage />} />
         <Route path="/settings/export" element={<ExportPage />} />
         <Route path="/stats" element={<ReadingStatsPage />} />

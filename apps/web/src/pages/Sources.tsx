@@ -145,6 +145,12 @@ export function SourcesPage() {
               <span className="cardrow__sub">Feeds you might like, from the sites your reading keeps linking to</span>
             </div>
           </Link>
+          <Link to="/settings/sources/follow" className="cardrow">
+            <div className="cardrow__main">
+              <span className="cardrow__title">Find a way to follow</span>
+              <span className="cardrow__sub">Give a person, site or topic; your PC finds their blog, newsletter, GitHub and more</span>
+            </div>
+          </Link>
         </div>
       </div>
       {sources === null && !error && <div className="spinner">Loading…</div>}

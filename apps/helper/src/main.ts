@@ -9,6 +9,7 @@ import { Embeddings } from './embed';
 import { askLookups, lookupsText, summaryLookups, toSources, type Lookups } from './lookups';
 import { holdReport, holdsSent, runFetchJob, setSkipSites } from './fetch';
 import { log } from './log';
+import { runFollow } from './follow';
 import { runReview } from './reviews';
 import { runSuggestions } from './suggest';
 import { findProvider, providersFrom, type Provider } from './providers';
@@ -43,7 +44,8 @@ import { maxChars, updateLimits } from './limits';
 // summaries too, so an answer doesn't wait behind a long batch. After the
 // embeddings it writes a one-line note for each new item in a story, writes
 // the weekly (and monthly) review (reviews.ts), and once a week it looks for
-// feeds you might like (suggest.ts). It only ever makes
+// feeds you might like (suggest.ts). Find a way to follow lookups (follow.ts)
+// run near the start of a round, since someone is waiting. It only ever makes
 // outbound requests.
 
 const cfg = loadConfig();
@@ -574,6 +576,8 @@ async function tick(): Promise<number> {
   lastPeek = Date.now();
   doing('test run');
   if (config.trialId) await runTrial(config.trialId);
+  // Find a way to follow: someone is waiting for this one too.
+  await runFollow(config, app, cfg, providers, doing).catch((err: unknown) => log('find a way to follow failed:', err));
   // Fetch problems must not hold up the summaries.
   doing('fetching feeds and pages');
   await fetchQueue(config).catch((err: unknown) => log('fetch jobs failed:', err));

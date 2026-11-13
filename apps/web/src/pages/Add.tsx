@@ -14,6 +14,7 @@ import { shortTime } from '../format';
 import { AddressRow } from '../components/AddressRow';
 import { IconBack, IconCopy } from '../icons';
 import { DailyCapPicker, ModePicker, PerDayLine, QuickForm, type FollowMode, type FollowPreset } from './AddBuilders';
+import { FindForm } from './Follow';
 
 export function AddPage({ me }: { me: Me }) {
   const navigate = useNavigate();
@@ -69,6 +70,13 @@ export function AddPage({ me }: { me: Me }) {
       </header>
 
       <PageSection />
+      <div className="section">
+        <span className="label">Find a way to follow</span>
+        <FindForm />
+        <Link to="/settings/sources/follow" className="hint">
+          Past lookups
+        </Link>
+      </div>
       {/* "Follow the site instead" swaps in ?url=, which starts the lookup afresh. */}
       <FollowSection key={params.get('url') ?? ''} />
       <OpmlSection />
@@ -253,6 +261,21 @@ function PageSection() {
               onClick={() => navigate(`/add?url=${encodeURIComponent(firstUrl(shared))}`, { replace: true })}
             >
               Follow the site instead
+            </button>
+          )}
+          {shared && !done && (
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() =>
+                void api
+                  .followStart(shared, firstUrl(shared).startsWith('http') ? firstUrl(shared) : null)
+                  .then((l) => navigate(`/follow/${l.id}`))
+                  .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not start the lookup'))
+              }
+            >
+              Find ways to follow this
             </button>
           )}
         </div>

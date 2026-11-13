@@ -36,7 +36,7 @@ const LINK_BATCH = 10;
 const LINKS_MS = 3 * 60_000;
 const CHECKS_MS = 6 * 60_000;
 
-function description(html: string): string | null {
+export function description(html: string): string | null {
   const head = html.slice(0, 100_000);
   for (const tag of head.match(/<meta\b[^>]*>/gi) ?? []) {
     const name = (attr(tag, 'name') ?? attr(tag, 'property') ?? '').toLowerCase();
@@ -48,7 +48,7 @@ function description(html: string): string | null {
   return null;
 }
 
-function postsPerWeek(entries: FeedEntry[]): number | null {
+export function postsPerWeek(entries: FeedEntry[]): number | null {
   const times = entries.map((e) => e.publishedAt).filter((t): t is number => typeof t === 'number' && t > 0).sort((a, b) => b - a);
   if (times.length < 2) return null;
   // Up to the newest 20 posts; the span runs to now, so a site that stopped posting reads as slow.
@@ -58,7 +58,7 @@ function postsPerWeek(entries: FeedEntry[]): number | null {
 }
 
 /** Finds a site's feed: the ones its home page advertises, else the usual addresses. */
-async function findFeed(site: string, cfg: LocalConfig): Promise<{ feedUrl: string; feed: ParsedFeed; home: string; homeHtml: string } | string> {
+export async function findFeed(site: string, cfg: LocalConfig): Promise<{ feedUrl: string; feed: ParsedFeed; home: string; homeHtml: string } | string> {
   const home = await getPage(`https://${site}/`, cfg).catch((err: unknown) => ({ status: 0, url: `https://${site}/`, body: '', held: String(err) }));
   if ('held' in home && home.held) return home.held;
   if (home.status >= 400 || home.status === 0) return `The site answered ${home.status || 'nothing'}`;

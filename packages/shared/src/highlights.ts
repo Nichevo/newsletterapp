@@ -188,6 +188,8 @@ export interface WebSearchView {
   usedSummaries: number;
   /** Searches made for weekly and monthly reviews. */
   usedReviews: number;
+  /** Searches made by Find a way to follow; older apps leave it out. */
+  usedLookups?: number;
   /** What the helper said at its last check-in: null when it has no key, undefined when it hasn't said (older helper or never seen). */
   pcSearch: 'brave' | null | undefined;
   helperLastSeenAt: number | null;

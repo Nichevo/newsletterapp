@@ -1,5 +1,9 @@
 import type {
   Counts,
+  FollowCandidate,
+  FollowLookup,
+  FollowLookupListItem,
+  FollowThing,
   StatusIncidentPage,
   StatusSettings,
   StatusSettingsView,
@@ -218,6 +222,14 @@ export const api = {
 
   /** With counts: each source's post count too (reads every item; only the source pages need it). */
   sources: (counts = false) => get<Source[]>(counts ? '/api/sources?counts=1' : '/api/sources'),
+  followLookups: () => get<FollowLookupListItem[]>('/api/follow'),
+  followLookup: (id: string) => get<FollowLookup>(`/api/follow/${id}`),
+  followStart: (query: string, url?: string | null) => post<FollowLookup>('/api/follow', { query, url: url ?? null }),
+  followThings: (id: string, things: FollowThing[]) => put<FollowLookup>(`/api/follow/${id}/things`, { things }),
+  followAgain: (id: string) => post<FollowLookup>(`/api/follow/${id}/again`),
+  followCandidate: (id: string, key: string, state: 'new' | 'followed' | 'dismissed', sourceId?: string | null) =>
+    post<FollowCandidate>(`/api/follow/${id}/candidates`, { key, state, sourceId: sourceId ?? null }),
+  followDelete: (id: string) => request<{ ok: boolean }>(`/api/follow/${id}`, { method: 'DELETE' }),
   suggestions: () => get<SuggestionList>('/api/suggestions'),
   suggestionsRun: () => post<{ ok: boolean }>('/api/suggestions/run'),
   suggestionFollowed: (site: string, sourceId: string | null) =>
