@@ -12,6 +12,7 @@ export * from './files';
 export * from './keysentences';
 export * from './reviews';
 export * from './status';
+export * from './follow';
 import { DEFAULT_REVIEW_SETTINGS, type ReviewSettings } from './reviews';
 import type { StatusSummary } from './status';
 
@@ -1064,7 +1065,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.9.0';
+export const HELPER_VERSION = '0.10.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -1105,6 +1106,8 @@ export interface HelperConfig {
   refsWaiting?: boolean;
   /** A weekly or monthly review waiting for the PC to write it (helpers from 0.8.0). */
   reviewWaiting?: boolean;
+  /** A Find a way to follow lookup waiting for the PC (helpers from 0.10.0). */
+  followWaiting?: boolean;
 }
 
 /** One item for the helper to embed: its text and when it arrived. */

@@ -10,6 +10,8 @@ import type {
   SuggestCheckResult,
   SuggestRun,
   FetchJob,
+  FollowJob,
+  FollowResult,
   FetchJobResult,
   HelperConfig,
   HelperHeartbeat,
@@ -78,6 +80,8 @@ export class AppClient {
     this.call<{ ok: boolean }>('POST', '/api/helper/suggest/result', { results, done });
   reviewClaim = () => this.call<{ job: ReviewJob | null }>('POST', '/api/helper/review/claim', {});
   reviewResult = (r: ReviewResult) => this.call<{ ok: boolean }>('POST', '/api/helper/review/result', r);
+  followClaim = () => this.call<{ job: FollowJob | null; paused?: boolean }>('POST', '/api/helper/follow/claim', {});
+  followResult = (r: FollowResult) => this.call<{ ok: boolean }>('POST', '/api/helper/follow/result', r);
   fetchResult = (r: FetchJobResult) => this.call<{ ok: boolean; added?: number }>('POST', '/api/helper/fetch/result', r);
 
   /** Downloads a file the web app serves (used for self-update). */

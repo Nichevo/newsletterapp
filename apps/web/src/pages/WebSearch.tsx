@@ -85,7 +85,7 @@ export function WebSearchPage() {
                 <span className={`meter__fill${pct >= 100 ? ' meter__fill--full' : ''}`} style={{ width: `${pct}%` }} />
               </div>
               <span className="hint">
-                {view.usedAsks} for highlight questions, {view.usedSummaries} for summaries. Highlight questions get first call: summaries
+                {view.usedAsks} for highlight questions, {view.usedSummaries} for summaries, {view.usedReviews} for reviews, {view.usedLookups ?? 0} for Find a way to follow. Highlight questions get first call: summaries
                 stop searching when less than a tenth is left. When it's all used, answers carry on without searching and say so.
               </span>
               <div className="field">
