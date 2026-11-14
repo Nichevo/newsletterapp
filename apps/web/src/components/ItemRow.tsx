@@ -7,14 +7,12 @@ import { useDensity, useViewOptions } from './DensityToggle';
 import { TagChip } from './TagChip';
 import { keysShown, kindDot } from '../keySentences';
 import { readingMinutes, shortTime } from '../format';
-import { getLongSwipePx, setViewOptions } from '../prefs';
+import { getLongSwipePx, getShortSwipePx, setViewOptions } from '../prefs';
 import { IconBookmark, IconCheck, IconHighlight, IconSparkle } from '../icons';
 
 const KIND_CHIP: Record<ItemSummary['kind'], string> = { newsletter: 'Newsletter', feed: 'Feed', site: 'Site', ai: 'AI note' };
 const PLATFORM_CHIP = { reddit: 'Reddit', youtube: 'YouTube', github: 'GitHub' } as const;
 
-const THRESHOLD = 88; // px of travel before a swipe counts
-const MAX = 120;
 
 /** What a swipe to one side does: the handler, its label and which look it gets. */
 export interface SwipeAction {
@@ -58,6 +56,8 @@ export function ItemRow({
   const moved = useRef(false);
   // A side with a long swipe goes further: past this many px (Settings > Reading, on this device) it does the long action.
   const longAt = () => getLongSwipePx();
+  // px of travel before a swipe counts at all (Settings > Reading, on this device).
+  const shortAt = () => getShortSwipePx();
   const sideOf = (d: number) => (d < 0 ? left : right);
   const isLong = (d: number) => Boolean(sideOf(d).long) && Math.abs(d) >= longAt();
 
@@ -82,7 +82,7 @@ export function ItemRow({
     if (axis.current !== 'x') return;
     moved.current = true;
     // A side with a long action can be pulled further, up to just past where it switches.
-    const reach = (d: number) => (sideOf(d).long ? longAt() + 30 : MAX);
+    const reach = (d: number) => (sideOf(d).long ? longAt() + 30 : shortAt() + 32);
     const clamped = Math.max(-reach(-1), Math.min(reach(1), ddx));
     // A little buzz when the pull crosses into (or back out of) the long action.
     if (isLong(clamped) !== isLong(dx) && Math.sign(clamped) === Math.sign(dx || clamped)) navigator.vibrate?.(12);
@@ -95,7 +95,7 @@ export function ItemRow({
     start.current = null;
     if (axis.current === 'x') {
       const side = sideOf(dx);
-      if (Math.abs(dx) >= THRESHOLD) (isLong(dx) && side.long ? side.long.run : side.run)(item);
+      if (Math.abs(dx) >= shortAt()) (isLong(dx) && side.long ? side.long.run : side.run)(item);
     }
     setSnapping(true);
     setDx(0);
