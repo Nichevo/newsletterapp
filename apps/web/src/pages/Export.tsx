@@ -45,7 +45,7 @@ function itemsCsv(items: Record<string, unknown>[]): string {
   return [ITEM_COLUMNS.join(','), ...rows].join('\n') + '\n';
 }
 
-const KEY_TABLES = ['key_sentences', 'studies', 'study_cites', 'study_maybe', 'links', 'link_cites', 'ks_runs', 'ks_daily'];
+const KEY_TABLES = ['key_sentences', 'studies', 'study_cites', 'study_maybe', 'links', 'link_cites', 'ks_runs', 'ks_daily', 'security_breaches', 'security_hits', 'security_events'];
 
 const parseJson = (v: unknown): unknown[] => {
   try {

@@ -14,8 +14,9 @@ import { FilterBar, type Filters } from '../components/FilterBar';
 import { ItemRow, type RowGroup, type SwipeAction } from '../components/ItemRow';
 import { getSwipeReadSide, setViewOptions } from '../prefs';
 import { todayLabel } from '../format';
-import { IconPlus, IconPulse, IconRefresh, IconSearch, IconSparkle } from '../icons';
+import { IconPlus, IconPulse, IconRefresh, IconSearch, IconShieldAlert, IconSparkle } from '../icons';
 import { StatusDot, statusButtonLabel } from './Status';
+import { SecurityDot, securityButtonLabel } from './Security';
 
 const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'interesting', 'likely', 'unlikely', 'archived'];
 
@@ -426,6 +427,12 @@ export function InboxPage({
               <StatusDot level={counts.status.level} />
             </Link>
           )}
+          {mode === 'inbox' && counts.security.level !== 'off' && (
+            <Link to="/security" className="iconbtn statusbtn" aria-label={securityButtonLabel(counts.security)} title={securityButtonLabel(counts.security)}>
+              <IconShieldAlert />
+              <SecurityDot level={counts.security.level} />
+            </Link>
+          )}
           <Link to="/search" className="iconbtn" aria-label="Search" title="Search">
             <IconSearch />
           </Link>
@@ -465,6 +472,26 @@ export function InboxPage({
             </span>
           </div>
           <span className="btn btn--small">Status</span>
+        </Link>
+      )}
+
+      {mode === 'inbox' && counts.security.banner && counts.security.open > 0 && counts.security.top && (
+        <Link to="/security" className={`notice notice--status notice--${counts.security.top.level === 'high' ? 'major' : 'minor'}`}>
+          <div className="notice__text">
+            <span className="notice__title">
+              {counts.security.open > 1
+                ? `${counts.security.open} breaches to deal with`
+                : counts.security.top.level === 'watch'
+                  ? `${counts.security.top.title}: a site you get mail from was breached`
+                  : `${counts.security.top.who.replace(/^./, (c) => c.toUpperCase())} was in a breach`}
+            </span>
+            <span className="notice__sub">
+              {counts.security.top.title}
+              {counts.security.top.level === 'watch' ? ' · check whether you had an account' : ` · ${counts.security.top.leaked} leaked`}
+              {counts.security.open > 1 ? ` · newest of ${counts.security.open}` : ''}
+            </span>
+          </div>
+          <span className="btn btn--small">Security</span>
         </Link>
       )}
 

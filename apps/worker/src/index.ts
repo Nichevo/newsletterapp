@@ -6,6 +6,7 @@ import type { Env } from './env';
 import { runFeedChecks } from './feeds';
 import { buildReviewsIfDue } from './reviews';
 import { scoreRecentItems } from './scoring';
+import { runSecurityChecks } from './security';
 import { runStatusChecks } from './status';
 
 /** Must match the first cron in wrangler.jsonc; the others only check feeds. */
@@ -23,6 +24,8 @@ export default {
       await scoreRecentItems(env);
       await buildReviewsIfDue(env).catch((err: unknown) => console.error('reviews failed', err));
       await tidyDeleted(env).catch((err: unknown) => console.error('tidying deleted items failed', err));
+      // Security alerts (Settings > Security alerts): HIBP's newest breach and a few detail refreshes.
+      await runSecurityChecks(env).catch((err: unknown) => console.error('security checks failed', err instanceof Error ? err.message : err));
     }
     await snapshotBacklog(env).catch((err: unknown) => console.error('backlog snapshot failed', err));
     await runFeedChecks(env);

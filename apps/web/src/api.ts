@@ -5,6 +5,13 @@ import type {
   FollowLookupListItem,
   FollowThing,
   StatusIncidentPage,
+  BreachInfo,
+  SecurityBreach,
+  SecurityBreachPage,
+  SecurityMailPage,
+  SecuritySettings,
+  SecuritySettingsView,
+  SecurityView,
   StatusSettings,
   StatusSettingsView,
   StatusView,
@@ -131,6 +138,23 @@ const post = <T>(path: string, body?: unknown) =>
 export const api = {
   me: () => get<Me>('/api/me'),
   counts: () => get<Counts>('/api/counts'),
+
+  // Security alerts (Have I Been Pwned)
+  security: () => get<SecurityView>('/api/security'),
+  securityCheck: () => post<SecurityView>('/api/security/check'),
+  securityBreach: (name: string) => get<SecurityBreachPage>(`/api/security/breaches/${encodeURIComponent(name)}`),
+  updateSecurityBreach: (name: string, patch: { state?: 'open' | 'handled'; todoDone?: string[] }) =>
+    put<SecurityBreach>(`/api/security/breaches/${encodeURIComponent(name)}`, patch),
+  removeSecurityBreach: (name: string) => request<{ ok: true }>(`/api/security/breaches/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  securityMail: (id: string) => get<SecurityMailPage>(`/api/security/mail/${encodeURIComponent(id)}`),
+  useSecurityMail: (id: string) => post<SecurityView>(`/api/security/mail/${encodeURIComponent(id)}/use`),
+  removeSecurityMail: (id: string) => request<SecurityView>(`/api/security/mail/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  securitySettings: () => get<SecuritySettingsView>('/api/security/settings'),
+  saveSecuritySettings: (patch: Partial<SecuritySettings>) => put<SecuritySettingsView>('/api/security/settings', patch),
+  /** HIBP's public list of every breach (raw, PascalCase). */
+  securityCatalogue: () => get<unknown[]>('/api/security/catalogue'),
+  addPastBreaches: (body: { address: string; person: string; handled: boolean; breaches: BreachInfo[] }) =>
+    post<{ added: number; view: SecurityView }>('/api/security/past', body),
 
   // System status (service status pages)
   status: () => get<StatusView>('/api/status'),

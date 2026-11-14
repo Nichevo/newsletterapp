@@ -34,6 +34,14 @@ export const IconShield = (p: Props) => (
     <path d="M9 12l2 2 4-4" />
   </svg>
 );
+/** Security alerts: a shield with an exclamation mark. */
+export const IconShieldAlert = (p: Props) => (
+  <svg {...base(p)}>
+    <path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" />
+    <path d="M12 8v5" />
+    <path d="M12 16.2v.1" />
+  </svg>
+);
 export const IconSettings = (p: Props) => (
   <svg {...base(p)}>
     <circle cx="12" cy="12" r="3" />
