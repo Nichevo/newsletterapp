@@ -8,8 +8,21 @@ import { now } from './ids';
 // single request has to build a big file within the free plan's CPU limit.
 
 const PAGE = 500;
-/** Tables of the key sentences feature that go into the full export as they are. */
-export const EXPORT_TABLES = ['key_sentences', 'studies', 'study_cites', 'study_maybe', 'links', 'link_cites', 'ks_runs', 'ks_daily'] as const;
+/** Tables of the key sentences and security alerts features that go into the full export as they are. */
+export const EXPORT_TABLES = [
+  'key_sentences',
+  'studies',
+  'study_cites',
+  'study_maybe',
+  'links',
+  'link_cites',
+  'ks_runs',
+  'ks_daily',
+  // Security alerts: your breach history (the alert emails themselves stay out).
+  'security_breaches',
+  'security_hits',
+  'security_events',
+] as const;
 
 type App = Hono<{ Bindings: Env; Variables: AppVariables }>;
 

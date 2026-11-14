@@ -73,6 +73,7 @@ import { categoryFromRules, quickSummary } from './quick';
 import { scoreRecentItems } from './scoring';
 import { loadSettings, normalizeSettings, saveSettings } from './settings';
 import { registerUsage } from './usage';
+import { parseSecuritySummary, registerSecurity } from './security';
 import { parseSummary, registerStatus } from './status';
 
 export const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -124,6 +125,7 @@ registerPcHolds(app);
 registerTopics(app);
 registerTagList(app);
 registerStatus(app);
+registerSecurity(app);
 registerStories(app);
 registerReviews(app);
 registerFollow(app);
@@ -785,13 +787,22 @@ app.get('/api/counts', async (c) => {
        (SELECT COUNT(*) FROM items INDEXED BY items_saved WHERE saved_at IS NOT NULL AND status != 'dropped') AS saved,
        (SELECT COUNT(*) FROM items INDEXED BY items_interesting WHERE interesting_at IS NOT NULL AND status != 'dropped') AS interesting,
        (SELECT COUNT(*) FROM senders WHERE status = 'pending') AS pendingSenders,
-       (SELECT value FROM settings WHERE key = 'status_summary') AS status
+       (SELECT value FROM settings WHERE key = 'status_summary') AS status,
+       (SELECT value FROM settings WHERE key = 'security_summary') AS security
      FROM (SELECT COUNT(*) AS n, SUM(read_at IS NULL) AS unread FROM items INDEXED BY items_inbox_read WHERE status = 'inbox') AS inbox`,
-  ).first<{ inbox: number; unread: number; saved: number; interesting: number; pendingSenders: number; status: string | null }>();
-  // The System status summary rides along: the inbox's Status button and banner.
+  ).first<{ inbox: number; unread: number; saved: number; interesting: number; pendingSenders: number; status: string | null; security: string | null }>();
+  // The System status and Security alerts summaries ride along: the inbox's Status and shield buttons and their banners.
   const counts: Counts = row
-    ? { inbox: row.inbox, unread: row.unread, saved: row.saved, interesting: row.interesting, pendingSenders: row.pendingSenders, status: parseSummary(row.status) }
-    : { inbox: 0, unread: 0, saved: 0, interesting: 0, pendingSenders: 0, status: parseSummary(null) };
+    ? {
+        inbox: row.inbox,
+        unread: row.unread,
+        saved: row.saved,
+        interesting: row.interesting,
+        pendingSenders: row.pendingSenders,
+        status: parseSummary(row.status),
+        security: parseSecuritySummary(row.security),
+      }
+    : { inbox: 0, unread: 0, saved: 0, interesting: 0, pendingSenders: 0, status: parseSummary(null), security: parseSecuritySummary(null) };
   return c.json(counts);
 });
 

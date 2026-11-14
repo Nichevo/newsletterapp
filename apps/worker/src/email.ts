@@ -5,6 +5,7 @@ import { localPartOf, newId, normalizeEmail, now } from './ids';
 import { categoryFromRules, quickSummary } from './quick';
 import { handleSaveEmail, isSaveAddress } from './saveinbox';
 import { parseAuthResults, screen } from './screening';
+import { handleSecurityEmail, isAlertsAddress, isHibpSender } from './security';
 import { loadSettings } from './settings';
 
 /**
@@ -38,6 +39,10 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
 
   // save@: links and forwarded emails from you go under Saved pages, never through screening.
   if (isSaveAddress(localPart)) return handleSaveEmail(env, message.headers, parsed, envelopeFrom);
+
+  // alerts@ (Have I Been Pwned's breach alerts, its sign-in codes, forwarding confirmations),
+  // and HIBP mail to any address: the Security page, never the inbox, never the AI.
+  if (isAlertsAddress(localPart) || isHibpSender(fromEmail)) return handleSecurityEmail(env, message.headers, parsed, fromEmail);
 
   const decision = await screen(env, localPart, fromEmail, fromName, auth);
   if (decision.action === 'drop') {
