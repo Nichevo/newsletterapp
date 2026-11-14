@@ -73,6 +73,7 @@ const VIEW_LABEL: Record<ItemView, string> = {
   interesting: 'Interesting',
   likely: 'Likely interesting',
   unlikely: 'Probably not for you',
+  adverts: 'Adverts',
   archived: 'Archived',
 };
 
@@ -186,7 +187,7 @@ export function FilterBar({
             <div className="filterbar__group">
               <span className="label">Show</span>
               <div className="pills">
-                {(['inbox', 'unread', 'likely', 'unlikely', 'interesting', 'archived'] as ItemView[]).map((v) => (
+                {(['inbox', 'unread', 'likely', 'unlikely', 'interesting', 'adverts', 'archived'] as ItemView[]).map((v) => (
                   <button
                     key={v}
                     className="pill"

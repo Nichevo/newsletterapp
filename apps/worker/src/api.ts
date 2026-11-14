@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { registerDeleting } from './deleting';
+import { adInfo, registerAdverts } from './adverts';
 import { canMergeAway, emptyDepth, DEFAULT_OLD_LINK_DAYS, DEFAULT_REDDIT_COMMENTS, OLD_LINK_CHOICES, REDDIT_COMMENT_CHOICES, isKeyKind, KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, SAVE_LOCAL_PART, type FileFilter, type KeyMark, type SaveAddressInfo } from '@newsletterapp/shared';
 import type {
   Platform,
@@ -131,6 +132,7 @@ registerKeySentences(app);
 registerRefs(app);
 registerKeyStats(app);
 registerDeleting(app);
+registerAdverts(app);
 
 // ---------- Items ----------
 
@@ -151,7 +153,9 @@ const VIEW_WHERE: Record<ItemView, string> = {
   likely: "items.likely = 1 AND items.status = 'inbox' AND items.read_at IS NULL",
   // Matches the partial index items_unlikely (migration 0045).
   unlikely: "items.likely = -1 AND items.status = 'inbox' AND items.read_at IS NULL",
-  archived: "items.status = 'archived'",
+  // Matches the partial index items_adverts (migration 0047). Adverts moved out of the Inbox live here, not in Archived.
+  adverts: "items.sponsored = 2 AND items.status IN ('inbox', 'archived')",
+  archived: "items.status = 'archived' AND items.sponsored IS NOT 2",
 };
 
 async function loadItem(env: Env, id: string): Promise<ItemSummary | null> {
@@ -248,7 +252,7 @@ app.get('/api/items', async (c) => {
   // Counts for the inbox header, before the cursor narrows the query: only when filtered
   // (the unfiltered totals come from /api/counts) and only on the first page.
   const countSql =
-    !cursor && (sourceId || kind || category || view === 'interesting' || view === 'likely' || view === 'unlikely')
+    !cursor && (sourceId || kind || category || view === 'interesting' || view === 'likely' || view === 'unlikely' || view === 'adverts')
       ? `SELECT COUNT(*) AS shown, SUM(items.read_at IS NULL) AS unread FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE ${where.join(' AND ')}`
       : null;
   const countBinds = [...binds];
@@ -513,6 +517,7 @@ app.get('/api/items/:id', async (c) => {
     const n = new Map(rows.results.map((r) => [r.tag, r.n]));
     item.tagCounts = Object.fromEntries(item.tags.map((t) => [t, n.get(tagKey(t)) ?? 1]));
   }
+  item.ads = await adInfo(c.env, item.id, item.advert);
   return c.json(item);
 });
 
@@ -1266,7 +1271,7 @@ app.post('/api/maintenance/quick-backfill', async (c) => {
     const quick = quickSummary(html, text);
     const category = categoryFromRules(settings!.keywordRules, row.subject, quick.preheader);
     await c.env.DB.prepare(
-      'UPDATE items SET preheader = ?, word_count = ?, sponsored = ?, category = COALESCE(category, ?) WHERE id = ?',
+      'UPDATE items SET preheader = ?, word_count = ?, sponsored = CASE WHEN sponsored = 2 THEN 2 ELSE ? END, category = COALESCE(category, ?) WHERE id = ?',
     )
       .bind(quick.preheader, quick.wordCount, quick.sponsored ? 1 : 0, category, row.id)
       .run();

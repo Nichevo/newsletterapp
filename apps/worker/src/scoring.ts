@@ -75,6 +75,7 @@ export function scoreFor(row: ScoreRow, affinity: number | undefined, at: number
     if (row.thin_content) score -= 15;
   }
   if (row.sponsored) score -= 5;
+  if (row.sponsored === 2) score -= 30; // an advert
   if (row.saved_at) score += 10;
   if (row.interesting_at) score += 15;
   // Close to what you marked Not interested (and not to your stars): pushed down the Top sort.

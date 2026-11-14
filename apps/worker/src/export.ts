@@ -9,7 +9,7 @@ import { now } from './ids';
 
 const PAGE = 500;
 /** Tables of the key sentences feature that go into the full export as they are. */
-export const EXPORT_TABLES = ['key_sentences', 'studies', 'study_cites', 'study_maybe', 'links', 'link_cites', 'ks_runs', 'ks_daily'] as const;
+export const EXPORT_TABLES = ['key_sentences', 'studies', 'study_cites', 'study_maybe', 'links', 'link_cites', 'ks_runs', 'ks_daily', 'item_ads'] as const;
 
 type App = Hono<{ Bindings: Env; Variables: AppVariables }>;
 

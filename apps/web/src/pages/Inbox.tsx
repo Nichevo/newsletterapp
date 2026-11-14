@@ -17,7 +17,7 @@ import { todayLabel } from '../format';
 import { IconPlus, IconPulse, IconRefresh, IconSearch, IconSparkle } from '../icons';
 import { StatusDot, statusButtonLabel } from './Status';
 
-const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'interesting', 'likely', 'unlikely', 'archived'];
+const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'interesting', 'likely', 'unlikely', 'adverts', 'archived'];
 
 /** The inbox, or one of the Saved screens (Saved for later, Interesting), which show a fixed view. */
 type Mode = 'inbox' | 'saved' | 'interesting';
@@ -554,6 +554,14 @@ export function InboxPage({
               <p>
                 The PC helper picks out unread items close in meaning to the ones you marked Not interested (a long swipe on the read
                 side), unless they are also close to your stars. It needs at least five Not interested marks and the helper running.
+              </p>
+            </>
+          ) : filters.view === 'adverts' && !filters.source && !filters.category ? (
+            <>
+              <h2>No adverts</h2>
+              <p>
+                Items the AI on your PC finds are only an advert (a sale, a product launch, "upgrade to paid") come here instead of the
+                Inbox. Tap Advert? in the reader to add one it missed. Settings › PC helper and AI › Adverts.
               </p>
             </>
           ) : filters.view !== 'inbox' || filters.source || filters.category ? (
