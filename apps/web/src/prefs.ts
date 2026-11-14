@@ -61,14 +61,31 @@ export function setSwipeReadSide(side: SwipeReadSide) {
   write('inbox:swipeReadSide', side);
 }
 
+/** How far (px) a pull goes before a swipe counts at all (mark read / save), on this device. */
+export const SHORT_SWIPE_MIN = 40;
+export const SHORT_SWIPE_MAX = 160;
+export const SHORT_SWIPE_DEFAULT = 88;
+/** The long swipe always sits at least this far past the short one. */
+export const SWIPE_GAP = 25;
+
+export function getShortSwipePx(): number {
+  const n = Number(read('inbox:shortSwipePx'));
+  return read('inbox:shortSwipePx') !== null && Number.isFinite(n) && n >= SHORT_SWIPE_MIN && n <= SHORT_SWIPE_MAX ? n : SHORT_SWIPE_DEFAULT;
+}
+
+export function setShortSwipePx(px: number) {
+  write('inbox:shortSwipePx', String(Math.round(Math.min(SHORT_SWIPE_MAX, Math.max(SHORT_SWIPE_MIN, px)))));
+}
+
 /** How far (px) a pull goes before it switches to the long swipe (Not interested / star and read), on this device. */
-export const LONG_SWIPE_MIN = 105;
+export const LONG_SWIPE_MIN = 65;
 export const LONG_SWIPE_MAX = 260;
 export const LONG_SWIPE_DEFAULT = 130;
 
 export function getLongSwipePx(): number {
   const n = Number(read('inbox:longSwipePx'));
-  return Number.isFinite(n) && n >= LONG_SWIPE_MIN && n <= LONG_SWIPE_MAX ? n : LONG_SWIPE_DEFAULT;
+  const long = read('inbox:longSwipePx') !== null && Number.isFinite(n) && n >= LONG_SWIPE_MIN && n <= LONG_SWIPE_MAX ? n : LONG_SWIPE_DEFAULT;
+  return Math.max(long, getShortSwipePx() + SWIPE_GAP);
 }
 
 export function setLongSwipePx(px: number) {

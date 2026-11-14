@@ -13,6 +13,12 @@ import {
   LONG_SWIPE_MIN,
   LONG_SWIPE_MAX,
   LONG_SWIPE_DEFAULT,
+  getShortSwipePx,
+  setShortSwipePx,
+  SHORT_SWIPE_MIN,
+  SHORT_SWIPE_MAX,
+  SHORT_SWIPE_DEFAULT,
+  SWIPE_GAP,
   getNotesPlace,
   setNotesPlace,
   type NotesPlace,
@@ -424,6 +430,7 @@ function ReadingSection() {
   const [speed, setSpeed] = useState(getReadingSpeed());
   const [hideSponsored, setHide] = useState(getHideSponsored());
   const [swipeRead, setSwipeRead] = useState<SwipeReadSide>(getSwipeReadSide());
+  const [shortPx, setShortPx] = useState(getShortSwipePx());
   const [longPx, setLongPx] = useState(getLongSwipePx());
   const [notesPlace, setNotesPlaceState] = useState<NotesPlace>(getNotesPlace());
   const density = useDensity();
@@ -558,37 +565,63 @@ function ReadingSection() {
           <span className="hint">The other way saves the item for later.</span>
         </div>
         <div className="field">
+          <label className="label" htmlFor="short-swipe">
+            Swipe distance: <b>{shortPx} px</b>
+            <Help topic="swipe" />
+          </label>
+          <input
+            id="short-swipe"
+            type="range"
+            min={SHORT_SWIPE_MIN}
+            max={SHORT_SWIPE_MAX}
+            step={5}
+            value={shortPx}
+            onChange={(e) => {
+              const px = Number(e.target.value);
+              setShortPx(px);
+              setShortSwipePx(px);
+              // The long swipe stays a little further out than the short one.
+              if (longPx < px + SWIPE_GAP) {
+                setLongPx(px + SWIPE_GAP);
+                setLongSwipePx(px + SWIPE_GAP);
+              }
+            }}
+          />
+          <span className="hint">How far you pull before a swipe counts: Mark read on the read side, Save on the other.</span>
+        </div>
+        <div className="field">
           <label className="label" htmlFor="long-swipe">
             Long swipe distance: <b>{longPx} px</b>
-            <Help topic="swipe" />
           </label>
           <input
             id="long-swipe"
             type="range"
-            min={LONG_SWIPE_MIN}
+            min={Math.max(LONG_SWIPE_MIN, shortPx + SWIPE_GAP)}
             max={LONG_SWIPE_MAX}
             step={5}
             value={longPx}
             onChange={(e) => {
-              const px = Number(e.target.value);
+              const px = Math.max(Number(e.target.value), shortPx + SWIPE_GAP);
               setLongPx(px);
               setLongSwipePx(px);
             }}
           />
           <span className="hint">
-            How far you pull before it switches to Not interested (read side) or Star and read (save side). A normal swipe counts at about 90 px. Kept on this
-            device.
-            {longPx !== LONG_SWIPE_DEFAULT && (
+            How far you pull before it switches to Not interested (read side) or Star and read (save side). Always at least {SWIPE_GAP} px past the swipe
+            distance. Both are kept on this device.
+            {(longPx !== LONG_SWIPE_DEFAULT || shortPx !== SHORT_SWIPE_DEFAULT) && (
               <>
                 {' '}
                 <button
                   className="linkbtn"
                   onClick={() => {
+                    setShortPx(SHORT_SWIPE_DEFAULT);
+                    setShortSwipePx(SHORT_SWIPE_DEFAULT);
                     setLongPx(LONG_SWIPE_DEFAULT);
                     setLongSwipePx(LONG_SWIPE_DEFAULT);
                   }}
                 >
-                  Back to {LONG_SWIPE_DEFAULT} px
+                  Back to {SHORT_SWIPE_DEFAULT} / {LONG_SWIPE_DEFAULT} px
                 </button>
               </>
             )}
