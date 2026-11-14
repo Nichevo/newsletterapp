@@ -18,8 +18,9 @@ import { activityView, nextTime, rhythmText, type ActivityView } from '../format
 import { IconBack } from '../icons';
 import { KIND_LABEL, sourceType } from '../components/FilterBar';
 import { CategoriesSection, useAppSettings } from './Settings';
+import { DoublesList, useDoubles } from '../components/Doubles';
 
-type Show = 'all' | 'quiet' | 'unread' | 'paused' | 'skipped' | 'summary' | 'keeper';
+type Show = 'all' | 'quiet' | 'unread' | 'paused' | 'skipped' | 'summary' | 'keeper' | 'doubles';
 type Sort = 'latest' | 'name' | 'reads' | 'value';
 const SORT_LABEL: Record<Sort, string> = { latest: 'Latest', name: 'Name', reads: 'Most looked at', value: 'Value, lowest first' };
 interface Row {
@@ -42,9 +43,9 @@ export function SourcesPage() {
   const [activity, setActivity] = useState<Map<string, SourceActivity>>(new Map());
   const [params] = useSearchParams();
   // Statistics links here as ?show=skipped (and sorts by value).
-  const linked = (['skipped', 'summary', 'keeper'] as Show[]).find((v) => v === params.get('show'));
+  const linked = (['skipped', 'summary', 'keeper', 'doubles'] as Show[]).find((v) => v === params.get('show'));
   const [show, setShow] = useState<Show>(linked ?? 'all');
-  const [sort, setSort] = useState<Sort>(linked ? 'value' : 'latest');
+  const [sort, setSort] = useState<Sort>(linked && linked !== 'doubles' ? 'value' : 'latest');
   const [query, setQuery] = useState('');
   const [type, setType] = useState<SourceType | ''>('');
   const [category, setCategory] = useState('');
@@ -60,6 +61,13 @@ export function SourcesPage() {
       .catch(() => undefined);
   }, []);
 
+  const doubles = useDoubles(sources);
+  const reload = () => {
+    api
+      .sources(true)
+      .then(setSources)
+      .catch(() => undefined);
+  };
   const rows: Row[] = (sources ?? []).map((s) => ({ source: s, view: activityView(activity.get(s.id), s), depth: activity.get(s.id)?.depth ?? null }));
   const quietCount = rows.filter((r) => r.view.quiet).length;
   const unreadCount = rows.filter((r) => r.view.unread).length;
@@ -85,7 +93,9 @@ export function SourcesPage() {
                 ? verdictOf(r) === 'summary'
                 : show === 'keeper'
                   ? verdictOf(r) === 'keeper'
-                  : r.source.pausedAt !== null,
+                  : show === 'doubles'
+                    ? false
+                    : r.source.pausedAt !== null,
     )
     .filter((r) => !type || sourceType(r.source) === type)
     .filter((r) => !category || (category === '-' ? !r.source.category : r.source.category === category))
@@ -193,12 +203,14 @@ export function SourcesPage() {
             </select>
           </div>
           <div className="pills">
-            {(['all', 'skipped', 'summary', 'keeper', 'quiet', 'unread', 'paused'] as Show[])
-              .filter((v) => v !== 'paused' || pausedCount > 0)
+            {(['all', 'doubles', 'skipped', 'summary', 'keeper', 'quiet', 'unread', 'paused'] as Show[])
+              .filter((v) => (v !== 'paused' || pausedCount > 0) && (v !== 'doubles' || doubles.groups.length > 0 || show === 'doubles'))
               .map((v) => (
                 <button key={v} className="pill" aria-pressed={show === v} onClick={() => setShow(v)}>
                   {v === 'all'
                     ? 'All'
+                    : v === 'doubles'
+                      ? `Look like doubles (${doubles.groups.length})`
                     : v === 'quiet'
                       ? `Quiet (${quietCount})`
                       : v === 'unread'
@@ -213,6 +225,8 @@ export function SourcesPage() {
                 </button>
               ))}
           </div>
+          {show !== 'doubles' && (
+          <>
           <div className="pills">
             <span className="label" style={{ alignSelf: 'center' }}>
               Sort
@@ -229,9 +243,12 @@ export function SourcesPage() {
             glanced or more, so a swipe without looking doesn&apos;t count. Quiet = nothing for 30+ days and well past its usual gap. Unread =
             none of its recent items looked at.
           </span>
+          </>
+          )}
         </div>
       )}
-      {sources && sources.length > 0 && picked.length === 0 && (
+      {show === 'doubles' && <DoublesList groups={doubles.groups} onDismiss={doubles.dismiss} onMerged={reload} />}
+      {sources && sources.length > 0 && picked.length === 0 && show !== 'doubles' && (
         <p className="hint" style={{ padding: '0 16px' }}>
           {query || type || category
             ? 'No sources match these filters.'
@@ -261,7 +278,7 @@ export function SourcesPage() {
         </div>
       )}
 
-      {settings && <CategoriesSection settings={settings} onSave={save} />}
+      {settings && show !== 'doubles' && <CategoriesSection settings={settings} onSave={save} />}
     </div>
   );
 }

@@ -13,6 +13,7 @@ export * from './keysentences';
 export * from './reviews';
 export * from './status';
 export * from './follow';
+export * from './doubles';
 import { DEFAULT_REVIEW_SETTINGS, type ReviewSettings } from './reviews';
 import type { StatusSummary } from './status';
 
