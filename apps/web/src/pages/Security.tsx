@@ -210,7 +210,7 @@ export function SecurityPage({ onChanged }: { onChanged: () => void }) {
       </header>
       {error && <div className="error">{error}</div>}
       {!view && !error && <div className="spinner">Loading…</div>}
-      {view && view.watching === 0 && view.open.length === 0 && view.history.length === 0 && (
+      {view && view.watching === 0 && (
         <div className="section">
           <section className="card" style={{ display: 'grid', gap: 8 }}>
             <span>Not set up yet. Add the addresses and domains to watch, then point Have I Been Pwned’s free alerts at {view.alertsAddress}.</span>
@@ -220,7 +220,7 @@ export function SecurityPage({ onChanged }: { onChanged: () => void }) {
           </section>
         </div>
       )}
-      {view && (view.watching > 0 || view.open.length > 0 || view.history.length > 0) && (
+      {view && (view.watching > 0 || view.open.length > 0 || view.history.length > 0 || view.mail.length > 0) && (
         <>
           <div className={`ssum ssum--${DOT[level]}`}>
             <SecurityDot level={level} />
