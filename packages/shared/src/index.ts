@@ -13,6 +13,7 @@ export * from './keysentences';
 export * from './reviews';
 export * from './status';
 export * from './follow';
+export * from './doubles';
 import { DEFAULT_REVIEW_SETTINGS, type ReviewSettings } from './reviews';
 import type { StatusSummary } from './status';
 
@@ -1065,7 +1066,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.10.0';
+export const HELPER_VERSION = '0.10.1';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {

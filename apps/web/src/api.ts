@@ -240,6 +240,7 @@ export const api = {
   suggestionsLearnt: () => get<SuggestLearntPage>('/api/suggestions/learnt'),
   suggestionsForget: (input: { kind?: 'topic' | 'source'; key?: string; all?: boolean }) => post<{ ok: boolean }>('/api/suggestions/learnt/forget', input),
   updateSource: (id: string, update: SourceUpdate) => post<Source>(`/api/sources/${id}`, update),
+  mergeSource: (id: string, into: string) => post<{ moved: number; into: string }>(`/api/sources/${id}/merge`, { into }),
   sourceBulk: (id: string, action: 'read-all' | 'archive-all') => post<{ changed: number }>(`/api/sources/${id}/${action}`),
   discoverSource: (url: string) => post<DiscoverResult>('/api/sources/discover', { url }),
   addSource: (input: NewSourceInput) => post<NewSourceResult>('/api/sources', input),

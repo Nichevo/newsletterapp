@@ -302,13 +302,42 @@ function attachedImage(block: string): string | null {
   return thumb;
 }
 
-/** The first `limit` blocks of one element; feeds list the newest first, and big ones hold years of posts. */
+/** Upper bound on posts scanned in one feed, so a huge archive feed stays cheap. */
+const SCAN_BLOCKS = 1000;
+
+/** A post's date without parsing the rest of it (for ordering only). */
+function blockDate(block: string): number | null {
+  const m = /<(pubDate|dc:date|published|updated|issued)(?:\s[^>]*)?>\s*(?:<!\[CDATA\[)?([^<\]]+)/i.exec(block);
+  return m ? parseDate(m[2]) : null;
+}
+
+/**
+ * The newest `limit` blocks of one element. Most feeds list the newest first,
+ * and big ones hold years of posts, so the top is enough. Some (Beautiful News)
+ * list every post in a fixed order and re-date the ones they refresh; then the
+ * newest by date are taken from anywhere in the feed.
+ */
 function blocks(xml: string, tag: string, limit: number): string[] {
   const re = new RegExp(`<${tag}[\\s>][\\s\\S]*?<\\/${tag}>`, 'gi');
-  const out: string[] = [];
+  const all: string[] = [];
   let m: RegExpExecArray | null;
-  while (out.length < limit && (m = re.exec(xml)) !== null) out.push(m[0]);
-  return out;
+  while (all.length < SCAN_BLOCKS && (m = re.exec(xml)) !== null) all.push(m[0]);
+  return newestBlocks(all, limit);
+}
+
+/** The first `limit` blocks, unless a post further down is newer than all of them: then the `limit` newest by date. */
+export function newestBlocks(all: string[], limit: number): string[] {
+  if (all.length <= limit) return all;
+  const dates = all.map(blockDate);
+  const topNewest = Math.max(...dates.slice(0, limit).map((d) => d ?? -Infinity));
+  // A day's slack: feeds that pin a post or mix time zones still count as newest-first.
+  const newerBelow = dates.slice(limit).some((d) => d !== null && d > topNewest + 86_400_000);
+  if (!newerBelow) return all.slice(0, limit);
+  return all
+    .map((b, i) => ({ b, i, d: dates[i] }))
+    .sort((x, y) => (y.d ?? -Infinity) - (x.d ?? -Infinity) || x.i - y.i)
+    .slice(0, limit)
+    .map((x) => x.b);
 }
 
 function parseRss(xml: string, base: string, limit: number): ParsedFeed {

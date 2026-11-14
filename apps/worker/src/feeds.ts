@@ -72,6 +72,9 @@ const CLOUD_BUDGET = 10; // feeds the Worker fetches itself per cron run
 const FEED_LIMIT = 40; // posts read from the top of each feed
 const FIRST_RUN_KEEP = 5; // a new source brings in its latest few posts, not its whole archive
 const MAX_NEW_PER_CHECK = 25;
+const REFRESH_GAP = 7 * 86_400_000; // a re-dated post comes back only if its new date is this long after we first saw it
+const REFRESH_RECENT = 14 * 86_400_000; // ...and the new date is this recent
+const ARCHIVE_GAP = 30 * 86_400_000; // never-seen posts dated this long before the last good check are old archive posts
 const TEASER_WORDS = 150; // fewer words than this and the full article is fetched (full text "auto")
 const BLOCKED_TO_PC = 3; // turned away this many times in a row and the PC takes the feed over
 const HELPER_ONLINE_MS = 10 * MINUTE;
@@ -160,16 +163,28 @@ export function normalizeUrl(input: string | null | undefined): string | null {
 const interval = (s: Pick<SourceRow, 'kind' | 'check_minutes'>) =>
   (s.check_minutes ?? DEFAULT_MINUTES[s.kind === 'site' ? 'site' : 'feed']) * MINUTE;
 
-async function seenKeys(env: Env, sourceId: string, keys: string[]): Promise<Set<string>> {
-  const seen = new Set<string>();
+/** Keys this source has seen before, with when each was first seen. */
+async function seenKeys(env: Env, sourceId: string, keys: string[]): Promise<Map<string, number>> {
+  const seen = new Map<string, number>();
   for (let i = 0; i < keys.length; i += 90) {
     const chunk = keys.slice(i, i + 90);
-    const rows = await env.DB.prepare(`SELECT key FROM source_seen WHERE source_id = ? AND key IN (${chunk.map(() => '?').join(', ')})`)
+    const rows = await env.DB.prepare(`SELECT key, at FROM source_seen WHERE source_id = ? AND key IN (${chunk.map(() => '?').join(', ')})`)
       .bind(sourceId, ...chunk)
-      .all<{ key: string }>();
-    for (const r of rows.results) seen.add(r.key);
+      .all<{ key: string; at: number }>();
+    for (const r of rows.results) seen.set(r.key, r.at);
   }
   return seen;
+}
+
+/**
+ * A post seen before that the site has since re-dated to recently: some sites
+ * (Beautiful News) refresh an old chart with new figures under the same link
+ * and date it anew. The new date must be well after we first saw the post, so
+ * a feed that only nudges dates on small edits doesn't bring posts back.
+ */
+export function isRefreshed(publishedAt: number | null, firstSeenAt: number, t: number): boolean {
+  if (publishedAt === null || publishedAt > t + 86_400_000) return false;
+  return publishedAt > firstSeenAt + REFRESH_GAP && publishedAt > t - REFRESH_RECENT;
 }
 
 /**
@@ -256,7 +271,16 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
   const seen = await seenKeys(env, source.id, allKeys);
   // Posts the source's filter leaves out are only remembered as seen.
   const filter = sourcePostFilter(source);
-  const fresh = [...unique.values()].filter((e) => !seen.has(e.key) && passesPostFilter(e.title, filter, e.url));
+  const refreshed = new Set(
+    [...unique.values()].filter((e) => seen.has(e.key) && isRefreshed(e.publishedAt, seen.get(e.key)!, t)).map((e) => e.key),
+  );
+  // A never-seen post dated well before the last good check is an archive post the feed only now
+  // shows (feeds that list posts oldest-first): remembered as seen, not brought in.
+  const archiveBefore = source.last_ok_at !== null ? source.last_ok_at - ARCHIVE_GAP : null;
+  const isArchive = (e: FeedEntry) => archiveBefore !== null && e.publishedAt !== null && e.publishedAt < archiveBefore;
+  const fresh = [...unique.values()].filter(
+    (e) => (refreshed.has(e.key) || (!seen.has(e.key) && !isArchive(e))) && passesPostFilter(e.title, filter, e.url),
+  );
   // Newest first; posts without a date keep the feed's (or page's) own order.
   fresh.sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0));
   let take = fresh.slice(0, source.last_ok_at === null ? (source.start_count ?? FIRST_RUN_KEEP) : MAX_NEW_PER_CHECK);
@@ -358,6 +382,8 @@ export async function storeEntries(env: Env, source: SourceRow, entries: FeedEnt
   for (const key of allKeys) {
     if (!seen.has(key)) stmts.push(env.DB.prepare('INSERT OR IGNORE INTO source_seen (source_id, key, at) VALUES (?, ?, ?)').bind(source.id, key, t));
   }
+  // A re-dated post counts as seen from now, so it comes back once per refresh.
+  for (const key of refreshed) stmts.push(env.DB.prepare('UPDATE source_seen SET at = ? WHERE source_id = ? AND key = ?').bind(t, source.id, key));
   if (setAside > 0) {
     // One running count per day, shown on the source page.
     stmts.push(

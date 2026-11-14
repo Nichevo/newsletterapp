@@ -1,4 +1,4 @@
-import { depthTotal, depthValue, sourceVerdict } from '@newsletterapp/shared';
+import { canMergeAway, depthTotal, depthValue, findDoubles, sourceVerdict } from '@newsletterapp/shared';
 import type { AiMode, AppSettings, DiscoverResult, FullTextMode, Source, SourceActivity, SourceDepthDetail, SourceUpdate } from '@newsletterapp/shared';
 import { DepthBar, DepthLegend, VerdictPill, valueColour } from '../components/DepthBar';
 import { useEffect, useState } from 'react';
@@ -39,6 +39,7 @@ export function SourcePage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const [source, setSource] = useState<Source | null>(null);
+  const [allSources, setAllSources] = useState<Source[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -68,6 +69,7 @@ export function SourcePage() {
     Promise.all([api.sources(true), api.settings()])
       .then(([sources, s]) => {
         setSettings(s);
+        setAllSources(sources);
         const found = sources.find((x) => x.id === id);
         if (found) setSource(found);
         else setError('Source not found');
@@ -180,6 +182,8 @@ export function SourcePage() {
               onPause={() => void update({ paused: true })}
             />
           )}
+
+          {canMergeAway(source) && <MergeInto source={source} others={allSources} />}
 
           <div className="section">
             <span className="label">Category<Help topic="srcCategory" /></span>
@@ -934,5 +938,79 @@ function ActivityLine({ activity, source }: { activity: SourceActivity; source: 
     <span className="hint" style={{ margin: 0 }}>
       Last 90 days: {view.line}.{view.flag && !source.pausedAt ? <strong> {view.flag}.</strong> : null}
     </span>
+  );
+}
+
+/** Followed the same site twice? Merge this feed or website watch into the one you keep. */
+function MergeInto({ source, others }: { source: Source; others: Source[] }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [into, setInto] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const choices = others.filter((s) => s.id !== source.id && !s.savedPages);
+  const likely = new Set(findDoubles([source, ...choices]).find((g) => g.some((s) => s.id === source.id))?.map((s) => s.id) ?? []);
+  const sorted = [...choices].sort((a, b) => Number(likely.has(b.id)) - Number(likely.has(a.id)) || a.name.localeCompare(b.name));
+  const target = choices.find((s) => s.id === into);
+
+  const merge = async () => {
+    if (!target) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.mergeSource(source.id, target.id);
+      navigate(`/source/${target.id}`, { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not merge');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="section">
+      <span className="label">Following this twice?</span>
+      <section className="card">
+        {!open ? (
+          <>
+            <span className="hint">
+              If another source follows the same site, merge this one into it: its posts and reading history move across and it is no longer followed.
+            </span>
+            <div className="inline">
+              <button className="btn btn--small" onClick={() => setOpen(true)}>
+                Merge into another source…
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <select className="input" aria-label="Merge into" value={into} onChange={(e) => setInto(e.target.value)}>
+              <option value="">Pick the source to keep</option>
+              {sorted.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {likely.has(s.id) ? '★ ' : ''}
+                  {s.name} ({s.kind === 'site' ? 'website' : s.kind})
+                </option>
+              ))}
+            </select>
+            {target && (
+              <span className="hint">
+                {source.name} merges into {target.name}: {source.itemCount} post{source.itemCount === 1 ? '' : 's'}, stars and reading history move across, and{' '}
+                {source.name} is no longer followed. This can&apos;t be undone.
+              </span>
+            )}
+            <div className="inline">
+              <button className="btn btn--small btn--primary" disabled={!target || busy} onClick={() => void merge()}>
+                {busy ? 'Merging…' : 'Merge'}
+              </button>
+              <button className="btn btn--small" disabled={busy} onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+            </div>
+            {likely.size > 0 && <span className="hint">★ looks like the same site or name.</span>}
+          </>
+        )}
+        {error && <div className="error">{error}</div>}
+      </section>
+    </div>
   );
 }

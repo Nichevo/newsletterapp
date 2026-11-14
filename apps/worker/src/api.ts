@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { registerDeleting } from './deleting';
-import { emptyDepth, DEFAULT_OLD_LINK_DAYS, DEFAULT_REDDIT_COMMENTS, OLD_LINK_CHOICES, REDDIT_COMMENT_CHOICES, isKeyKind, KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, SAVE_LOCAL_PART, type FileFilter, type KeyMark, type SaveAddressInfo } from '@newsletterapp/shared';
+import { canMergeAway, emptyDepth, DEFAULT_OLD_LINK_DAYS, DEFAULT_REDDIT_COMMENTS, OLD_LINK_CHOICES, REDDIT_COMMENT_CHOICES, isKeyKind, KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, SAVE_LOCAL_PART, type FileFilter, type KeyMark, type SaveAddressInfo } from '@newsletterapp/shared';
 import type {
   Platform,
   AiMode,
@@ -1041,6 +1041,38 @@ app.post('/api/sources/:id/archive-all', async (c) => {
     .bind(t, deviceOf(c), t, c.req.param('id'))
     .run();
   return c.json({ changed: r.meta.changes ?? 0 });
+});
+
+// Merge a feed or website watch into another source that follows the same thing: its posts,
+// what it has seen and its AI history move across, then it is no longer followed.
+app.post('/api/sources/:id/merge', async (c) => {
+  const id = c.req.param('id');
+  const input = (await c.req.json().catch(() => null)) as { into?: string } | null;
+  const into = input?.into;
+  if (!into || into === id) return c.json({ error: 'Pick another source to merge into' }, 400);
+  const [from, to] = await Promise.all([
+    c.env.DB.prepare('SELECT * FROM sources WHERE id = ?').bind(id).first<SourceRow>(),
+    c.env.DB.prepare('SELECT * FROM sources WHERE id = ?').bind(into).first<SourceRow>(),
+  ]);
+  if (!from || !to) return c.json({ error: 'Source not found' }, 404);
+  if (!canMergeAway(toSource(from))) {
+    return c.json({ error: 'Only a feed or website watch can be merged away; a newsletter would come back with its next issue.' }, 400);
+  }
+  const moved = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM items INDEXED BY items_source WHERE source_id = ?').bind(id).first<{ n: number }>();
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE items SET source_id = ? WHERE source_id = ?').bind(into, id),
+    c.env.DB.prepare('INSERT OR IGNORE INTO source_seen (source_id, key, at) SELECT ?, key, at FROM source_seen WHERE source_id = ?').bind(into, id),
+    c.env.DB.prepare('DELETE FROM source_seen WHERE source_id = ?').bind(id),
+    // Its own feed and page checks go; article fetches for posts it brought in carry on under the kept source.
+    c.env.DB.prepare("DELETE FROM fetch_jobs WHERE source_id = ? AND kind != 'article'").bind(id),
+    c.env.DB.prepare('UPDATE fetch_jobs SET source_id = ? WHERE source_id = ?').bind(into, id),
+    c.env.DB.prepare('UPDATE ai_runs SET source_id = ? WHERE source_id = ?').bind(into, id),
+    c.env.DB.prepare('UPDATE suggestions SET source_id = ? WHERE source_id = ?').bind(into, id),
+    // A prompt of its own moves across unless the kept source has one.
+    c.env.DB.prepare("UPDATE OR IGNORE prompts SET scope_value = ? WHERE scope = 'source' AND scope_value = ?").bind(into, id),
+    c.env.DB.prepare('DELETE FROM sources WHERE id = ?').bind(id),
+  ]);
+  return c.json({ moved: moved?.n ?? 0, into });
 });
 
 const AI_MODES: AiMode[] = ['default', 'on', 'off'];
