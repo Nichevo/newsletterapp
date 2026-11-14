@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, isPhone } from '../api';
 import { EmailBody } from '../components/EmailBody';
+import { tailStart } from '../adTail';
 import { RowPicture } from '../components/ItemRow';
 import { AiNotes, HighlightSheet, SelectionBar, TextBody, useArticleSelection } from '../components/Highlights';
 import { applyMarks, matchScore, revealMark } from '../highlight';
@@ -30,6 +31,8 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
   const [loadImages, setLoadImages] = useState(false);
   const [sponsoredCount, setSponsoredCount] = useState(0);
   const [showSponsored, setShowSponsored] = useState(false);
+  const [adTailFound, setAdTailFound] = useState(false);
+  const [showAdTail, setShowAdTail] = useState(false);
   const fontSize = textSizePx(getTextSize());
   const nav = useMemo(() => neighbours(id), [id]);
   const [params] = useSearchParams();
@@ -66,6 +69,8 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
     setLoadImages(false);
     setSponsoredCount(0);
     setShowSponsored(false);
+    setAdTailFound(false);
+    setShowAdTail(false);
     Promise.all([api.item(id), api.itemBody(id)])
       .then(async ([i, b]) => {
         // A copy fetched again since: ask for that version (rare, so the first request stays parallel).
@@ -108,6 +113,33 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
       setError(err instanceof Error ? err.message : 'Action failed');
     }
   }
+
+  /** Your say on adverts; the item may move in or out of the Inbox with it. */
+  async function setAdvert(advert: boolean) {
+    if (!item) return;
+    try {
+      await api.setAdvert(item.id, advert);
+      setItem(await api.item(item.id));
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Action failed');
+    }
+  }
+
+  async function adTailWrong() {
+    if (!item?.ads) return;
+    try {
+      await api.setAdTailWrong(item.id, true);
+      setItem({ ...item, ads: { ...item.ads, tailWrong: true } });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Action failed');
+    }
+  }
+
+  // An ad tacked onto the end (the AI's guess): hidden from its first words down, unless you said it wasn't one.
+  const adTail = item?.ads && !item.ads.tailWrong ? item.ads.tail : null;
+  const textTailAt = adTail && !body?.html && body?.text ? tailStart(body.text, adTail) : null;
+  const tailHidden = body?.html ? adTailFound : textTailAt !== null;
 
   const hasRemoteImages = body?.html ? /<img[^>]+src=["']?https?:/i.test(body.html) : false;
   // The post's inbox picture, when the saved article lost it (some sites' pictures sit
@@ -174,6 +206,16 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
                 {item.notInterestedAt ? 'Not interested ✕' : 'Not interested?'}
               </button>
             )}
+            {item.kind !== 'ai' && !item.advert && (
+              <button
+                type="button"
+                className="chip chip--outline chip--button"
+                title="The whole thing is just an advert: moves it to Adverts"
+                onClick={() => void setAdvert(true)}
+              >
+                Advert?
+              </button>
+            )}
             {item.toAddress && <span className="chip chip--outline">to {item.toAddress}</span>}
             {item.file && (
               <Link className="chip chip--file" to={`/?kind=${fileFilterOf(item.file.type)}`} title="Show all of this type">
@@ -192,6 +234,17 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
             <button className="chip chip--ai notes-jump" onClick={marks.scrollToNotes}>
               {marks.noteCount} AI note{marks.noteCount === 1 ? '' : 's'} ↓
             </button>
+          )}
+          {item.advert && (
+            <div className="advert-banner" role="status">
+              <span>
+                <span className="chip chip--advert">Advert</span>{' '}
+                {item.ads?.by === 'you' ? 'You marked this as an advert.' : 'The AI marked this as an advert.'}
+              </span>
+              <button className="btn btn--small" onClick={() => void setAdvert(false)}>
+                Not an advert
+              </button>
+            </div>
           )}
           {item.story && <StoryBanner itemId={item.id} />}
           {item.summary && <AiSummary item={item} onItem={setItem} marks={marks} />}
@@ -266,6 +319,9 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
             fontSize={fontSize}
             hideSponsored={hideSponsored}
             onSponsored={setSponsoredCount}
+            adTail={adTail}
+            showAdTail={showAdTail}
+            onAdTail={setAdTailFound}
             onLinkClick={onLinkClick}
             highlights={marks.articleHighlights}
             activeHighlight={marks.sheet}
@@ -278,7 +334,7 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
           />
         ) : body?.text ? (
           <TextBody
-            text={body.text}
+            text={textTailAt !== null && !showAdTail ? body.text.slice(0, textTailAt).trimEnd() : body.text}
             fontSize={fontSize}
             highlights={marks.articleHighlights}
             activeHighlight={marks.sheet}
@@ -292,6 +348,19 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
           <p className="muted">{item.kind === 'newsletter' ? 'This email has no readable body.' : 'No saved copy of this post; open the live page.'}</p>
         ) : (
           !error && <div className="spinner">Loading…</div>
+        )}
+        {tailHidden && item && (
+          <div className="adtail-note">
+            <span>{showAdTail ? 'The ad at the end is shown (outlined).' : 'An ad at the end of this article is hidden.'}</span>
+            <span className="inline">
+              <button className="btn btn--small" onClick={() => setShowAdTail((v) => !v)}>
+                {showAdTail ? 'Hide' : 'Show'}
+              </button>
+              <button className="btn btn--ghost btn--small" onClick={() => void adTailWrong()} title="Show the whole article from now on">
+                Not an ad
+              </button>
+            </span>
+          </div>
         )}
         {keys.below}
         {item && !item.story && item.hasNear && (

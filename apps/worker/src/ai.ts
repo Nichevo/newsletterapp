@@ -35,6 +35,7 @@ import { countSearches, searchAllowance, summarySearches } from './websearch';
 import { loadSettings } from './settings';
 import { recordHolds } from './pcholds';
 import { jobsThatFit, limitState } from './usage';
+import { adverdictStatements, withAdvertRules } from './adverts';
 
 // The AI job queue. The PC helper checks in, claims a few items, summarises
 // them with a local model and posts the results back. Everything here is
@@ -207,6 +208,8 @@ export function cleanOutput(o: unknown, categories: string[]): AiOutput | null {
             .map((x) => ({ title: typeof x.title === 'string' ? x.title.trim().slice(0, 200) : x.url, url: x.url.slice(0, 1000) })),
         }
       : {}),
+    ...(r.advert === true ? { advert: true } : {}),
+    ...(typeof r.ad_starts_at === 'string' && r.ad_starts_at.trim() ? { ad_starts_at: r.ad_starts_at.trim().slice(0, 300) } : {}),
   };
 }
 
@@ -426,7 +429,7 @@ export function registerAi(app: App) {
           fromName: r.from_name,
           receivedAt: r.received_at,
           ...(await bodiesFor(c.env, r)),
-          prompt: fillPrompt(prompt.body, settings.categories, settings.interests),
+          prompt: withAdvertRules(fillPrompt(prompt.body, settings.categories, settings.interests), settings.adverts),
           promptId: prompt.id,
           promptVersion: prompt.version,
           categories: settings.categories,
@@ -494,6 +497,7 @@ export function registerAi(app: App) {
           output.coverage?.length ? JSON.stringify(output.coverage) : null,
           item.id,
         ),
+        ...(await adverdictStatements(c.env, item.id, output, settings.adverts)),
       );
     } else {
       stmts.push(
@@ -536,7 +540,7 @@ export function registerAi(app: App) {
           .bind(...ids)
           .all<JobRow>()
       : { results: [] as JobRow[] };
-    const prompt = fillPrompt(trial.prompt_body, settings.categories, settings.interests);
+    const prompt = withAdvertRules(fillPrompt(trial.prompt_body, settings.categories, settings.interests), settings.adverts);
     const job: TrialJob = {
       trialId: trial.id,
       models: JSON.parse(trial.models) as ModelRef[],

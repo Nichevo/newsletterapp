@@ -273,6 +273,8 @@ export function toItemSummary(row: ItemRow & ItemJoined, aiByKind?: Record<Summa
     wordCount: row.word_count,
     category: row.category ?? row.source_category ?? aiCategory,
     sponsored: row.sponsored === 1,
+    // 2 = advert (the AI or you said so); see adverts.ts.
+    advert: row.sponsored === 2,
     aiStatus,
     summary: row.summary,
     keyPoints: parseList(row.key_points),

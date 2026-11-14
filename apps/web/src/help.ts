@@ -48,6 +48,11 @@ export const HELP = {
     'Folds away blocks that look like sponsor messages in newsletters, with a note saying how many and a tap to show them.',
     'Saved on this device only.',
   ], 'A block over about 1,500 characters is never treated as sponsored.'),
+  adverts: h('Adverts', [
+    'The AI on your PC also says whether an item is only an advert (a sale, a product launch, "upgrade to paid") and where an ad tacked onto the end of a real article starts.',
+    'Move: adverts leave the Inbox for the Adverts view (Filters > Show). Label only: they stay, with an Advert label. Off: the AI is not asked.',
+    'In the reader, "Not an advert" puts one back for good, and "Advert?" marks one the AI missed. Ads at the end are hidden, never cut: "Show" brings them back.',
+  ], 'Only items the AI summarises are checked; saved or starred items never move.'),
   readingTime: h('Reading', [
     'These choices are saved on this device only, so the phone and the PC can differ.',
   ], 'An article counts as finished in Reading statistics once you have scrolled 70% of it.'),

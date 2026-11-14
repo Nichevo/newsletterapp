@@ -94,7 +94,7 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     ? input.savedFilters
         .map((f) => ({
           name: str(f?.name, 40),
-          view: (['inbox', 'unread', 'saved', 'interesting', 'likely', 'unlikely', 'archived'] as const).find((v) => v === f?.view) ?? 'inbox',
+          view: (['inbox', 'unread', 'saved', 'interesting', 'likely', 'unlikely', 'adverts', 'archived'] as const).find((v) => v === f?.view) ?? 'inbox',
           sort: (['newest', 'oldest', 'top'] as const).find((v) => v === f?.sort) ?? 'newest',
           source: typeof f?.source === 'string' ? f.source.slice(0, 2000) || null : null,
           category: typeof f?.category === 'string' ? str(f.category, 400) || null : null,
@@ -175,6 +175,7 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     stories,
     saveSenders,
     tuning,
+    adverts: input.adverts === 'move' || input.adverts === 'label' || input.adverts === 'off' ? input.adverts : (base.adverts ?? 'move'),
   };
 }
 

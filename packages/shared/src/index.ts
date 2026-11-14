@@ -94,6 +94,10 @@ export interface ItemSummary {
   category: string | null;
   /** The email looks like it carries a sponsored section. */
   sponsored: boolean;
+  /** The whole item is an advert (the AI said so, or you marked it). */
+  advert: boolean;
+  /** Only on a single item: who called it an advert, your own say, and an ad at the end to hide. */
+  ads?: AdInfo;
   // AI fields, filled in by the PC helper.
   aiStatus: AiStatus | null;
   summary: string | null;
@@ -138,6 +142,21 @@ export interface ItemSummary {
   /** The key sentences, in reading order, when the list was asked for them (keys=1). */
   keyLines?: { kind: KeyKind; quote: string }[];
 }
+
+/** Adverts on one item (the reader's banner and its hidden ad at the end). */
+export interface AdInfo {
+  /** Who marked it an advert: the AI, or you; null when it isn't one. */
+  by: 'ai' | 'you' | null;
+  /** You said it is not an advert: the AI never flags it again. */
+  notAdvert: boolean;
+  /** The first words of an ad at the end of the article (the reader hides from there down). */
+  tail: string | null;
+  /** You said the hidden end wasn't an ad. */
+  tailWrong: boolean;
+}
+
+/** What the app does with adverts the AI spots: move them out of the Inbox, only label them, or not look for them. */
+export type AdvertMode = 'move' | 'label' | 'off';
 
 /** The story an item belongs to, as shown on its inbox row. */
 export interface ItemStory {
@@ -401,7 +420,7 @@ export interface BulkReadInput {
   action: 'read' | 'unread';
 }
 
-export type ItemView = 'inbox' | 'unread' | 'saved' | 'interesting' | 'likely' | 'unlikely' | 'archived';
+export type ItemView = 'inbox' | 'unread' | 'saved' | 'interesting' | 'likely' | 'unlikely' | 'adverts' | 'archived';
 
 /** Per-source AI switch. "default" follows the setting for the source's kind. */
 export type AiMode = 'default' | 'on' | 'off';
@@ -717,6 +736,8 @@ export interface AppSettings {
   saveSenders: string[];
   /** Limits that used to be fixed: how much the AI reads, PDF pages, Likely interesting, Top sort. */
   tuning: TuningSettings;
+  /** Adverts the AI spots: moved to the Adverts view, only labelled, or not looked for. Ads at the end of articles are hidden unless off. */
+  adverts: AdvertMode;
 }
 
 export type TopLean = 'newest' | 'balanced' | 'favourites';
@@ -772,6 +793,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   stories: DEFAULT_STORY_SETTINGS,
   saveSenders: [],
   tuning: DEFAULT_TUNING,
+  adverts: 'move',
 };
 
 // ---------- Lead stories (Top of the week; the old daily digest) ----------
@@ -972,6 +994,10 @@ export interface AiOutput {
   /** Only when the summary was written with web search results. */
   background?: string;
   coverage?: { title: string; url: string }[];
+  /** The whole text is an advert (a sales or promo email with no real article). */
+  advert?: boolean;
+  /** The first words of an ad tacked onto the end of a real article, as they appear in the text; "" when none. */
+  ad_starts_at?: string;
 }
 
 export interface ModelRef {
@@ -1070,7 +1096,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.10.1';
+export const HELPER_VERSION = '0.11.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {

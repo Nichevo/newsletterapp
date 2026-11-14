@@ -165,6 +165,7 @@ export function ItemRow({
           {!item.readAt && <span className="row__dot" />}
           <span className="row__source">{item.sourceName ?? item.fromName ?? item.fromEmail}</span>
           <span className={kindClass}>{item.platform ? PLATFORM_CHIP[item.platform] : KIND_CHIP[item.kind]}</span>
+          {item.advert && <span className="chip chip--advert">Advert</span>}
           {item.highlightCount > 0 && (
             <span
               className="row__marks"

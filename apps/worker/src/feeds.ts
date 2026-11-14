@@ -1452,7 +1452,7 @@ export function registerFeeds(app: App) {
         const fresh = Boolean(job.force) && !comments;
         await c.env.DB.prepare(
           `UPDATE items SET html_key = ?, has_html = 1, word_count = ?, snippet = COALESCE(?, snippet),
-             preheader = ${fresh ? '?' : 'COALESCE(preheader, ?)'}, sponsored = ?,
+             preheader = ${fresh ? '?' : 'COALESCE(preheader, ?)'}, sponsored = CASE WHEN sponsored = 2 THEN 2 ELSE ? END,
              ai_status = ${fresh ? "CASE WHEN ai_status IN ('done', 'failed') THEN 'pending' ELSE COALESCE(ai_status, 'pending') END" : "COALESCE(ai_status, 'pending')"},
              ${fresh ? 'ai_attempts = 0, ai_error = NULL,' : ''} body_v = body_v + 1 WHERE id = ?`,
         )

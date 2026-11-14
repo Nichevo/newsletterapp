@@ -3,11 +3,14 @@ import type { Highlight } from '@newsletterapp/shared';
 import { useEffect, useRef } from 'react';
 import { applyMarks, MARK_CSS } from '../highlight';
 import { KEY_CSS, keyIndexFromPath } from '../keySentences';
+import { markAdTail } from '../adTail';
 
 const BASE_CSS = `
   :host { display: block; color: inherit; line-height: 1.5; overflow-wrap: anywhere; }
   [data-sponsored] { display: none !important; }
   :host([data-show-sponsored]) [data-sponsored] { display: revert !important; outline: 2px dashed rgba(217,119,6,0.5); outline-offset: 2px; }
+  [data-adtail] { display: none !important; }
+  :host([data-show-adtail]) [data-adtail] { display: revert !important; outline: 2px dashed rgba(154,52,18,0.45); outline-offset: 2px; }
   img { max-width: 100% !important; height: auto !important; }
   img[data-blocked-src] { display: inline-block; min-width: 24px; min-height: 24px; background: rgba(127,127,127,0.15); border-radius: 4px; }
   .img-caption { display: block; margin: 4px 0 12px; font-size: 0.9em; font-style: italic; color: var(--quiet, #4a5259); }
@@ -133,6 +136,9 @@ export function EmailBody({
   fontSize = 16,
   hideSponsored = false,
   onSponsored,
+  adTail = null,
+  showAdTail = false,
+  onAdTail,
   onLinkClick,
   highlights,
   activeHighlight = null,
@@ -151,6 +157,12 @@ export function EmailBody({
   hideSponsored?: boolean;
   /** How many sponsored blocks were found, hidden or not. */
   onSponsored?: (count: number) => void;
+  /** The first words of an ad at the end of the article: hidden from there down. */
+  adTail?: string | null;
+  /** Show the hidden ad at the end (outlined). */
+  showAdTail?: boolean;
+  /** Whether the ad at the end was found in the text. */
+  onAdTail?: (found: boolean) => void;
   onLinkClick?: (href: string) => void;
   /** Saved highlights to mark in the text. */
   highlights?: Highlight[];
@@ -216,6 +228,7 @@ export function EmailBody({
 
     const found = markSponsored(fragment);
     onSponsored?.(found);
+    onAdTail?.(adTail ? markAdTail(fragment, adTail) : false);
     if (hideSponsored) host.removeAttribute('data-show-sponsored');
     else host.setAttribute('data-show-sponsored', '');
 
@@ -226,7 +239,15 @@ export function EmailBody({
     onRoot?.(root);
     onDrawn?.(root);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [html, loadImages, fontSize, hideSponsored]);
+  }, [html, loadImages, fontSize, hideSponsored, adTail]);
+
+  // Showing the hidden ad needs no redraw.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    if (showAdTail) host.setAttribute('data-show-adtail', '');
+    else host.removeAttribute('data-show-adtail');
+  }, [showAdTail]);
 
   // Marks again when the highlights change, without redrawing the article.
   const key = (highlights ?? []).map((h) => h.id).join(',');

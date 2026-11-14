@@ -8,7 +8,7 @@ import { now } from './ids';
 // single request has to build a big file within the free plan's CPU limit.
 
 const PAGE = 500;
-/** Tables of the key sentences and security alerts features that go into the full export as they are. */
+/** Tables of the key sentences, security alerts and adverts features that go into the full export as they are. */
 export const EXPORT_TABLES = [
   'key_sentences',
   'studies',
@@ -22,6 +22,8 @@ export const EXPORT_TABLES = [
   'security_breaches',
   'security_hits',
   'security_events',
+  // Adverts: the AI's calls and yours.
+  'item_ads',
 ] as const;
 
 type App = Hono<{ Bindings: Env; Variables: AppVariables }>;

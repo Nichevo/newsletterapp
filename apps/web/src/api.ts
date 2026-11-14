@@ -188,6 +188,12 @@ export const api = {
   item: (id: string) => get<ItemSummary>(`/api/items/${id}`),
   // A replaced copy has its own address (?v=), so the week-long cache never serves the old one.
   itemBody: (id: string, version = 0) => get<ItemBody>(`/api/items/${id}/body${version ? `?v=${version}` : ''}`),
+  /** Your say on adverts: true marks it one, false says it isn't (the AI never flags it again). */
+  setAdvert: (id: string, advert: boolean) => post<{ ok: boolean }>(`/api/items/${id}/advert`, { advert }),
+  /** The hidden end of the article wasn't an ad (true), or was after all (false). */
+  setAdTailWrong: (id: string, wrong: boolean) => post<{ ok: boolean }>(`/api/items/${id}/ad-tail`, { wrong }),
+  advertStats: () => get<{ ai: number; wrong: number; missed: number; tails: number; tailsWrong: number }>('/api/adverts/stats'),
+  advertRecheck: (days: 7 | 30) => post<{ queued: number }>('/api/adverts/recheck', { days }),
   fetchPage: (id: string) => post<FetchPageStatus>(`/api/items/${id}/fetch-page`),
   fetchPageStatus: (id: string) => get<FetchPageStatus>(`/api/items/${id}/fetch-page`),
   itemAction: (

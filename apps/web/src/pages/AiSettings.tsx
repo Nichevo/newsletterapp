@@ -1,7 +1,7 @@
 import type { AiStatusView, AiUsageView, AppSettings, ModelInfo, ModelMode, ModelRef, PromptInfo, Source, TrialView } from '@newsletterapp/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AiSummariesSection, useAppSettings } from './Settings';
+import { AdvertsSection, AiSummariesSection, useAppSettings } from './Settings';
 import { api } from '../api';
 import { useVisiblePolling } from '../poll';
 import { relativeTime } from '../format';
@@ -70,6 +70,7 @@ export function AiSettingsPage() {
       {status && <StatusSection status={status} onAct={act} />}
       <MoreLinks usage={usage} />
       {settings && <AiSummariesSection settings={settings} onSave={saveSettings} />}
+      {settings && <AdvertsSection settings={settings} onSave={saveSettings} />}
       <ModelsSection models={models} onChange={setModels} onAct={act} />
       <PromptsSection />
       <TrialSection models={models} />

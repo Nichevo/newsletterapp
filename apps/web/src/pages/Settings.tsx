@@ -355,6 +355,69 @@ export function AiSummariesSection({ settings, onSave }: { settings: AppSettings
   );
 }
 
+/** Settings > PC helper and AI: what happens to adverts the AI spots. */
+export function AdvertsSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
+  const [stats, setStats] = useState<Awaited<ReturnType<typeof api.advertStats>> | null>(null);
+  const [recheck, setRecheck] = useState<string | null>(null);
+  useEffect(() => {
+    api.advertStats().then(setStats).catch(() => setStats(null));
+  }, []);
+
+  async function again(days: 7 | 30) {
+    try {
+      const r = await api.advertRecheck(days);
+      setRecheck(`${r.queued} item${r.queued === 1 ? '' : 's'} sent back to the PC to summarise again.`);
+    } catch (err) {
+      setRecheck(err instanceof Error ? err.message : 'Could not send them');
+    }
+  }
+
+  return (
+    <div className="section">
+      <span className="label">Adverts<Help topic="adverts" /></span>
+      <section className="card">
+        <Choice
+          label="Adverts the AI spots"
+          value={settings.adverts}
+          options={[
+            ['move', 'Move'],
+            ['label', 'Label only'],
+            ['off', 'Off'],
+          ] as const}
+          onChange={(v) => void onSave({ adverts: v })}
+          width={260}
+        />
+        <span className="hint">
+          Move takes items that are only an advert out of the Inbox into the Adverts view (Filters › Show › Adverts). Ads tacked onto
+          the end of an article are hidden in the reader with a Show button, unless this is Off. Nothing stored is cut.
+        </span>
+        {stats && (
+          <span className="hint">
+            Last 30 days: the AI spotted {stats.ai} advert{stats.ai === 1 ? '' : 's'}
+            {stats.wrong ? ` (${stats.wrong} you said weren’t)` : ''}, you marked {stats.missed} it missed, and it hid an ad at the end of{' '}
+            {stats.tails} article{stats.tails === 1 ? '' : 's'}
+            {stats.tailsWrong ? ` (${stats.tailsWrong} you said weren’t ads)` : ''}.
+          </span>
+        )}
+        {settings.adverts !== 'off' && (
+          <div className="switchrow">
+            <span style={{ fontSize: 14 }}>Check items already summarised</span>
+            <span className="inline">
+              <button className="btn btn--small" onClick={() => void again(7)}>
+                Last 7 days
+              </button>
+              <button className="btn btn--small" onClick={() => void again(30)}>
+                Last 30 days
+              </button>
+            </span>
+          </div>
+        )}
+        {recheck && <span className="hint">{recheck} Their summaries are written again too.</span>}
+      </section>
+    </div>
+  );
+}
+
 /** Top sort and Likely interesting: how the app ranks and picks for you. */
 function RankingSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
   const t = settings.tuning;

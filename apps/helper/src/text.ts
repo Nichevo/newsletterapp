@@ -111,6 +111,9 @@ export function parseOutput(reply: string): AiOutput {
     thin_content: parsed.thin_content === true,
     ...(typeof parsed.background === 'string' ? { background: parsed.background } : {}),
     ...(Array.isArray(parsed.coverage) ? { coverage: parsed.coverage } : {}),
+    // Adverts (the app adds the rules for these to the prompt).
+    ...(parsed.advert === true ? { advert: true } : {}),
+    ...(typeof parsed.ad_starts_at === 'string' && parsed.ad_starts_at.trim() ? { ad_starts_at: parsed.ad_starts_at } : {}),
   };
 }
 
@@ -127,6 +130,9 @@ export const OUTPUT_SCHEMA = {
     // Only asked for when the summary comes with web search results.
     background: { type: 'string' },
     coverage: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, url: { type: 'string' } }, required: ['title', 'url'] } },
+    // The whole item is an advert; the first words of an ad tacked onto the end ("" when none).
+    advert: { type: 'boolean' },
+    ad_starts_at: { type: 'string' },
   },
-  required: ['summary', 'key_points', 'why_it_matters', 'category', 'topics', 'thin_content'],
+  required: ['summary', 'key_points', 'why_it_matters', 'category', 'topics', 'thin_content', 'advert', 'ad_starts_at'],
 };

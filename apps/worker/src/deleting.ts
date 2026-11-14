@@ -60,6 +60,7 @@ export async function tidyDeleted(env: Env): Promise<number> {
     await env.DB.batch([
       env.DB.prepare('DELETE FROM item_tags WHERE item_id = ?').bind(row.id),
       env.DB.prepare('DELETE FROM item_reads WHERE item_id = ?').bind(row.id),
+      env.DB.prepare('DELETE FROM item_ads WHERE item_id = ?').bind(row.id),
       env.DB.prepare('UPDATE highlights SET deleted_at = ? WHERE item_id = ? AND deleted_at IS NULL').bind(t, row.id),
       env.DB.prepare('DELETE FROM fetch_jobs WHERE item_id = ?').bind(row.id),
       // Key sentences, and its cites of studies and links (their counts go down with it).
