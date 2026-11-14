@@ -14,8 +14,10 @@ export * from './reviews';
 export * from './status';
 export * from './follow';
 export * from './doubles';
+export * from './security';
 import { DEFAULT_REVIEW_SETTINGS, type ReviewSettings } from './reviews';
 import type { StatusSummary } from './status';
+import type { SecuritySummary } from './security';
 
 /** 'ai' = an article written by the AI from a highlight (the "AI notes" source). */
 export type ItemKind = 'newsletter' | 'feed' | 'site' | 'ai';
@@ -662,6 +664,8 @@ export interface Counts {
   pendingSenders: number;
   /** System status: what the inbox's Status button and banner show. */
   status: StatusSummary;
+  /** Security alerts: what the shield button and its banner show. */
+  security: SecuritySummary;
 }
 
 export interface Me {

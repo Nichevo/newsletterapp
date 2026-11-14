@@ -3974,6 +3974,118 @@ a.chip { text-decoration: none; }
   font-size: 14.5px;
 }
 
+/* Security alerts (shield button, Security page, breach pages) */
+.secb--high {
+  border-color: var(--red-ink);
+}
+
+.secb--medium,
+.secb--watch {
+  border-color: var(--amber-ink);
+}
+
+.schip--high {
+  border-color: transparent;
+  background: var(--red-tint);
+  color: var(--red-ink);
+  font-weight: 600;
+}
+
+.secchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 16px 8px;
+}
+
+.secinfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.secinfo__logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: #fff;
+  flex: none;
+}
+
+.secinfo__logo--text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--teal-tint);
+  color: var(--teal-ink);
+  font-weight: 700;
+}
+
+.secinfo__desc {
+  -webkit-line-clamp: 8;
+  line-height: 1.5;
+}
+
+.sectodo {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-size: 14.5px;
+  cursor: pointer;
+}
+
+.sectodo input {
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  flex: none;
+  accent-color: var(--teal);
+}
+
+.sectodo__done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.secmail {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.5;
+  max-height: 60vh;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.secwatch {
+  display: grid;
+  gap: 8px;
+}
+
+.secwatch__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.secwatch__steps {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+  font-size: 13.5px;
+  color: var(--quiet);
+}
+
+.secpick {
+  max-height: 420px;
+  overflow: auto;
+}
+
 /* Review: Done slides the review away; past reviews of the same kind; unread dot on Week/Month */
 .rv {
   transition:

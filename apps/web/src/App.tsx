@@ -1,4 +1,4 @@
-import { NO_STATUS, type Counts, type Me } from '@newsletterapp/shared';
+import { NO_SECURITY, NO_STATUS, type Counts, type Me } from '@newsletterapp/shared';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError, api } from './api';
@@ -37,6 +37,8 @@ import { LinkPage, StudiesPage, StudyPage } from './pages/Studies';
 import { KeyStatsPage } from './pages/KeyStats';
 import { StatusIncidentPagePage, StatusPage } from './pages/Status';
 import { StatusSettingsPage } from './pages/StatusSettings';
+import { SecurityBreachPagePage, SecurityMailPagePage, SecurityPage } from './pages/Security';
+import { AddPastBreachesPage, SecuritySettingsPage } from './pages/SecuritySettings';
 
 // The Topics map pulls in the chart layout code, so it loads only when opened.
 const TopicsPage = lazy(() => import('./pages/Topics').then((m) => ({ default: m.TopicsPage })));
@@ -46,7 +48,7 @@ export type { Counts };
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [authError, setAuthError] = useState<ApiError | null>(null);
-  const [counts, setCounts] = useState<Counts>({ inbox: 0, unread: 0, saved: 0, interesting: 0, pendingSenders: 0, status: NO_STATUS });
+  const [counts, setCounts] = useState<Counts>({ inbox: 0, unread: 0, saved: 0, interesting: 0, pendingSenders: 0, status: NO_STATUS, security: NO_SECURITY });
   const location = useLocation();
 
   const refreshCounts = useCallback(() => {
@@ -154,6 +156,11 @@ export default function App() {
         <Route path="/status" element={<StatusPage onChanged={refreshCounts} />} />
         <Route path="/status/:id" element={<StatusIncidentPagePage />} />
         <Route path="/settings/status" element={<StatusSettingsPage onChanged={refreshCounts} />} />
+        <Route path="/security" element={<SecurityPage onChanged={refreshCounts} />} />
+        <Route path="/security/breach/:name" element={<SecurityBreachPagePage onChanged={refreshCounts} />} />
+        <Route path="/security/mail/:id" element={<SecurityMailPagePage onChanged={refreshCounts} />} />
+        <Route path="/settings/security" element={<SecuritySettingsPage onChanged={refreshCounts} />} />
+        <Route path="/settings/security/past" element={<AddPastBreachesPage onChanged={refreshCounts} />} />
         <Route path="/story/:id" element={<StoryPagePage />} />
         <Route path="/studies" element={<StudiesPage />} />
         <Route path="/study/:id" element={<StudyPage />} />

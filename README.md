@@ -111,6 +111,16 @@ The helper keeps its config and log in `%LOCALAPPDATA%\NewsletterHelper` and upd
 - A feed that turns Cloudflare away three times in a row moves to the PC on its own.
 - AI summaries are off for feeds and websites by default (Settings, overridable per source). Every post gets the quick summary.
 
+## Security alerts (Have I Been Pwned)
+
+Breach alerts for your own addresses, free. The app never sends an address anywhere: Have I Been Pwned (HIBP) does the matching and emails you, and the app reads those emails.
+
+- Mail to `alerts@` on the mail domain (and any mail from haveibeenpwned.com) skips screening and never reaches the inbox; it shows on the **Security** page (shield button at the top of the inbox), sign-in codes and forwarding confirmations included.
+- Sign in at haveibeenpwned.com with that address. For a domain, add it under Domain search and verify it with a TXT record (free while 10 or fewer of its addresses have been in breaches); alerts for every address on it then come to `alerts@`. For a single address elsewhere, use Notify me and forward mail from `noreply@haveibeenpwned.com` to `alerts@`.
+- List the addresses and domains in **Settings › Security alerts**, with whose each one is. Only genuine HIBP mail (DKIM/DMARC checked by Cloudflare) creates a breach; each breach gets the addresses it hit, a to-do list from what leaked, and a history.
+- Hourly, the Worker reads HIBP's public newest-breach API (no key, no addresses) and flags it when a newsletter or feed you follow comes from that site, and re-reads a few listed breaches to note changes.
+- **Add past breaches** fills the history from HIBP's public breach list, picked by hand or found in text pasted from HIBP's results page.
+
 ## How screening works
 
 - Each address is either created in the app (**Add**) or appears on its own when mail arrives for it.
