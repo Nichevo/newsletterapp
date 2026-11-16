@@ -156,6 +156,9 @@ export function StatusPage({ onChanged }: { onChanged: () => void }) {
       )}
       {view && view.services.length > 0 && (
         <>
+          <span className="label" style={{ display: 'block', margin: '6px 16px 0' }}>
+            Services you follow
+          </span>
           <div className={`ssum ssum--${view.open.some((i) => i.level === 'major') ? 'major' : view.open.length ? 'minor' : 'ok'}`}>
             <StatusDot level={view.open.some((i) => i.level === 'major') ? 'major' : view.open.length ? 'minor' : 'ok'} />
             <span>
