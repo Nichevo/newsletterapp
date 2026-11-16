@@ -348,7 +348,12 @@ function failed(job: FetchJob, page: Page): FetchJobResult | null {
   if (page.later) return { jobId: job.id, ok: false, later: page.later, error: 'Waiting for Reddit' };
   if (page.held) return { jobId: job.id, ok: false, blocked: true, error: page.held };
   if (looksBlocked(page.status, page.body)) {
-    return { jobId: job.id, ok: false, blocked: true, error: `The site turned the PC away too (${page.status})` };
+    return {
+      jobId: job.id,
+      ok: false,
+      blocked: true,
+      error: page.status < 400 ? 'The site showed a bot check page instead' : `The site turned the PC away too (${page.status})`,
+    };
   }
   if (page.status >= 400) return { jobId: job.id, ok: false, error: `The site answered ${page.status}` };
   return null;

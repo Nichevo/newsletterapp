@@ -1504,7 +1504,8 @@ export function registerFeeds(app: App) {
             .bind(a.title?.slice(0, 500) ?? null, a.author ?? null, item.id)
             .run();
         }
-      } else if (!r.ok && job.attempts < JOB_MAX_ATTEMPTS && !r.blocked) {
+      } else if (!r.ok && job.attempts < JOB_MAX_ATTEMPTS && !r.blocked && !/\b(404|410)\b/.test(error)) {
+        // (A page that is gone stays gone: no second try.)
         await c.env.DB.prepare("UPDATE fetch_jobs SET status = 'pending', claimed_at = NULL, error = ? WHERE id = ?").bind(error, job.id).run();
         return c.json({ ok: true, retry: true });
       } else if (job.force) {

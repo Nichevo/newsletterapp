@@ -42,6 +42,95 @@ const SILENT_MIN_MS = 3 * DAY;
 /** PC errors in a day before they show as a problem of their own. */
 const HELPER_ERRORS_MIN = 3;
 const LOG_LINES = 12;
+/** Full-article failures from one site in a week before they show. */
+const ARTICLE_FAILS_MIN = 2;
+
+/** Plain advice for a failed check, from what the site answered. */
+export function adviceFor(error: string, kind: string, onPc: boolean): { cause: string; fix: string[]; toPc?: boolean; skip?: boolean } {
+  const e = error.toLowerCase();
+  const article = kind === 'article';
+  if (/leaves? (it )?alone|leave alone list/.test(e)) {
+    return {
+      cause: 'PC is resting from this site',
+      fix: ['Nothing to do: after a bot check the PC gives the site a rest, then tries again by itself.'],
+    };
+  }
+  if (/\b429\b|too many requests/.test(e)) {
+    return {
+      cause: 'Too many requests (429)',
+      fix: [
+        'The site says it is being asked too often. The app already waits longer between tries.',
+        article
+          ? 'If it keeps happening, set Full articles to Never on the source: you still get what the feed holds.'
+          : 'If it keeps happening, open the source and set “Check every” to a longer time, such as once a day.',
+      ],
+    };
+  }
+  if (/bot check|turned (cloudflare|the pc) away|\b403\b|refus/.test(e)) {
+    if (!onPc) {
+      return {
+        cause: 'Refuses Cloudflare (403)',
+        fix: ['Let your PC fetch it instead: tap “Fetch it with my PC”. (The app does this by itself after three refusals in a row.)'],
+        toPc: true,
+      };
+    }
+    return article
+      ? {
+          cause: 'Refuses readers (403)',
+          fix: [
+            'The site blocks automatic readers, so retrying won’t help. The post still comes in with what the feed holds.',
+            'If the feed already has the whole post, set Full articles to Never on the source so the PC stops asking.',
+            'Or add the site to Sites the PC leaves alone and open its articles in your browser.',
+          ],
+          skip: true,
+        }
+      : {
+          cause: 'Refuses readers (403)',
+          fix: [
+            'The site turns your PC away too, so retrying won’t help.',
+            'On the source page use “Change how it’s followed”: the site may have another feed that is allowed.',
+            'If the site looks abandoned, delete the source. Otherwise pause it and read it in your browser.',
+          ],
+        };
+  }
+  if (/\b(404|410)\b|no longer returns a feed|not a feed|not found/.test(e)) {
+    return {
+      cause: 'Address gone (404)',
+      fix: article
+        ? ['The page has moved or was taken down. Nothing to do: the post came in with what its feed holds.']
+        : [
+            'The feed address no longer works: the site moved or closed it.',
+            'On the source page use “Change how it’s followed” to find the site’s feed again.',
+            'If the site has closed, delete the source.',
+          ],
+    };
+  }
+  if (/\b5\d\d\b/.test(e)) {
+    return {
+      cause: 'Site having trouble (5xx)',
+      fix: ['The website itself is broken right now. Nothing to do: the app keeps trying, less often. If it lasts more than a few days, check the site in your browser.'],
+    };
+  }
+  if (/too long|timed? ?out|could not reach|fetch failed|enotfound|econn/.test(e)) {
+    return {
+      cause: 'Site not answering',
+      fix: ['Usually temporary; the app keeps trying. If it lasts days, check the address still opens in your browser.'],
+    };
+  }
+  if (/no article links/.test(e)) {
+    return {
+      cause: 'No articles found on the page',
+      fix: [
+        'On the source page switch on “Needs a browser” if the page is built by JavaScript, then Check now.',
+        'Or fill in “Only links containing” with the part every article address shares, such as /blog/.',
+      ],
+    };
+  }
+  return {
+    cause: 'Check failed',
+    fix: ['Press Check now and read the line under the source’s address. If the same error keeps coming, ask Claude to look at it.'],
+  };
+}
 
 const SUMMARY_KEY = 'problems_summary';
 const HIDDEN_KEY = 'problems_hidden';
@@ -164,7 +253,7 @@ interface HelperState {
  */
 export async function computeProblems(env: Env, withLog: boolean): Promise<AppProblem[]> {
   const t = now();
-  const [helper, hiddenRaw, sources, errors] = await Promise.all([
+  const [helper, hiddenRaw, sources, errors, articles] = await Promise.all([
     readJson<HelperState>(env, 'helper'),
     readJson<Record<string, number>>(env, HIDDEN_KEY),
     // One indexed seek per source for its newest post.
@@ -173,9 +262,22 @@ export async function computeProblems(env: Env, withLog: boolean): Promise<AppPr
          (SELECT MAX(received_at) FROM items INDEXED BY items_source WHERE items.source_id = sources.id) AS last_item_at
        FROM sources WHERE kind IN ('feed', 'site') AND paused_at IS NULL AND NOT (kind = 'site' AND url IS NULL)`,
     ).all<SourceCheckRow>(),
-    env.DB.prepare("SELECT COALESCE(SUM(count), 0) AS n, MIN(at) AS first FROM app_log INDEXED BY app_log_at WHERE at >= ? AND origin = 'pc' AND level = 'error'")
+    env.DB.prepare(
+      `SELECT COALESCE(SUM(count), 0) AS n, MIN(at) AS first,
+         (SELECT message FROM app_log INDEXED BY app_log_at WHERE at >= ?1 AND origin = 'pc' AND level = 'error' ORDER BY at DESC LIMIT 1) AS sample
+       FROM app_log INDEXED BY app_log_at WHERE at >= ?1 AND origin = 'pc' AND level = 'error'`,
+    )
       .bind(t - DAY)
-      .first<{ n: number; first: number | null }>(),
+      .first<{ n: number; first: number | null; sample: string | null }>(),
+    // Sites whose full articles failed at least twice this week.
+    env.DB.prepare(
+      `SELECT site, SUM(count) AS n, MIN(at) AS first, MAX(source_id) AS source_id,
+         (SELECT message FROM app_log AS l2 WHERE l2.site = app_log.site AND l2.area = 'article' ORDER BY at DESC LIMIT 1) AS message
+       FROM app_log INDEXED BY app_log_at WHERE at >= ? AND area = 'article' AND site IS NOT NULL
+       GROUP BY site HAVING SUM(count) >= ${ARTICLE_FAILS_MIN} ORDER BY n DESC LIMIT 15`,
+    )
+      .bind(t - 7 * DAY)
+      .all<{ site: string; n: number; first: number; source_id: string | null; message: string }>(),
   ]);
   const hidden = hiddenRaw ?? {};
   const out: AppProblem[] = [];
@@ -188,10 +290,17 @@ export async function computeProblems(env: Env, withLog: boolean): Promise<AppPr
       ...base,
       key: 'helper_offline',
       kind: 'helper_offline',
+      category: 'pc',
       level: 'major',
       title: 'The PC helper is offline',
-      detail:
-        'Nothing has heard from the helper on your PC. Reddit, website watches, feeds that turn Cloudflare away, full articles and AI summaries all wait until it is back. Check the PC is on and the helper is running.',
+      cause: 'No check-in from your PC',
+      detail: 'Reddit, website watches, full articles and AI summaries wait until it is back. Nothing is lost: they catch up when it returns.',
+      fix: [
+        'Make sure the PC is on and awake (sleep stops the helper).',
+        'Restart the helper: open Task Scheduler on the PC, find “Newsletter helper”, and click Run.',
+        'Still offline after a few minutes? Run install-helper.ps1 again; it puts the helper back without touching its settings.',
+      ],
+      actions: [{ label: 'PC helper settings', to: '/settings/ai' }],
       since: seen,
     });
   }
@@ -200,13 +309,23 @@ export async function computeProblems(env: Env, withLog: boolean): Promise<AppPr
   if (!helperOffline) {
     for (const r of helper?.resting ?? []) {
       if (!r?.site || r.until <= t) continue;
+      const reddit = r.site === 'reddit.com';
       out.push({
         ...base,
         key: `site_resting:${r.site}`,
         kind: 'site_resting',
+        category: 'blocked',
         level: 'minor',
-        title: `${r.site} turned the PC away`,
-        detail: `It answered ${r.why ?? 'with a bot check or "too many requests"'}, so the PC leaves it alone for a while rather than get your home network flagged. Posts and articles from it wait until then.`,
+        title: r.site,
+        cause: /429|too many/i.test(r.why ?? '') ? 'Too many requests' : 'Bot check',
+        detail: `It answered ${r.why ?? 'with a bot check or "too many requests"'}, so the PC is giving it a rest rather than get your home network flagged.`,
+        fix: reddit
+          ? ['Nothing to do: Reddit says how long to wait and the PC waits that long, then carries on with your subreddits.']
+          : [
+              'Nothing to do now: the PC tries again by itself.',
+              'If this site keeps doing it, add it to Sites the PC leaves alone. Its posts still come in from the feed; you read the full article in your browser.',
+            ],
+        actions: reddit ? [] : [{ label: 'Sites the PC leaves alone', to: '/settings/ai/sites' }],
         since: r.until - r.ms,
         site: r.site,
         until: r.until,
@@ -217,16 +336,26 @@ export async function computeProblems(env: Env, withLog: boolean): Promise<AppPr
   for (const s of sources.results) {
     const toPc = s.kind === 'site' || s.fetch_via === 'pc' || isRedditUrl(s.feed_url ?? s.url);
     const lastOk = s.last_ok_at;
+    const page = { label: 'Open source', to: `/source/${s.id}` };
     const common = { ...base, sourceId: s.id, site: siteOfUrl(s.feed_url ?? s.url), lastOkAt: lastOk, lastItemAt: s.last_item_at };
     if (s.error_count >= FAILING_AFTER) {
       const since = lastOk ?? s.created_at;
+      const why = adviceFor(s.last_error ?? '', s.kind, toPc);
       out.push({
         ...common,
         key: `source_failing:${s.id}`,
         kind: 'source_failing',
+        category: 'failing',
         level: t - since > FAILING_MAJOR_MS ? 'major' : 'minor',
-        title: `${s.name} isn't coming through`,
+        title: s.name,
+        cause: why.cause,
         detail: s.last_error ?? 'Its checks keep failing.',
+        fix: why.fix,
+        actions: [
+          page,
+          ...(why.toPc && !toPc ? [{ label: 'Fetch it with my PC', pcSourceId: s.id }] : []),
+          { label: 'Check now', checkSourceId: s.id },
+        ],
         since,
         count: s.error_count,
       });
@@ -240,26 +369,39 @@ export async function computeProblems(env: Env, withLog: boolean): Promise<AppPr
         ...common,
         key: `source_unchecked:${s.id}`,
         kind: 'source_unchecked',
+        category: 'unchecked',
         level: 'minor',
-        title: `${s.name} hasn't been checked lately`,
-        detail: toPc
-          ? 'It is fetched by your PC, and its checks have not come back. The PC may be busy, or the site may keep timing out.'
-          : 'Its checks keep being put off.',
+        title: s.name,
+        cause: toPc ? 'Waiting for your PC' : 'Check keeps being put off',
+        detail: toPc ? 'Your PC fetches this one, and its checks have not come back.' : 'Its checks keep being put off.',
+        fix: toPc
+          ? ['Press Check now. If nothing changes in a few minutes, the PC may be busy with a long queue or the site keeps timing out: the log below says which.']
+          : ['Press Check now. If it still is not checked, tell Claude: this one should not happen.'],
+        actions: [page, { label: 'Check now', checkSourceId: s.id }],
         since: checked || s.created_at,
       });
       continue;
     }
     // Checks work but nothing new: a source that usually posts regularly and has stopped.
     if (lastOk === null || t - lastOk > DAY) continue;
+    const quietFix = [
+      'Open the site in your browser. If it still posts, its feed has probably moved: on the source page use “Change how it’s followed” to pick its feed again.',
+      'If posts are there but never arrive, check the source’s filter and daily limit are not leaving them out.',
+      'If the site has stopped posting, pause or delete the source.',
+    ];
     if (s.last_item_at === null) {
       if (t - s.created_at > SILENT_MIN_MS) {
         out.push({
           ...common,
           key: `source_silent:${s.id}`,
           kind: 'source_silent',
+          category: 'quiet',
           level: 'minor',
-          title: `${s.name} hasn't brought in any posts`,
-          detail: 'Its checks work, but nothing new has come in since you added it. Its filter or daily limit may be leaving everything out, or the address may be an old one.',
+          title: s.name,
+          cause: 'Nothing since you added it',
+          detail: 'Its checks work, but no post has come in since you added it.',
+          fix: quietFix,
+          actions: [page],
           since: s.created_at,
         });
       }
@@ -269,27 +411,67 @@ export async function computeProblems(env: Env, withLog: boolean): Promise<AppPr
     if (!r?.pattern || !r.gapHours || r.posts < 6) continue;
     const quietFor = Math.max(r.gapHours * HOUR * SILENT_GAPS, SILENT_MIN_MS);
     if (t - s.last_item_at > quietFor) {
+      const usual = r.gapHours < 36 ? `${Math.round(r.gapHours)} hours` : `${Math.round(r.gapHours / 24)} days`;
       out.push({
         ...common,
         key: `source_silent:${s.id}`,
         kind: 'source_silent',
+        category: 'quiet',
         level: 'minor',
-        title: `${s.name} has gone quiet`,
-        detail: `It usually posts every ${r.gapHours < 36 ? `${Math.round(r.gapHours)} hours` : `${Math.round(r.gapHours / 24)} days`}, and its checks work, but nothing new has come in. The feed may have moved, or the site stopped posting.`,
+        title: s.name,
+        cause: `Usually every ${usual}`,
+        detail: `It usually posts every ${usual}, and its checks work, but nothing new has come in.`,
+        fix: quietFix,
+        actions: [page],
         since: s.last_item_at,
         count: r.gapHours,
       });
     }
   }
 
+  // Full articles the PC could not fetch, by site, over the last week (the posts came in anyway).
+  for (const a of articles.results) {
+    if (!a.site) continue;
+    const why = adviceFor(a.message, 'article', true);
+    out.push({
+      ...base,
+      key: `article_failures:${a.site}`,
+      kind: 'article_failures',
+      category: 'articles',
+      level: 'minor',
+      title: a.site,
+      cause: why.cause,
+      detail: `${a.n} full article${a.n === 1 ? '' : 's'} from this site could not be fetched this week. Last: ${a.message.replace(/^article \S+: /, '')}`,
+      fix: why.fix,
+      actions: [
+        ...(a.source_id ? [{ label: 'Open source', to: `/source/${a.source_id}` }] : []),
+        ...(why.skip ? [{ label: 'Sites the PC leaves alone', to: '/settings/ai/sites' }] : []),
+      ],
+      since: a.first,
+      sourceId: a.source_id,
+      site: a.site,
+      count: a.n,
+    });
+  }
+
   if ((errors?.n ?? 0) >= HELPER_ERRORS_MIN && !helperOffline) {
+    const ai = /model|JSON|summary/i.test(errors?.sample ?? '');
     out.push({
       ...base,
       key: 'helper_errors',
       kind: 'helper_errors',
+      category: 'pc',
       level: 'minor',
-      title: `The PC helper reported ${errors!.n} errors today`,
-      detail: 'Errors from the helper on your PC in the last 24 hours. Open the log for what each one said.',
+      title: `${errors!.n} errors in the last day`,
+      cause: ai ? 'Mostly AI answers' : 'Helper errors',
+      detail: `Latest: ${errors?.sample ?? ''}`,
+      fix: ai
+        ? [
+            'A model on your PC sometimes gives an answer the app can’t read. The item is tried again, so one-offs need nothing.',
+            'If the same model keeps failing, switch it off or move it down the list in PC helper and AI.',
+          ]
+        : ['Most of these fix themselves on the next round. If the same line keeps repeating, the log below shows it: ask Claude to look.'],
+      actions: [{ label: 'PC helper and AI', to: '/settings/ai' }],
       since: errors!.first,
     });
   }
@@ -306,7 +488,9 @@ export async function computeProblems(env: Env, withLog: boolean): Promise<AppPr
     await Promise.all(
       out.slice(0, 40).map(async (p) => {
         const stmt =
-          p.kind === 'helper_errors'
+          p.kind === 'article_failures'
+            ? env.DB.prepare(`SELECT * FROM app_log INDEXED BY app_log_site WHERE site = ? AND area = 'article' ORDER BY at DESC LIMIT ${LOG_LINES}`).bind(p.site)
+            : p.kind === 'helper_errors'
             ? env.DB.prepare(`SELECT * FROM app_log INDEXED BY app_log_at WHERE at >= ? AND origin = 'pc' AND level = 'error' ORDER BY at DESC LIMIT ${LOG_LINES}`).bind(t - DAY)
             : p.kind === 'helper_offline'
               ? env.DB.prepare(`SELECT * FROM app_log INDEXED BY app_log_at WHERE origin = 'pc' ORDER BY at DESC LIMIT ${LOG_LINES}`)
@@ -322,13 +506,23 @@ export async function computeProblems(env: Env, withLog: boolean): Promise<AppPr
   return out;
 }
 
+function bannerTitle(p: AppProblem): string {
+  if (p.kind === 'source_failing') return `${p.title} isn't coming through`;
+  if (p.kind === 'source_silent') return `${p.title} has gone quiet`;
+  if (p.kind === 'source_unchecked') return `${p.title} hasn't been checked lately`;
+  if (p.kind === 'site_resting') return `${p.title} turned the PC away`;
+  if (p.kind === 'article_failures') return `Full articles from ${p.title} failing`;
+  if (p.kind === 'helper_errors') return `PC helper: ${p.title}`;
+  return p.title;
+}
+
 function summarise(problems: AppProblem[]): ProblemsSummary {
   const shown = problems.filter((p) => !p.hidden);
   const top = shown[0];
   return {
     open: shown.length,
     level: shown.length === 0 ? 'ok' : shown.some((p) => p.level === 'major') ? 'major' : 'minor',
-    top: top ? { title: top.title, detail: top.detail.slice(0, 200) } : null,
+    top: top ? { title: bannerTitle(top), detail: top.cause } : null,
     checkedAt: now(),
   };
 }
