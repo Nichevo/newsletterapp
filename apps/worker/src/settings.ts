@@ -25,6 +25,14 @@ import {
   PDF_PAGES_CHOICES,
   LIKELY_SHARE_CHOICES,
   STORY_DAYS_CHOICES,
+  LONG_SWIPE_DEFAULT,
+  LONG_SWIPE_MAX,
+  LONG_SWIPE_MIN,
+  SHORT_SWIPE_DEFAULT,
+  SHORT_SWIPE_MAX,
+  SHORT_SWIPE_MIN,
+  SWIPE_GAP,
+  type SwipeDistances,
 } from '@newsletterapp/shared';
 import type { Env } from './env';
 import { now } from './ids';
@@ -176,7 +184,21 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     saveSenders,
     tuning,
     adverts: input.adverts === 'move' || input.adverts === 'label' || input.adverts === 'off' ? input.adverts : (base.adverts ?? 'move'),
+    swipe: input.swipe === undefined ? (base.swipe ?? null) : normalizeSwipe(input.swipe),
   };
+}
+
+/** Swipe distances from untrusted input: whole px inside the slider ranges, long at least SWIPE_GAP past short; null = defaults. */
+export function normalizeSwipe(input: unknown): SwipeDistances | null {
+  if (!input || typeof input !== 'object') return null;
+  const r = input as Partial<SwipeDistances>;
+  const clamp = (v: unknown, lo: number, hi: number, fallback: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.round(Math.min(hi, Math.max(lo, n))) : fallback;
+  };
+  const shortPx = clamp(r.shortPx, SHORT_SWIPE_MIN, SHORT_SWIPE_MAX, SHORT_SWIPE_DEFAULT);
+  const longPx = Math.max(clamp(r.longPx, LONG_SWIPE_MIN, LONG_SWIPE_MAX, LONG_SWIPE_DEFAULT), shortPx + SWIPE_GAP);
+  return { shortPx, longPx };
 }
 
 /** The value if it is one of the choices, else the fallback. */

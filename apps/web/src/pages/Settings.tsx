@@ -1,6 +1,6 @@
 import { keysShown } from '../keySentences';
 import { AI_MAX_CHARS_CHOICES, PDF_PAGES_CHOICES, STORY_DAYS_CHOICES, MAX_REVIEW_SEARCHES, REVIEW_CHART_WEEKS, REVIEW_PARTS, type AppSettings, type Me, type ReviewKind, type ReviewQuality, type ReviewSettings, type Source, type SummaryKind } from '@newsletterapp/shared';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import {
@@ -500,6 +500,18 @@ function ReadingSection() {
   const [swipeRead, setSwipeRead] = useState<SwipeReadSide>(getSwipeReadSide());
   const [shortPx, setShortPx] = useState(getShortSwipePx());
   const [longPx, setLongPx] = useState(getLongSwipePx());
+  const swipeSave = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Keeps the distances on this device straight away, and with the account once the slider rests. */
+  function keepSwipe(shortNext: number, longNext: number) {
+    setShortPx(shortNext);
+    setLongPx(longNext);
+    setShortSwipePx(shortNext);
+    setLongSwipePx(longNext);
+    if (swipeSave.current) clearTimeout(swipeSave.current);
+    swipeSave.current = setTimeout(() => {
+      void api.saveSettings({ swipe: { shortPx: shortNext, longPx: longNext } }).catch(() => undefined);
+    }, 600);
+  }
   const [notesPlace, setNotesPlaceState] = useState<NotesPlace>(getNotesPlace());
   const density = useDensity();
   const opts = useViewOptions();
@@ -642,17 +654,12 @@ function ReadingSection() {
             type="range"
             min={SHORT_SWIPE_MIN}
             max={SHORT_SWIPE_MAX}
-            step={5}
+            step={1}
             value={shortPx}
             onChange={(e) => {
               const px = Number(e.target.value);
-              setShortPx(px);
-              setShortSwipePx(px);
               // The long swipe stays a little further out than the short one.
-              if (longPx < px + SWIPE_GAP) {
-                setLongPx(px + SWIPE_GAP);
-                setLongSwipePx(px + SWIPE_GAP);
-              }
+              keepSwipe(px, Math.max(longPx, px + SWIPE_GAP));
             }}
           />
           <span className="hint">How far you pull before a swipe counts: Mark read on the read side, Save on the other.</span>
@@ -666,28 +673,19 @@ function ReadingSection() {
             type="range"
             min={Math.max(LONG_SWIPE_MIN, shortPx + SWIPE_GAP)}
             max={LONG_SWIPE_MAX}
-            step={5}
+            step={1}
             value={longPx}
-            onChange={(e) => {
-              const px = Math.max(Number(e.target.value), shortPx + SWIPE_GAP);
-              setLongPx(px);
-              setLongSwipePx(px);
-            }}
+            onChange={(e) => keepSwipe(shortPx, Math.max(Number(e.target.value), shortPx + SWIPE_GAP))}
           />
           <span className="hint">
             How far you pull before it switches to Not interested (read side) or Star and read (save side). Always at least {SWIPE_GAP} px past the swipe
-            distance. Both are kept on this device.
+            distance. Both are saved with your account, so every browser and device uses them.
             {(longPx !== LONG_SWIPE_DEFAULT || shortPx !== SHORT_SWIPE_DEFAULT) && (
               <>
                 {' '}
                 <button
                   className="linkbtn"
-                  onClick={() => {
-                    setShortPx(SHORT_SWIPE_DEFAULT);
-                    setShortSwipePx(SHORT_SWIPE_DEFAULT);
-                    setLongPx(LONG_SWIPE_DEFAULT);
-                    setLongSwipePx(LONG_SWIPE_DEFAULT);
-                  }}
+                  onClick={() => keepSwipe(SHORT_SWIPE_DEFAULT, LONG_SWIPE_DEFAULT)}
                 >
                   Back to {SHORT_SWIPE_DEFAULT} / {LONG_SWIPE_DEFAULT} px
                 </button>

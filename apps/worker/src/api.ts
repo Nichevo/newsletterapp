@@ -102,6 +102,7 @@ app.get('/api/me', async (c) => {
     reviewsOn: settings.reviews.weekly || settings.reviews.monthly,
     groupSameNews: settings.stories.groupSameNews,
     keySentencesOn: (await loadKeySettings(c.env)).enabled,
+    swipe: settings.swipe ?? null,
   };
   return c.json(me);
 });

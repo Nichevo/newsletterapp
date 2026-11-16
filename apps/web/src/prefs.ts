@@ -2,6 +2,17 @@
 // sponsored sections are hidden, and which newsletters may load images.
 // Storage can be missing (private browsing), so every access is guarded.
 
+import {
+  LONG_SWIPE_DEFAULT,
+  LONG_SWIPE_MAX,
+  LONG_SWIPE_MIN,
+  SHORT_SWIPE_DEFAULT,
+  SHORT_SWIPE_MAX,
+  SHORT_SWIPE_MIN,
+  SWIPE_GAP,
+  type SwipeDistances,
+} from '@newsletterapp/shared';
+
 export type TextSize = 'small' | 'medium' | 'large' | 'xlarge';
 
 export const TEXT_SIZES: { id: TextSize; label: string; px: number }[] = [
@@ -61,12 +72,10 @@ export function setSwipeReadSide(side: SwipeReadSide) {
   write('inbox:swipeReadSide', side);
 }
 
-/** How far (px) a pull goes before a swipe counts at all (mark read / save), on this device. */
-export const SHORT_SWIPE_MIN = 40;
-export const SHORT_SWIPE_MAX = 160;
-export const SHORT_SWIPE_DEFAULT = 88;
-/** The long swipe always sits at least this far past the short one. */
-export const SWIPE_GAP = 25;
+// Swipe distances (Settings > Reading). Kept on this device for the inbox to
+// read on every pull, and saved with the account too, so a browser that clears
+// its storage, or another browser on the phone, gets them back at app start.
+export { SHORT_SWIPE_MIN, SHORT_SWIPE_MAX, SHORT_SWIPE_DEFAULT, LONG_SWIPE_MIN, LONG_SWIPE_MAX, LONG_SWIPE_DEFAULT, SWIPE_GAP };
 
 export function getShortSwipePx(): number {
   const n = Number(read('inbox:shortSwipePx'));
@@ -77,11 +86,6 @@ export function setShortSwipePx(px: number) {
   write('inbox:shortSwipePx', String(Math.round(Math.min(SHORT_SWIPE_MAX, Math.max(SHORT_SWIPE_MIN, px)))));
 }
 
-/** How far (px) a pull goes before it switches to the long swipe (Not interested / star and read), on this device. */
-export const LONG_SWIPE_MIN = 65;
-export const LONG_SWIPE_MAX = 260;
-export const LONG_SWIPE_DEFAULT = 130;
-
 export function getLongSwipePx(): number {
   const n = Number(read('inbox:longSwipePx'));
   const long = read('inbox:longSwipePx') !== null && Number.isFinite(n) && n >= LONG_SWIPE_MIN && n <= LONG_SWIPE_MAX ? n : LONG_SWIPE_DEFAULT;
@@ -90,6 +94,13 @@ export function getLongSwipePx(): number {
 
 export function setLongSwipePx(px: number) {
   write('inbox:longSwipePx', String(Math.round(Math.min(LONG_SWIPE_MAX, Math.max(LONG_SWIPE_MIN, px)))));
+}
+
+/** Takes the distances saved with the account (from /api/me) onto this device. */
+export function adoptSwipeDistances(saved: SwipeDistances | null | undefined) {
+  if (!saved) return;
+  setShortSwipePx(saved.shortPx);
+  setLongSwipePx(saved.longPx);
 }
 
 /** Reading speed for the minutes shown on items, on this device. */
