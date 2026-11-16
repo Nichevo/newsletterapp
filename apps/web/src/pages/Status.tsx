@@ -1,9 +1,10 @@
-import type { ServiceState, StatusIncident, StatusIncidentPage, StatusSummary, StatusView } from '@newsletterapp/shared';
+import type { ProblemsSummary, ServiceState, StatusIncident, StatusIncidentPage, StatusSummary, StatusView } from '@newsletterapp/shared';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { longDate, relativeTime } from '../format';
 import { IconBack, IconExternal, IconRefresh, IconSettings } from '../icons';
+import { AppProblemsSection } from './AppLog';
 
 // System status: the service status pages the Worker checks (Settings > System
 // status), as one card per open incident, a dot per service, and what was fixed
@@ -15,10 +16,18 @@ export function StatusDot({ level }: { level: DotLevel }) {
   return <span className={`sdot sdot--${level}`} aria-hidden="true" />;
 }
 
-export function statusButtonLabel(s: StatusSummary): string {
-  if (s.level === 'ok') return 'System status: all fine';
-  if (s.level === 'off') return 'System status';
-  return `System status: ${s.open} problem${s.open === 1 ? '' : 's'} now`;
+export function statusButtonLabel(s: StatusSummary, p?: ProblemsSummary): string {
+  const app = p && p.open > 0 ? ` · ${p.open} app problem${p.open === 1 ? '' : 's'}` : '';
+  if (s.level === 'ok') return `System status: services fine${app}`;
+  if (s.level === 'off') return `System status${app}`;
+  return `System status: ${s.open} problem${s.open === 1 ? '' : 's'} now${app}`;
+}
+
+/** The Status button's dot: the worse of the services' state and the app's own problems. */
+export function statusButtonLevel(s: StatusSummary, p: ProblemsSummary): DotLevel {
+  const rank = (l: string) => (l === 'major' ? 3 : l === 'minor' ? 2 : l === 'ok' ? 1 : 0);
+  const app = p.open > 0 ? p.level : 'ok';
+  return rank(app) > rank(s.level) ? app : s.level;
 }
 
 function clock(ms: number): string {
@@ -133,6 +142,7 @@ export function StatusPage({ onChanged }: { onChanged: () => void }) {
         </div>
       </header>
       {error && <div className="error">{error}</div>}
+      <AppProblemsSection onChanged={onChanged} />
       {!view && !error && <div className="spinner">Loading…</div>}
       {view && view.services.length === 0 && (
         <div className="section">
@@ -146,6 +156,9 @@ export function StatusPage({ onChanged }: { onChanged: () => void }) {
       )}
       {view && view.services.length > 0 && (
         <>
+          <span className="label" style={{ display: 'block', margin: '6px 16px 0' }}>
+            Services you follow
+          </span>
           <div className={`ssum ssum--${view.open.some((i) => i.level === 'major') ? 'major' : view.open.length ? 'minor' : 'ok'}`}>
             <StatusDot level={view.open.some((i) => i.level === 'major') ? 'major' : view.open.length ? 'minor' : 'ok'} />
             <span>

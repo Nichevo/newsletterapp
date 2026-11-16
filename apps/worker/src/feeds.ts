@@ -42,6 +42,7 @@ import {
   normalizePostFilter,
   passesPostFilter,
   isRedditPost,
+  isRedditUrl,
   isVideoPost,
   platformOf,
 } from '@newsletterapp/shared';
@@ -54,6 +55,7 @@ import { newId, now } from './ids';
 import { categoryFromRules, quickSummary } from './quick';
 import { loadSettings } from './settings';
 import { nextCheckAt, refreshRhythm, rhythmStale } from './rhythm';
+import { logLine, siteOfUrl } from './problems';
 
 // Phase 3: RSS/Atom/JSON feeds and website watches.
 //
@@ -415,9 +417,26 @@ async function recordOk(env: Env, source: SourceRow, f: { etag?: string | null; 
     .run();
 }
 
-async function recordFailure(env: Env, source: SourceRow, error: string, blocked: boolean) {
+/**
+ * Reddit turns Cloudflare away most of the time (403s and 429s, with the odd
+ * success in between, so a feed never failed three times in a row and just went
+ * quiet). Its feeds are always fetched by the PC, at the pace Reddit asks for.
+ */
+const pcOnly = (s: Pick<SourceRow, 'kind' | 'fetch_via' | 'feed_url' | 'url'>) =>
+  s.kind === 'site' || s.fetch_via === 'pc' || isRedditUrl(s.feed_url ?? s.url);
+
+async function recordFailure(env: Env, source: SourceRow, error: string, blocked: boolean, origin: 'pc' | 'cloud' = 'cloud') {
   const t = now();
   const errors = source.error_count + 1;
+  // Every failed check goes in the app's log, behind the source's problem on System status.
+  await logLine(env, {
+    origin,
+    level: 'warn',
+    area: source.kind === 'site' ? 'page' : 'feed',
+    site: siteOfUrl(source.feed_url ?? source.url),
+    sourceId: source.id,
+    message: `${source.name}: ${error}${errors > 1 ? ` (${errors} checks in a row)` : ''}`,
+  });
   if (blocked && source.fetch_via === 'cloud' && errors >= BLOCKED_TO_PC) {
     await env.DB.prepare(
       "UPDATE sources SET fetch_via = 'pc', last_checked_at = ?, next_check_at = ?, last_error = ?, error_count = 0 WHERE id = ?",
@@ -498,13 +517,13 @@ export async function runFeedChecks(env: Env, budget = CLOUD_BUDGET): Promise<{ 
   )
     .bind(t)
     .all<SourceRow>();
-  const online = due.results.length > budget || due.results.some((s) => s.kind === 'site' || s.fetch_via === 'pc') ? await helperOnline(env) : false;
+  const online = due.results.length > budget || due.results.some(pcOnly) ? await helperOnline(env) : false;
   const forCloud: SourceRow[] = [];
   let queued = 0;
   for (const s of due.results) {
-    const pcOnly = s.kind === 'site' || s.fetch_via === 'pc';
-    if (!pcOnly && forCloud.length < budget) forCloud.push(s);
-    else if (pcOnly || online) {
+    const toPc = pcOnly(s);
+    if (!toPc && forCloud.length < budget) forCloud.push(s);
+    else if (toPc || online) {
       await queueSourceForPc(env, s);
       queued += 1;
     }
@@ -537,9 +556,9 @@ export async function runFeedChecks(env: Env, budget = CLOUD_BUDGET): Promise<{ 
 /** Jobs the helper should pick up, for its heartbeat. */
 export async function fetchJobsWaiting(env: Env): Promise<number> {
   const row = await env.DB.prepare(
-    "SELECT COUNT(*) AS n FROM fetch_jobs WHERE status = 'pending' OR (status = 'working' AND claimed_at < ?)",
+    "SELECT COUNT(*) AS n FROM fetch_jobs WHERE (status = 'pending' AND (not_before IS NULL OR not_before <= ?2)) OR (status = 'working' AND claimed_at < ?1)",
   )
-    .bind(now() - JOB_LEASE_MS)
+    .bind(now() - JOB_LEASE_MS, now())
     .first<{ n: number }>();
   return row?.n ?? 0;
 }
@@ -756,7 +775,7 @@ async function sourceView(env: Env, id: string) {
 
 /** Checks a source now: Cloudflare fetches a cloud feed in place, anything else is queued for the PC. */
 async function checkNow(env: Env, source: SourceRow): Promise<{ added: number; waitingForPc: boolean }> {
-  if (source.kind === 'feed' && source.fetch_via === 'cloud') return { added: await checkCloudFeed(env, source), waitingForPc: false };
+  if (source.kind === 'feed' && !pcOnly(source)) return { added: await checkCloudFeed(env, source), waitingForPc: false };
   await queueSourceForPc(env, source);
   return { added: 0, waitingForPc: true };
 }
@@ -1123,7 +1142,7 @@ export function registerFeeds(app: App) {
     const t = now();
     const name = input.name?.trim().slice(0, 200) || new URL(url).hostname.replace(/^www\./, '');
     // Website watches always run on the PC: finding and extracting articles is too heavy for the free plan.
-    const fetchVia = input.kind === 'site' || input.fetchVia === 'pc' ? 'pc' : 'cloud';
+    const fetchVia = input.kind === 'site' || input.fetchVia === 'pc' || isRedditUrl(feedUrl) ? 'pc' : 'cloud';
     await c.env.DB.prepare(
       `INSERT INTO sources (id, kind, name, url, feed_url, fetch_via, render, link_hint, category, created_at, next_check_at, start_count,
          post_filter, daily_cap, wait_hours)
@@ -1342,7 +1361,7 @@ export function registerFeeds(app: App) {
     const claimed = await c.env.DB.prepare(
       `UPDATE fetch_jobs SET status = 'working', claimed_at = ?1, attempts = attempts + 1
        WHERE id IN (
-         SELECT id FROM fetch_jobs WHERE status = 'pending' OR (status = 'working' AND claimed_at < ?2)
+         SELECT id FROM fetch_jobs WHERE (status = 'pending' AND (not_before IS NULL OR not_before <= ?1)) OR (status = 'working' AND claimed_at < ?2)
          ORDER BY kind = 'article', created_at LIMIT ?3
        )
        RETURNING id, kind, source_id, item_id, url, force`,
@@ -1405,6 +1424,15 @@ export function registerFeeds(app: App) {
       url: string;
     }>();
     if (!job) return c.json({ error: 'not found' }, 404);
+    // Put back on purpose (the site asked the PC to slow down): waits, without counting as a try.
+    if (!r.ok && typeof r.later === 'number' && r.later > now()) {
+      await c.env.DB.prepare(
+        "UPDATE fetch_jobs SET status = 'pending', claimed_at = NULL, attempts = MAX(attempts - 1, 0), not_before = ? WHERE id = ?",
+      )
+        .bind(Math.min(r.later, now() + 6 * 3_600_000), job.id)
+        .run();
+      return c.json({ ok: true, later: true });
+    }
     // Reddit: the PC sends only the top comments, which go under the post from the feed.
     const comments = isRedditPost(job.url);
     const source = job.source_id ? await loadSourceRow(c.env, job.source_id) : null;
@@ -1507,7 +1535,7 @@ export function registerFeeds(app: App) {
 
     let added = 0;
     if (source) {
-      if (!r.ok) await recordFailure(c.env, source, error, Boolean(r.blocked));
+      if (!r.ok) await recordFailure(c.env, source, error, Boolean(r.blocked), 'pc');
       else {
         if (!r.notModified) added = await storeEntries(c.env, source, (r.entries ?? []).slice(0, 60), (r.seenKeys ?? []).slice(0, 500));
         await recordOk(c.env, source, { etag: r.etag, lastModified: r.lastModified }, added);

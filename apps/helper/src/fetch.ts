@@ -34,7 +34,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { dataDir, type LocalConfig } from './config';
-import { log } from './log';
+import { log, report } from './log';
 
 // Fetches the app hands to the PC: feeds and websites that turn Cloudflare
 // away, website watches (find new article links on a page, then pull each
@@ -55,6 +55,8 @@ export interface Page {
   lastModified: string | null;
   /** Set when the page was not fetched at all: why the PC is leaving the site alone. */
   held?: string;
+  /** Set when the site asked the PC to wait (Reddit's request limit): try again after this time. */
+  later?: number;
   /** Set when the link was a file (a PDF, a picture, a Word file), which body is then empty for. */
   file?: { kind: FileKind; type: string | null; bytes: Uint8Array | null };
 }
@@ -133,7 +135,7 @@ const REST_FIRST_MS = 3 * 3_600_000;
 const REST_MAX_MS = 24 * 3_600_000;
 
 const nextTurn = new Map<string, number>();
-const resting = new Map<string, { until: number; ms: number }>();
+const resting = new Map<string, { until: number; ms: number; why?: string }>();
 
 /** Sites on the app's "leave alone" list, from the last heartbeat (fetch jobs bring their own). */
 let appSkipSites: string[] | null = null;
@@ -159,9 +161,13 @@ function count(site: string, add: Partial<Omit<PcHoldCount, 'site'>>): void {
 /** What to send with the heartbeat. Call holdsSent() once the app has them. */
 export function holdReport(): { holds: PcHoldCount[]; resting: PcRest[] } {
   const t = Date.now();
+  const reddit = redditRest();
   return {
     holds: [...holds.values()],
-    resting: [...resting].filter(([, r]) => r.until > t).map(([site, r]) => ({ site, until: r.until, ms: r.ms })),
+    resting: [
+      ...[...resting].filter(([, r]) => r.until > t).map(([site, r]) => ({ site, until: r.until, ms: r.ms, why: r.why })),
+      ...(reddit ? [reddit] : []),
+    ],
   };
 }
 export function holdsSent(sent: PcHoldCount[]): void {
@@ -203,7 +209,7 @@ function holdOff(url: string, skip: string[] | undefined): string | null {
   return null;
 }
 
-function noteAnswer(url: string, blocked: boolean): void {
+function noteAnswer(url: string, blocked: boolean, status?: number): void {
   const site = siteOf(url);
   if (!site) return;
   if (!blocked) {
@@ -211,9 +217,58 @@ function noteAnswer(url: string, blocked: boolean): void {
     return;
   }
   const ms = Math.min((resting.get(site)?.ms ?? REST_FIRST_MS / 2) * 2, REST_MAX_MS);
-  resting.set(site, { until: Date.now() + ms, ms });
+  const why = status === 429 ? '429 too many requests' : status && status !== 200 ? `${status} with a bot check page` : 'with a bot check page';
+  resting.set(site, { until: Date.now() + ms, ms, why });
   count(site, { flagged: 1, restMs: ms });
-  log(`${site} turned the PC away (bot check or block); leaving it alone for ${Math.round(ms / 3_600_000)}h`);
+  report('warn', 'fetch', `${site} turned the PC away (${why}); leaving it alone for ${Math.round(ms / 3_600_000)}h`, { site });
+}
+
+// ---------- Reddit, at the pace it asks for ----------
+// Reddit lets a reader that isn't signed in make about one request a minute from
+// a home network, and says so in its answers (x-ratelimit-remaining and
+// x-ratelimit-reset). Asking faster gets "429 too many requests", and Cloudflare is
+// turned away altogether. So the PC fetches every Reddit feed, names itself
+// honestly (Reddit's rules ask for a descriptive User-Agent, not a browser's),
+// and waits as long as Reddit says before asking again. A job that comes up too
+// soon goes back in the app's queue until then, rather than holding the PC up.
+
+const REDDIT_UA = `windows:newsletterapp-helper:${HELPER_VERSION} (personal reader)`;
+/** Gap between Reddit requests when Reddit says there is room for more. */
+const REDDIT_GAP_MS = 5_000;
+/** Waits up to this long in place; longer and the job goes back in the queue. */
+const REDDIT_WAIT_IN_PLACE_MS = 10_000;
+/** After a 429 or 403 with no reset time given: 2 minutes, doubling up to an hour. */
+const REDDIT_BACKOFF_FIRST_MS = 2 * 60_000;
+const REDDIT_BACKOFF_MAX_MS = 60 * 60_000;
+
+let redditReadyAt = 0;
+let redditBackoff = 0;
+
+const isReddit = (url: string) => /^https?:\/\/([\w-]+\.)?(reddit\.com|redd\.it)(\/|$)/i.test(url);
+
+/** What Reddit's answer says about the next request. */
+function noteReddit(status: number, headers: Headers | null): void {
+  const t = Date.now();
+  const remaining = Number(headers?.get('x-ratelimit-remaining') ?? NaN);
+  const reset = Number(headers?.get('x-ratelimit-reset') ?? NaN);
+  const resetMs = Number.isFinite(reset) && reset >= 0 ? reset * 1000 + 1_000 : null;
+  if (status === 429 || status === 403) {
+    redditBackoff = resetMs && status === 429 ? resetMs : Math.min(Math.max(redditBackoff * 2, REDDIT_BACKOFF_FIRST_MS), REDDIT_BACKOFF_MAX_MS);
+    redditReadyAt = t + redditBackoff;
+    const why = status === 429 ? '429 too many requests' : '403 refused';
+    report('warn', 'reddit', `Reddit answered ${why}; the PC waits ${Math.round(redditBackoff / 60_000) || 1} min before asking again`, { site: 'reddit.com' });
+    count('reddit.com', { flagged: 1, restMs: redditBackoff });
+    return;
+  }
+  redditBackoff = 0;
+  redditReadyAt = t + (Number.isFinite(remaining) && remaining < 1 && resetMs !== null ? Math.max(resetMs, REDDIT_GAP_MS) : REDDIT_GAP_MS);
+}
+
+/** When Reddit is ready for the next request (for the app's "resting" list while it is a long way off). */
+export function redditRest(): PcRest | null {
+  return redditBackoff > 0 && redditReadyAt > Date.now()
+    ? { site: 'reddit.com', until: redditReadyAt, ms: redditBackoff, why: 'too many requests (Reddit\'s own limit)' }
+    : null;
 }
 
 /** A page that was never fetched, because the PC is leaving that site alone. */
@@ -225,6 +280,7 @@ export async function get(
   opts: { render?: boolean; etag?: string | null; lastModified?: string | null; skip?: string[]; files?: boolean } = {},
 ): Promise<Page> {
   const fromApp = Object.keys(appHeaders(url, cfg)).length > 0;
+  if (!fromApp && isReddit(url)) return getReddit(url, opts);
   const why = fromApp ? null : holdOff(url, opts.skip);
   if (why) return heldOff(url, why);
   if (!fromApp) await waitTurn(url);
@@ -259,12 +315,37 @@ export async function get(
   if (fromApp) return page;
   // A plain 403 is often just "no programs here"; a 429 or a bot-check page is the network being flagged.
   const flagged = page.status === 429 || (page.status !== 403 && page.status !== 304 && looksBlocked(page.status, page.body));
-  noteAnswer(url, flagged);
-  if (page.url !== url && siteOf(page.url) !== siteOf(url)) noteAnswer(page.url, flagged);
+  noteAnswer(url, flagged, page.status);
+  if (page.url !== url && siteOf(page.url) !== siteOf(url)) noteAnswer(page.url, flagged, page.status);
   return page;
 }
 
+/** A Reddit address: never in a browser, always with the honest name, at Reddit's pace. */
+async function getReddit(url: string, opts: { etag?: string | null; lastModified?: string | null }): Promise<Page> {
+  const wait = redditReadyAt - Date.now();
+  if (wait > REDDIT_WAIT_IN_PLACE_MS) return { status: 429, url, body: '', etag: null, lastModified: null, later: redditReadyAt };
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  const u = new URL(url);
+  // Every-new-post feeds of busy subreddits: more posts per request, so none slip past between checks.
+  if (/\/new\/?\.rss$/i.test(u.pathname) && !u.searchParams.has('limit')) u.searchParams.set('limit', '60');
+  const headers: Record<string, string> = { ...FETCH_HEADERS, 'User-Agent': REDDIT_UA };
+  if (opts.etag) headers['If-None-Match'] = opts.etag;
+  if (opts.lastModified) headers['If-Modified-Since'] = opts.lastModified;
+  // Taken before the request, so two jobs never ask at once.
+  redditReadyAt = Date.now() + REDDIT_GAP_MS;
+  try {
+    const res = await fetch(u.toString(), { headers, redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+    noteReddit(res.status, res.headers);
+    const body = res.status === 304 ? '' : await res.text();
+    return { status: res.status, url: res.url || url, body, etag: res.headers.get('etag'), lastModified: res.headers.get('last-modified') };
+  } catch (err) {
+    noteReddit(0, null);
+    throw err;
+  }
+}
+
 function failed(job: FetchJob, page: Page): FetchJobResult | null {
+  if (page.later) return { jobId: job.id, ok: false, later: page.later, error: 'Waiting for Reddit' };
   if (page.held) return { jobId: job.id, ok: false, blocked: true, error: page.held };
   if (looksBlocked(page.status, page.body)) {
     return { jobId: job.id, ok: false, blocked: true, error: `The site turned the PC away too (${page.status})` };
@@ -373,11 +454,11 @@ async function headlineOf(url: string, skip: string[] | undefined): Promise<stri
   try {
     await waitTurn(url);
     const res = await fetch(url, { headers: FETCH_HEADERS, redirect: 'follow', signal: AbortSignal.timeout(8_000) });
-    if (res.status === 429) noteAnswer(url, true);
+    if (res.status === 429) noteAnswer(url, true, 429);
     if (!res.ok || !(res.headers.get('content-type') ?? '').includes('html')) return '';
     const head = (await res.text()).slice(0, 300_000);
     if (looksBlocked(res.status, head)) {
-      noteAnswer(url, true);
+      noteAnswer(url, true, res.status);
       return '';
     }
     const og = /<meta[^>]+property\s*=\s*["']og:title["'][^>]*>/i.exec(head)?.[0];
@@ -429,18 +510,6 @@ async function addStoryLinks(article: Article, postUrl: string, seen: string[], 
   }
 }
 
-interface RedditThing {
-  kind: string;
-  data: {
-    author?: string;
-    score?: number;
-    body?: string;
-    body_html?: string;
-    stickied?: boolean;
-    children?: RedditThing[];
-  };
-}
-
 interface RedditComment {
   author: string;
   score: number | null;
@@ -452,136 +521,46 @@ const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 /** Top comments added to a Reddit post: the source's setting, for the job in hand. */
 let TOP_COMMENTS = 8;
 
-/**
- * Reddit turns away programs that pretend to be a browser more often than ones
- * that say who they are (its own rules ask for a descriptive name), so that goes first.
- */
-const REDDIT_UA = `windows:newsletterapp-helper:${HELPER_VERSION} (personal reader)`;
-const REDDIT_AGENTS = [REDDIT_UA, FETCH_HEADERS['User-Agent']!];
-
-/** Why the last Reddit attempts failed, for the helper's log. */
+/** Why the last Reddit attempt failed, for the app's log. */
 let redditTrail: string[] = [];
 
-/** Top comments from Reddit's JSON (www, then old.reddit.com). */
-async function redditJsonComments(url: string): Promise<RedditComment[] | null> {
-  const u = new URL(url);
-  u.hash = '';
-  u.pathname = u.pathname.replace(/\/$/, '') + '.json';
-  u.search = '?limit=25&depth=1&sort=top&raw_json=1';
-  for (const agent of REDDIT_AGENTS) {
-    for (const host of ['www.reddit.com', 'old.reddit.com']) {
-      u.hostname = host;
-      try {
-        const res = await fetch(u.toString(), {
-          headers: { ...FETCH_HEADERS, 'User-Agent': agent, Accept: 'application/json' },
-          redirect: 'follow',
-          signal: AbortSignal.timeout(20_000),
-        });
-        if (!res.ok) {
-          redditTrail.push(`json ${host} ${res.status}`);
-          continue;
-        }
-        const json = (await res.json()) as unknown;
-        if (!Array.isArray(json) || json.length < 2) {
-          redditTrail.push(`json ${host} not a thread`);
-          continue;
-        }
-        return ((json[1] as RedditThing).data.children ?? [])
-          .filter((c) => c.kind === 't1' && !c.data.stickied && c.data.body && c.data.author !== 'AutoModerator')
-          .slice(0, TOP_COMMENTS)
-          .map((c) => ({
-            author: c.data.author ?? 'someone',
-            score: c.data.score ?? null,
-            html: c.data.body_html ?? `<p>${esc(c.data.body ?? '')}</p>`,
-            text: c.data.body ?? '',
-          }));
-      } catch (err) {
-        redditTrail.push(`json ${host} ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-  }
-  return null;
-}
-
 /**
- * Top comments from the thread's own feed (…/comments/<id>/.rss). The same kind
- * of address the subreddit's posts already come from, so it gets through when the JSON doesn't.
- * The feed has no scores; its first entry is the post itself.
+ * A Reddit post's top comments (the post itself comes from the feed and stays
+ * on top), from the thread's own feed (…/comments/<id>/.rss): one request, at
+ * Reddit's pace, in the same form the subreddit's posts already come in. The
+ * feed has no scores; its first entry is the post itself. Reddit's JSON is shut
+ * to anyone not signed in, and opening its pages in a browser to get round that
+ * is not something a polite reader does, so neither is tried.
  */
-async function redditFeedComments(url: string): Promise<RedditComment[] | null> {
+async function redditComments(url: string, cfg: LocalConfig): Promise<Article | { later: number } | null> {
+  redditTrail = [];
   const u = new URL(url);
   u.hash = '';
   u.hostname = 'www.reddit.com';
   u.pathname = u.pathname.replace(/\/$/, '') + '/.rss';
   u.search = '?sort=top&depth=1&limit=25';
-  for (const agent of REDDIT_AGENTS) {
-    try {
-      const res = await fetch(u.toString(), { headers: { ...FETCH_HEADERS, 'User-Agent': agent }, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
-      if (!res.ok) {
-        redditTrail.push(`rss ${res.status}`);
-        continue;
-      }
-      const feed = parseFeed(await res.text(), u.toString(), 30);
-      if (!feed) {
-        redditTrail.push('rss not a feed');
-        continue;
-      }
-      return feed.entries
-        .filter((e) => /(^|_)t1_/.test(e.key) || /\/comments\/[^/]+\/[^/]*\/[a-z0-9]+\/?$/i.test(e.url ?? ''))
-        .map((e) => ({ author: (e.author ?? 'someone').replace(/^\/?u\//, ''), score: null, html: e.html ?? '', text: e.text ?? (e.html ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }))
-        .filter((c) => c.text && c.author !== 'AutoModerator')
-        .slice(0, TOP_COMMENTS);
-    } catch (err) {
-      redditTrail.push(`rss ${err instanceof Error ? err.message : String(err)}`);
-    }
+  const page = await get(u.toString(), cfg, {});
+  if (page.later) return { later: page.later };
+  if (page.held) {
+    redditTrail.push(page.held);
+    return null;
   }
-  return null;
-}
-
-/** Top comments read from old.reddit.com's page (when the JSON is refused). */
-function oldRedditComments(html: string): RedditComment[] {
-  const out: RedditComment[] = [];
-  // Each top-level comment: <div class=" thing ... comment ..." data-author="name" ...> ... <div class="md">...</div>
-  const parts = html.split(/<div\b(?=[^>]*\bdata-type="comment")/i).slice(1);
-  for (const part of parts) {
-    const author = /\bdata-author="([^"]+)"/i.exec(part)?.[1] ?? 'someone';
-    if (author === 'AutoModerator' || /\bstickied\b/.test(part.slice(0, 400))) continue;
-    const score = /<span class="score unvoted"[^>]*title="(-?\d+)"/i.exec(part)?.[1];
-    const md = /<div class="md">([\s\S]*?)<\/div>/i.exec(part)?.[1];
-    if (!md) continue;
-    const text = md.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    out.push({ author, score: score ? Number(score) : null, html: md, text });
-    if (out.length >= TOP_COMMENTS) break;
+  if (page.status >= 400) {
+    redditTrail.push(`Reddit answered ${page.status}`);
+    return null;
   }
-  return out;
-}
-
-/**
- * A Reddit post's top comments (the post itself comes from the feed and stays
- * on top). Reddit's JSON first; if Reddit turns that away, old.reddit.com's
- * page sorted by top, then the same in a browser.
- */
-async function redditComments(url: string, cfg: LocalConfig): Promise<Article | null> {
-  redditTrail = [];
-  let comments = await redditJsonComments(url);
-  if (!comments?.length) comments = await redditFeedComments(url);
-  if (!comments?.length) {
-    const page = new URL(url);
-    page.hostname = 'old.reddit.com';
-    page.search = '?sort=top&depth=1';
-    for (const render of [false, true]) {
-      const got = await get(page.toString(), cfg, { render }).catch(() => null);
-      if (!got || got.status >= 400) {
-        redditTrail.push(`old.reddit${render ? ' browser' : ''} ${got?.status ?? 'failed'}`);
-        continue;
-      }
-      comments = oldRedditComments(got.body);
-      if (comments.length) break;
-      redditTrail.push(`old.reddit${render ? ' browser' : ''} no comments found`);
-    }
+  const feed = parseFeed(page.body, u.toString(), 30);
+  if (!feed) {
+    redditTrail.push('the comments feed was not a feed');
+    return null;
   }
-  if (!comments?.length) {
-    log(`Reddit comments for ${url}: none (${redditTrail.join('; ')})`);
+  const comments: RedditComment[] = feed.entries
+    .filter((e) => /(^|_)t1_/.test(e.key) || /\/comments\/[^/]+\/[^/]*\/[a-z0-9]+\/?$/i.test(e.url ?? ''))
+    .map((e) => ({ author: (e.author ?? 'someone').replace(/^\/?u\//, ''), score: null, html: e.html ?? '', text: e.text ?? (e.html ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }))
+    .filter((c) => c.text && c.author !== 'AutoModerator')
+    .slice(0, TOP_COMMENTS);
+  if (!comments.length) {
+    redditTrail.push('no comments yet');
     return null;
   }
   const html = `<h2>Top comments</h2>\n${comments
@@ -595,8 +574,12 @@ async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResu
   if (isRedditPost(job.url)) {
     // Only the comments: the post itself is already in the app from the feed.
     TOP_COMMENTS = typeof job.redditComments === 'number' && job.redditComments > 0 ? Math.min(job.redditComments, 25) : 8;
-    const article = await redditComments(job.url, cfg).catch(() => null);
-    return article ? { jobId: job.id, ok: true, article } : { jobId: job.id, ok: false, error: `Reddit gave no comments (or turned the PC away): ${redditTrail.join('; ')}`.slice(0, 300) };
+    const got = await redditComments(job.url, cfg).catch((err: unknown) => {
+      redditTrail.push(err instanceof Error ? err.message : String(err));
+      return null;
+    });
+    if (got && 'later' in got) return { jobId: job.id, ok: false, later: got.later, error: 'Waiting for Reddit' };
+    return got ? { jobId: job.id, ok: true, article: got } : { jobId: job.id, ok: false, error: `No Reddit comments: ${redditTrail.join('; ')}`.slice(0, 300) };
   }
   const page = await get(job.url, cfg, { render: job.render, skip: skipFor(job), files: true });
   if (page.file && page.status < 400) return await fileJob(job, page);

@@ -1,5 +1,5 @@
 import { adoptSwipeDistances } from './prefs';
-import { NO_SECURITY, NO_STATUS, type Counts, type Me } from '@newsletterapp/shared';
+import { NO_PROBLEMS, NO_SECURITY, NO_STATUS, type Counts, type Me } from '@newsletterapp/shared';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError, api } from './api';
@@ -38,6 +38,7 @@ import { LinkPage, StudiesPage, StudyPage } from './pages/Studies';
 import { KeyStatsPage } from './pages/KeyStats';
 import { StatusIncidentPagePage, StatusPage } from './pages/Status';
 import { StatusSettingsPage } from './pages/StatusSettings';
+import { AppLogPage } from './pages/AppLog';
 import { SecurityBreachPagePage, SecurityMailPagePage, SecurityPage } from './pages/Security';
 import { AddPastBreachesPage, SecuritySettingsPage } from './pages/SecuritySettings';
 
@@ -49,7 +50,7 @@ export type { Counts };
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [authError, setAuthError] = useState<ApiError | null>(null);
-  const [counts, setCounts] = useState<Counts>({ inbox: 0, unread: 0, saved: 0, interesting: 0, pendingSenders: 0, status: NO_STATUS, security: NO_SECURITY });
+  const [counts, setCounts] = useState<Counts>({ inbox: 0, unread: 0, saved: 0, interesting: 0, pendingSenders: 0, status: NO_STATUS, security: NO_SECURITY, problems: NO_PROBLEMS });
   const location = useLocation();
 
   const refreshCounts = useCallback(() => {
@@ -157,6 +158,7 @@ export default function App() {
         />
         <Route path="/tags" element={<TagsPage />} />
         <Route path="/status" element={<StatusPage onChanged={refreshCounts} />} />
+        <Route path="/status/log" element={<AppLogPage />} />
         <Route path="/status/:id" element={<StatusIncidentPagePage />} />
         <Route path="/settings/status" element={<StatusSettingsPage onChanged={refreshCounts} />} />
         <Route path="/security" element={<SecurityPage onChanged={refreshCounts} />} />

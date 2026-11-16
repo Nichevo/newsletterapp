@@ -8,7 +8,8 @@ import { configPath, loadConfig, type LocalConfig } from './config';
 import { Embeddings } from './embed';
 import { askLookups, lookupsText, summaryLookups, toSources, type Lookups } from './lookups';
 import { holdReport, holdsSent, runFetchJob, setSkipSites } from './fetch';
-import { log } from './log';
+import { log, pendingEvents, report, sentEvents } from './log';
+import { siteOfUrl } from './sites';
 import { runFollow } from './follow';
 import { runReview } from './reviews';
 import { runSuggestions } from './suggest';
@@ -86,6 +87,9 @@ function restartIfStale() {
   }
 }
 
+/** Logs a failure and sends it to the app's log (System status). */
+const failed = (what: string, area = 'helper') => (err: unknown) => report('error', area, `${what} failed: ${err instanceof Error ? err.message : String(err)}`);
+
 async function heartbeat(): Promise<HelperConfig> {
   const models: { provider: string; name: string; sizeBytes?: number }[] = [];
   const providerErrors: { provider: string; error: string }[] = [];
@@ -97,6 +101,7 @@ async function heartbeat(): Promise<HelperConfig> {
     }
   }
   const report = holdReport();
+  const events = pendingEvents();
   const config = await app.heartbeat({
     version: HELPER_VERSION,
     hostname: hostname(),
@@ -107,8 +112,10 @@ async function heartbeat(): Promise<HelperConfig> {
     embedStore: embeddings.model ? embeddings.store : null,
     embedCount: embeddings.count,
     ...report,
+    events,
   });
   holdsSent(report.holds);
+  sentEvents(events);
   setSkipSites(config.skipSites);
   return config;
 }
@@ -253,7 +260,7 @@ async function answerAsks(models: ModelRef[] = currentModels): Promise<void> {
       }
     }
   } catch (err) {
-    log('highlight asks failed:', err);
+    failed('highlight asks')(err);
   }
 }
 
@@ -265,7 +272,7 @@ async function checkAsks(): Promise<void> {
     const { waiting } = await app.askPeek();
     if (waiting > 0) await answerAsks();
   } catch (err) {
-    log('ask check failed:', err);
+    failed('ask check')(err);
   }
 }
 
@@ -314,7 +321,7 @@ async function summariseQueue(config: HelperConfig) {
       log(`summarised "${job.subject.slice(0, 60)}" with ${model.name} in ${seconds.toFixed(1)}s${watts ? ` at ${Math.round(watts)} W` : ''}`);
     } catch (err) {
       const { error, seconds, watts } = failure(err);
-      log(`failed "${job.subject.slice(0, 60)}" with ${model.name}: ${error}`);
+      report('error', 'ai', `AI summary failed for "${job.subject.slice(0, 60)}" with ${model.name}: ${error}`);
       res = await app.result({ ...base, ok: false, seconds, watts, error, searches: lookups.searches });
       if (res.paused) log('The app paused AI after repeated failures');
     }
@@ -322,7 +329,7 @@ async function summariseQueue(config: HelperConfig) {
     if (res.limited) {
       // Hand the rest of the batch straight back rather than letting it time out.
       const rest = jobs.slice(i + 1).map((j) => j.itemId);
-      if (rest.length) await app.release(rest).catch((err: unknown) => log('release failed:', err));
+      if (rest.length) await app.release(rest).catch(failed('release'));
       log(`usage limit reached: ${res.limited.message}; back at ${until(res.limited.until)}`);
       break;
     }
@@ -503,7 +510,14 @@ async function fetchQueue(config: HelperConfig) {
       doing(`fetching ${job.kind} ${job.url.slice(0, 80)}`);
       const result = await runFetchJob(job, cfg);
       const res = await app.fetchResult(result);
-      log(`${job.kind} ${job.url.slice(0, 80)}: ${result.ok ? (job.kind === 'article' ? 'article saved' : `${res.added ?? 0} new`) : result.error}`);
+      if (result.later) {
+        log(`${job.kind} ${job.url.slice(0, 80)}: waiting for Reddit until ${new Date(result.later).toLocaleTimeString()}`);
+        continue;
+      }
+      const line = `${job.kind} ${job.url.slice(0, 80)}: ${result.ok ? (job.kind === 'article' ? 'article saved' : `${res.added ?? 0} new`) : result.error}`;
+      // Feed and page failures are logged by the app against their source; articles are logged here.
+      if (!result.ok && job.kind === 'article') report('warn', 'article', line, { site: siteOfUrl(job.url), sourceId: job.sourceId ?? null });
+      else log(line);
     }
   }
 }
@@ -555,7 +569,7 @@ const STUCK_MS = 12 * 60_000;
 if (!once) {
   setInterval(() => {
     if (Date.now() - stepSince < STUCK_MS) return;
-    log(`stuck for ${Math.round((Date.now() - stepSince) / 60_000)} min on: ${step}; restarting`);
+    report('error', 'helper', `stuck for ${Math.round((Date.now() - stepSince) / 60_000)} min on: ${step}; restarting`);
     process.exit(1);
   }, 60_000).unref();
 }
@@ -577,40 +591,41 @@ async function tick(): Promise<number> {
   doing('test run');
   if (config.trialId) await runTrial(config.trialId);
   // Find a way to follow: someone is waiting for this one too.
-  await runFollow(config, app, cfg, providers, doing).catch((err: unknown) => log('find a way to follow failed:', err));
+  await runFollow(config, app, cfg, providers, doing).catch(failed('find a way to follow'));
   // Fetch problems must not hold up the summaries.
   doing('fetching feeds and pages');
-  await fetchQueue(config).catch((err: unknown) => log('fetch jobs failed:', err));
+  await fetchQueue(config).catch(failed('fetch jobs'));
   doing('summarising');
   await summariseQueue(config);
   // Embeddings after summaries, since they're made from the summary.
   doing('embedding items');
-  await embeddings.run(config, checkAsks).catch((err: unknown) => log('embeddings failed:', err));
+  await embeddings.run(config, checkAsks).catch(failed('embeddings'));
   // Story notes after embeddings, since items join stories once they're embedded.
   doing('story notes');
-  await storyNotes(config).catch((err: unknown) => log('story notes failed:', err));
+  await storyNotes(config).catch(failed('story notes'));
   // Key sentences after the summaries: they're only for articles already summarised.
   doing('key sentences');
-  await keySentences(config).catch((err: unknown) => log('key sentences failed:', err));
-  await studiesAndLinks(config).catch((err: unknown) => log('studies failed:', err));
+  await keySentences(config).catch(failed('key sentences'));
+  await studiesAndLinks(config).catch(failed('studies'));
   // Weekly and monthly reviews: a few model calls and web searches, once a week.
   doing('reviews');
-  await runReview(config, app, cfg, providers, doing).catch((err: unknown) => log('review failed:', err));
+  await runReview(config, app, cfg, providers, doing).catch(failed('review'));
   // Feed suggestions last: weekly, and the least urgent.
   doing('feed suggestions');
-  await runSuggestions(config, app, cfg, embeddings, checkAsks).catch((err: unknown) => log('feed suggestions failed:', err));
+  await runSuggestions(config, app, cfg, embeddings, checkAsks).catch(failed('feed suggestions'));
   doing('waiting for the next round');
   return config.pollSeconds;
 }
 
 async function main() {
   log(`helper ${HELPER_VERSION} starting, app ${cfg.appUrl}, providers: ${providers.map((p) => p.name).join(', ')}`);
+  report('info', 'helper', `helper ${HELPER_VERSION} started on ${hostname()}, providers: ${providers.map((p) => p.name).join(', ')}`);
   for (;;) {
     let wait = 60;
     try {
       wait = await tick();
     } catch (err) {
-      log('error:', err);
+      failed('round')(err);
       if (once) process.exitCode = 1;
     }
     if (once) return;
