@@ -1,4 +1,6 @@
 import type {
+  AppLogView,
+  ProblemsView,
   Counts,
   FollowCandidate,
   FollowLookup,
@@ -156,6 +158,14 @@ export const api = {
   addPastBreaches: (body: { address: string; person: string; handled: boolean; breaches: BreachInfo[] }) =>
     post<{ added: number; view: SecurityView }>('/api/security/past', body),
 
+  // App problems and the app's log (top of System status)
+  problems: () => get<ProblemsView>('/api/problems'),
+  hideProblem: (key: string, hidden: boolean) => put<ProblemsView>('/api/problems/hidden', { key, hidden }),
+  appLog: (q: { before?: number | null; level?: string; source?: string; site?: string; origin?: string }) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v) p.set(k, String(v));
+    return get<AppLogView>(`/api/log?${p.toString()}`);
+  },
   // System status (service status pages)
   status: () => get<StatusView>('/api/status'),
   statusCheck: () => post<StatusView>('/api/status/check'),

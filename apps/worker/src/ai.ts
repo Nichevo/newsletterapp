@@ -34,6 +34,7 @@ import { ASK_POLL_SECONDS, asksWaiting } from './highlights';
 import { countSearches, searchAllowance, summarySearches } from './websearch';
 import { loadSettings } from './settings';
 import { recordHolds } from './pcholds';
+import { logHelperEvents } from './problems';
 import { jobsThatFit, limitState } from './usage';
 import { adverdictStatements, withAdvertRules } from './adverts';
 
@@ -294,6 +295,8 @@ export function registerAi(app: App) {
     // Fetches the PC held back or slowed down since its last heartbeat (helpers from 0.3.10).
     const holds = Array.isArray(hb.holds) ? hb.holds : [];
     if (holds.length) await recordHolds(c.env, holds, settings.timezone);
+    // Warnings and errors since the last heartbeat (helpers from 0.12.0): the app's log, behind System status.
+    if (Array.isArray(hb.events) && hb.events.length) await logHelperEvents(c.env, hb.events);
     // The model list rarely changes, so only rewrite it when it does (or hourly, to keep last seen fresh).
     const sameModels = JSON.stringify(before?.models ?? null) === JSON.stringify(hb.models.slice(0, 100));
     const syncModels = !sameModels || t - (before?.modelsSyncedAt ?? 0) >= 3_600_000;
@@ -310,7 +313,12 @@ export function registerAi(app: App) {
         ? {
             resting: hb.resting
               .slice(0, 50)
-              .map((r) => ({ site: String(r.site).slice(0, 120), until: Number(r.until) || 0, ms: Number(r.ms) || 0 })),
+              .map((r) => ({
+                site: String(r.site).slice(0, 120),
+                until: Number(r.until) || 0,
+                ms: Number(r.ms) || 0,
+                ...(typeof r.why === 'string' ? { why: r.why.slice(0, 120) } : {}),
+              })),
           }
         : { resting: before?.resting ?? [] }),
       holdsReportedAt: holds.length ? t : (before?.holdsReportedAt ?? null),

@@ -15,7 +15,7 @@ import { ItemRow, type RowGroup, type SwipeAction } from '../components/ItemRow'
 import { getSwipeReadSide, setViewOptions } from '../prefs';
 import { todayLabel } from '../format';
 import { IconPlus, IconPulse, IconRefresh, IconSearch, IconShieldAlert, IconSparkle } from '../icons';
-import { StatusDot, statusButtonLabel } from './Status';
+import { StatusDot, statusButtonLabel, statusButtonLevel } from './Status';
 import { SecurityDot, securityButtonLabel } from './Security';
 
 const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'interesting', 'likely', 'unlikely', 'adverts', 'archived'];
@@ -421,10 +421,15 @@ export function InboxPage({
           <button className="iconbtn" aria-label="Refresh" onClick={() => void load(false)}>
             <IconRefresh />
           </button>
-          {mode === 'inbox' && counts.status.level !== 'off' && (
-            <Link to="/status" className="iconbtn statusbtn" aria-label={statusButtonLabel(counts.status)} title={statusButtonLabel(counts.status)}>
+          {mode === 'inbox' && (counts.status.level !== 'off' || counts.problems.open > 0) && (
+            <Link
+              to="/status"
+              className="iconbtn statusbtn"
+              aria-label={statusButtonLabel(counts.status, counts.problems)}
+              title={statusButtonLabel(counts.status, counts.problems)}
+            >
               <IconPulse />
-              <StatusDot level={counts.status.level} />
+              <StatusDot level={statusButtonLevel(counts.status, counts.problems)} />
             </Link>
           )}
           {mode === 'inbox' && counts.security.level !== 'off' && (
@@ -472,6 +477,17 @@ export function InboxPage({
             </span>
           </div>
           <span className="btn btn--small">Status</span>
+        </Link>
+      )}
+
+      {mode === 'inbox' && counts.problems.open > 0 && counts.problems.top && (
+        // Problems inside the app itself (a source not coming through, the PC helper offline...): each can be hidden on System status.
+        <Link to="/status" className={`notice notice--status notice--${counts.problems.level === 'major' ? 'major' : 'minor'}`}>
+          <div className="notice__text">
+            <span className="notice__title">{counts.problems.open === 1 ? counts.problems.top.title : `${counts.problems.open} things in the app need a look`}</span>
+            <span className="notice__sub">{counts.problems.open === 1 ? counts.problems.top.detail : `First: ${counts.problems.top.title}`}</span>
+          </div>
+          <span className="btn btn--small">Look</span>
         </Link>
       )}
 

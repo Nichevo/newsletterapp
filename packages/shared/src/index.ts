@@ -15,8 +15,10 @@ export * from './status';
 export * from './follow';
 export * from './doubles';
 export * from './security';
+export * from './problems';
 import { DEFAULT_REVIEW_SETTINGS, type ReviewSettings } from './reviews';
 import type { StatusSummary } from './status';
+import type { HelperLogEvent, ProblemsSummary } from './problems';
 import type { SecuritySummary } from './security';
 
 /** 'ai' = an article written by the AI from a highlight (the "AI notes" source). */
@@ -666,6 +668,8 @@ export interface Counts {
   status: StatusSummary;
   /** Security alerts: what the shield button and its banner show. */
   security: SecuritySummary;
+  /** App problems (a source gone quiet, a site turning the PC away, the helper offline): shown with System status. */
+  problems: ProblemsSummary;
 }
 
 export interface Me {
@@ -1003,6 +1007,11 @@ export interface FetchJobResult {
   /** Page watches: every article link on the page, new or not. */
   seenKeys?: string[];
   article?: Article;
+  /**
+   * Not fetched yet, on purpose: the site asked the PC to slow down (Reddit's own
+   * request limit). The job goes back in the queue until this time, without counting as a try.
+   */
+  later?: number;
 }
 
 // ---------- AI: shared between the Worker, the web app and the PC helper ----------
@@ -1083,6 +1092,8 @@ export interface HelperHeartbeat {
   holds?: PcHoldCount[];
   /** Sites the PC is leaving alone right now after a bot check. */
   resting?: PcRest[];
+  /** Warnings and errors since the last heartbeat (helpers from 0.12.0), shown in the app's log. */
+  events?: HelperLogEvent[];
 }
 
 /** One site's held-back fetches since the helper last reported. */
@@ -1106,6 +1117,8 @@ export interface PcRest {
   site: string;
   until: number;
   ms: number;
+  /** Why (helpers from 0.12.0): what the site answered, e.g. "429 too many requests" or "bot check page". */
+  why?: string;
 }
 
 /** Settings > PC helper and AI > Sites the PC leaves alone: limits, rests now and the last days' counts. */
@@ -1120,7 +1133,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.11.0';
+export const HELPER_VERSION = '0.12.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -1531,6 +1544,11 @@ export function isVideoPost(url: string | null): boolean {
 }
 
 /** A Reddit post's comments page: the PC pulls in the post and its top comments. */
+/** Any address on Reddit (feeds, posts, old.reddit.com). */
+export function isRedditUrl(url: string | null | undefined): boolean {
+  return Boolean(url) && /^https?:\/\/([\w-]+\.)?(reddit\.com|redd\.it)(\/|$)/i.test(url!);
+}
+
 export function isRedditPost(url: string | null): boolean {
   return url !== null && /^https?:\/\/(www\.|old\.|new\.)?reddit\.com\/r\/[^/]+\/comments\//i.test(url);
 }
