@@ -1,3 +1,4 @@
+import { adoptSwipeDistances } from './prefs';
 import { NO_SECURITY, NO_STATUS, type Counts, type Me } from '@newsletterapp/shared';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
@@ -59,6 +60,8 @@ export default function App() {
     api
       .me()
       .then((m) => {
+        // Swipe distances saved with the account win over whatever this browser kept (or lost).
+        adoptSwipeDistances(m.swipe);
         setMe(m);
         setKeysShown(m.keySentencesOn);
         refreshCounts();

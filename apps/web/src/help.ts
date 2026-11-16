@@ -34,8 +34,8 @@ export const HELP = {
   swipe: h('Swipe to mark read', [
     'Which way you swipe a row to mark it read. The other way saves it for later.',
     'Pull a little further for the long version (how far is set in Settings > Reading): on the read side it marks it read as Not interested; on the save side it stars it as Interesting and marks it read. The label changes when you pass the point, and the phone gives a little buzz.',
-    'Usual: right. Saved on this device only.',
-  ], 'Both distances are set in Settings > Reading: a swipe counts after 88 pixels to start with, the long version after 130.'),
+    'Usual: right. The side is saved on this device only.',
+  ], 'Both distances are set in Settings > Reading: a swipe counts after 88 pixels to start with, the long version after 130. The distances are saved with your account, so they stick across browsers and devices.'),
   openIn: h('Live page for Reddit and YouTube', [
     'When you open the live page of a Reddit or YouTube post on an Android phone, whether it opens in their app or in the browser.',
     'If the app is not installed, the browser opens it anyway.',

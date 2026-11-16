@@ -677,6 +677,8 @@ export interface Me {
   groupSameNews: boolean;
   /** Whether key sentences are switched on (Settings > PC helper and AI > Key sentences). */
   keySentencesOn: boolean;
+  /** Swipe distances saved with the account (Settings > Reading), or null for the defaults. */
+  swipe: SwipeDistances | null;
 }
 
 /** One AI tag on the All tags page. */
@@ -738,7 +740,28 @@ export interface AppSettings {
   tuning: TuningSettings;
   /** Adverts the AI spots: moved to the Adverts view, only labelled, or not looked for. Ads at the end of articles are hidden unless off. */
   adverts: AdvertMode;
+  /**
+   * Swipe distances from Settings > Reading, kept with the account so they
+   * survive a browser clearing its storage and carry to every browser. null
+   * until changed from the defaults.
+   */
+  swipe?: SwipeDistances | null;
 }
+
+/** How far (px) a pull goes before a swipe counts, and before it becomes the long swipe. */
+export interface SwipeDistances {
+  shortPx: number;
+  longPx: number;
+}
+
+export const SHORT_SWIPE_MIN = 40;
+export const SHORT_SWIPE_MAX = 160;
+export const SHORT_SWIPE_DEFAULT = 88;
+export const LONG_SWIPE_MIN = 65;
+export const LONG_SWIPE_MAX = 260;
+export const LONG_SWIPE_DEFAULT = 130;
+/** The long swipe always sits at least this far past the short one. */
+export const SWIPE_GAP = 25;
 
 export type TopLean = 'newest' | 'balanced' | 'favourites';
 
@@ -794,6 +817,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   saveSenders: [],
   tuning: DEFAULT_TUNING,
   adverts: 'move',
+  swipe: null,
 };
 
 // ---------- Lead stories (Top of the week; the old daily digest) ----------
