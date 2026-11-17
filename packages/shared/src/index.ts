@@ -105,10 +105,14 @@ export interface ItemSummary {
   summary: string | null;
   keyPoints: string[];
   whyItMatters: string | null;
-  /** Topic tags picked by the AI. */
+  /** Topic tags: the AI's, plus any you added, minus any you took off. */
   tags: string[];
   /** How many items carry each of those tags (keyed as in tags); only on a single item. */
   tagCounts?: Record<string, number>;
+  /** Only on a single item: the tags you added by hand (as in tags). */
+  myTags?: string[];
+  /** Only on a single item: tags you took off, which the AI won't put back. */
+  removedTags?: string[];
   thinContent: boolean;
   /** Who wrote the AI summary, for the italic attribution line. */
   ai: AiAttribution | null;
@@ -1610,6 +1614,42 @@ export function matchesFilterSet(value: string | null | undefined, set: FilterSe
 /** The key a tag is grouped under: "Tinybuild" and "tinybuild " are the same tag. */
 export function tagKey(label: string): string {
   return label.trim().toLowerCase();
+}
+
+/** The longest tag you can type, and the most tags one item can carry. */
+export const MY_TAG_MAX = 40;
+export const ITEM_TAGS_MAX = 12;
+
+/** A typed tag tidied: spaces squeezed, trimmed, cut to length. Empty when nothing is left. */
+export function cleanTagLabel(raw: string): string {
+  return raw.replace(/\s+/g, ' ').replace(/^[#,\s]+|[,\s]+$/g, '').slice(0, MY_TAG_MAX).trim();
+}
+
+/** Your hand edits to one item's tags: added ones are kept, removed ones stay off. */
+export interface TagEdit {
+  tag: string;
+  label: string;
+  action: 'add' | 'remove';
+}
+
+/** The tags an item ends up with: the AI's (or the current list) with your edits laid on top. */
+export function mergeTagEdits(tags: string[], edits: TagEdit[]): string[] {
+  const removed = new Set(edits.filter((e) => e.action === 'remove').map((e) => e.tag));
+  const out = new Map<string, string>();
+  for (const t of tags) {
+    const k = tagKey(t);
+    if (k && !removed.has(k) && !out.has(k)) out.set(k, t.trim());
+  }
+  for (const e of edits) if (e.action === 'add' && !out.has(e.tag)) out.set(e.tag, e.label);
+  return [...out.values()].slice(0, ITEM_TAGS_MAX);
+}
+
+/** What the reader gets back after you add or take off a tag. */
+export interface TagEditResult {
+  tags: string[];
+  tagCounts: Record<string, number>;
+  myTags: string[];
+  removedTags: string[];
 }
 
 /** Everything about one tag: its numbers and its items, newest first. */

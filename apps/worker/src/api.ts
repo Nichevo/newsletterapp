@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { registerDeleting } from './deleting';
 import { adInfo, registerAdverts } from './adverts';
+import { loadTagEdits, registerMyTags, tagCountsFor, tagEditInfo } from './my-tags';
 import { canMergeAway, emptyDepth, DEFAULT_OLD_LINK_DAYS, DEFAULT_REDDIT_COMMENTS, OLD_LINK_CHOICES, REDDIT_COMMENT_CHOICES, isKeyKind, KEY_FILTER_TOKEN as KEY_TOKEN, normalizePostFilter, parseFilterSet, tagKey, SAVE_LOCAL_PART, type FileFilter, type KeyMark, type SaveAddressInfo } from '@newsletterapp/shared';
 import type {
   Platform,
@@ -138,6 +139,7 @@ registerRefs(app);
 registerKeyStats(app);
 registerDeleting(app);
 registerAdverts(app);
+registerMyTags(app);
 
 // ---------- Items ----------
 
@@ -513,15 +515,10 @@ app.get('/api/search', async (c) => {
 app.get('/api/items/:id', async (c) => {
   const item = await loadItem(c.env, c.req.param('id'));
   if (!item) return c.json({ error: 'not found' }, 404);
-  // The numbers on the tag chips: one tag_counts row per tag.
-  const keys = [...new Set(item.tags.map(tagKey).filter(Boolean))].slice(0, 10);
-  if (keys.length) {
-    const rows = await c.env.DB.prepare(`SELECT tag, n FROM tag_counts WHERE tag IN (${keys.map(() => '?').join(', ')})`)
-      .bind(...keys)
-      .all<{ tag: string; n: number }>();
-    const n = new Map(rows.results.map((r) => [r.tag, r.n]));
-    item.tagCounts = Object.fromEntries(item.tags.map((t) => [t, n.get(tagKey(t)) ?? 1]));
-  }
+  // The numbers on the tag chips (one tag_counts row per tag), and which tags are yours.
+  const [counts, edits] = await Promise.all([tagCountsFor(c.env, item.tags), loadTagEdits(c.env, item.id)]);
+  if (item.tags.length) item.tagCounts = counts;
+  Object.assign(item, tagEditInfo(item.tags, edits));
   item.ads = await adInfo(c.env, item.id, item.advert);
   return c.json(item);
 });

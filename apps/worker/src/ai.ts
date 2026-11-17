@@ -37,6 +37,7 @@ import { recordHolds } from './pcholds';
 import { logHelperEvents } from './problems';
 import { jobsThatFit, limitState } from './usage';
 import { adverdictStatements, withAdvertRules } from './adverts';
+import { withMyTags } from './my-tags';
 
 // The AI job queue. The PC helper checks in, claims a few items, summarises
 // them with a local model and posts the results back. Everything here is
@@ -489,6 +490,8 @@ export function registerAi(app: App) {
       ),
     ];
     if (output) {
+      // Tags you added stay, tags you took off stay off.
+      const tags = await withMyTags(c.env, item.id, output.topics);
       stmts.push(
         c.env.DB.prepare(
           `UPDATE items SET ai_status = 'done', ai_error = NULL, ai_run_id = ?, summary = ?, key_points = ?,
@@ -499,7 +502,7 @@ export function registerAi(app: App) {
           JSON.stringify(output.key_points),
           output.why_it_matters || null,
           JSON.stringify(output.category),
-          JSON.stringify(output.topics),
+          JSON.stringify(tags),
           output.thin_content ? 1 : 0,
           output.background || null,
           output.coverage?.length ? JSON.stringify(output.coverage) : null,

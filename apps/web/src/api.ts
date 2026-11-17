@@ -1,4 +1,5 @@
 import type {
+  TagEditResult,
   AppLogView,
   ProblemsView,
   Counts,
@@ -198,6 +199,8 @@ export const api = {
   item: (id: string) => get<ItemSummary>(`/api/items/${id}`),
   // A replaced copy has its own address (?v=), so the week-long cache never serves the old one.
   itemBody: (id: string, version = 0) => get<ItemBody>(`/api/items/${id}/body${version ? `?v=${version}` : ''}`),
+  /** Add ({ add }) or take off ({ remove }) one of an item's tags by hand. */
+  editTag: (id: string, edit: { add: string } | { remove: string }) => post<TagEditResult>(`/api/items/${id}/tags`, edit),
   /** Your say on adverts: true marks it one, false says it isn't (the AI never flags it again). */
   setAdvert: (id: string, advert: boolean) => post<{ ok: boolean }>(`/api/items/${id}/advert`, { advert }),
   /** The hidden end of the article wasn't an ad (true), or was after all (false). */
