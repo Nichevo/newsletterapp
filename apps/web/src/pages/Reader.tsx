@@ -2,6 +2,7 @@ import type { AskPreset, FetchPageStatus, Highlight, ItemBody, ItemHighlights, I
 import { fileFilterOf, fileTag } from '@newsletterapp/shared';
 import { noteDeleted } from '../deleted';
 import { TagChip } from '../components/TagChip';
+import { TagEditor } from '../components/TagEditor';
 import { NearLinks, StoryBanner } from '../components/StoryBanner';
 import { useKeySentences } from '../components/KeySentences';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -33,6 +34,7 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
   const [showSponsored, setShowSponsored] = useState(false);
   const [adTailFound, setAdTailFound] = useState(false);
   const [showAdTail, setShowAdTail] = useState(false);
+  const [editTags, setEditTags] = useState(false);
   const fontSize = textSizePx(getTextSize());
   const nav = useMemo(() => neighbours(id), [id]);
   const [params] = useSearchParams();
@@ -64,6 +66,7 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
   useEffect(() => {
     let cancelled = false;
     setItem(null);
+    setEditTags(false);
     setBody(null);
     setError(null);
     setLoadImages(false);
@@ -227,9 +230,23 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
             {item.category && <span className="chip chip--category">{item.category}</span>}
             {item.sponsored && <span className="chip chip--outline">Has a sponsored section</span>}
             {item.tags.map((t) => (
-              <TagChip key={t} tag={t} count={item.tagCounts?.[t]} />
+              <TagChip key={t} tag={t} count={item.tagCounts?.[t]} mine={item.myTags?.includes(t)} />
             ))}
+            {item.kind !== 'ai' && (
+              <button
+                type="button"
+                className="chip chip--outline chip--button chip--addtag"
+                aria-expanded={editTags}
+                title="Add your own tag, or take off a wrong one"
+                onClick={() => setEditTags((v) => !v)}
+              >
+                {item.tags.length ? '+ Tag' : '+ Add a tag'}
+              </button>
+            )}
           </div>
+          {editTags && item.kind !== 'ai' && (
+            <TagEditor item={item} onChange={(r) => setItem({ ...item, ...r })} onClose={() => setEditTags(false)} />
+          )}
           {marks.place === 'bottom' && marks.noteCount > 0 && (
             <button className="chip chip--ai notes-jump" onClick={marks.scrollToNotes}>
               {marks.noteCount} AI note{marks.noteCount === 1 ? '' : 's'} ↓

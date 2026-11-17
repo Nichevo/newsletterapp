@@ -9,13 +9,13 @@ export function tagPath(tag: string): string {
  * An AI tag that opens its tag page. In an inbox row it keeps the tap (and the
  * start of a swipe) to itself, so it doesn't also open the article.
  */
-export function TagChip({ tag, count, inRow = false }: { tag: string; count?: number; inRow?: boolean }) {
+export function TagChip({ tag, count, inRow = false, mine = false }: { tag: string; count?: number; inRow?: boolean; mine?: boolean }) {
   const navigate = useNavigate();
   return (
     <button
       type="button"
-      className="chip chip--tag"
-      title={count ? `${count} item${count === 1 ? '' : 's'} tagged ${tag}` : `Everything tagged ${tag}`}
+      className={`chip chip--tag${mine ? ' chip--tag-mine' : ''}`}
+      title={`${count ? `${count} item${count === 1 ? '' : 's'} tagged ${tag}` : `Everything tagged ${tag}`}${mine ? ' (you added this tag)' : ''}`}
       onPointerDown={inRow ? (e) => e.stopPropagation() : undefined}
       onClick={(e) => {
         e.stopPropagation();
