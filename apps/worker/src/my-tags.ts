@@ -3,13 +3,32 @@
 // items.tags at once (so tag pages, the Topics map, stories and search all see it)
 // and is kept in tag_edits, which is laid over the AI's tags whenever it runs again.
 
-import { ITEM_TAGS_MAX, cleanTagLabel, mergeTagEdits, tagKey, type TagEdit, type TagEditResult } from '@newsletterapp/shared';
+import { ITEM_TAGS_MAX, MY_TAGS_TO_AI, cleanTagLabel, mergeTagEdits, tagKey, type MyTagStats, type TagEdit, type TagEditResult } from '@newsletterapp/shared';
 import type { Hono } from 'hono';
 import { parseList } from './db';
 import type { AppVariables, Env } from './env';
 import { now } from './ids';
 
 type App = Hono<{ Bindings: Env; Variables: AppVariables }>;
+
+const DAY = 86_400_000;
+
+/** The tags you added by hand that the AI is told about: most used first, then newest. */
+export async function ownTagLabels(env: Env): Promise<string[]> {
+  const rows = await env.DB.prepare(
+    `SELECT MAX(label) AS label FROM tag_edits WHERE action = 'add' GROUP BY tag ORDER BY COUNT(*) DESC, MAX(at) DESC LIMIT ${MY_TAGS_TO_AI}`,
+  ).all<{ label: string }>();
+  return rows.results.map((r) => r.label);
+}
+
+/** Added to the summary prompt when the switch is on and you have added tags. */
+export function withMyTagRules(prompt: string, labels: string[]): string {
+  if (!labels.length) return prompt;
+  const list = labels.map((l) => `"${l.replace(/"/g, "'")}"`).join(', ');
+  return `${prompt}
+
+Tags the reader added by hand on other items: ${list}. When this text is mainly about one of these, use that exact wording as one of the "topics" instead of a near synonym. Never add one of them just because it is loosely related; most items will use none.`;
+}
 
 export async function loadTagEdits(env: Env, itemId: string): Promise<TagEdit[]> {
   const rows = await env.DB.prepare('SELECT tag, label, action FROM tag_edits WHERE item_id = ?').bind(itemId).all<TagEdit>();
@@ -42,6 +61,25 @@ export async function tagCountsFor(env: Env, tags: string[]): Promise<Record<str
 }
 
 export function registerMyTags(app: App) {
+  /** Settings: how many tags you've added, and which of them the AI has put on items itself lately. */
+  app.get('/api/my-tags/stats', async (c) => {
+    const since = now() - 30 * DAY;
+    const [own, used] = await Promise.all([
+      c.env.DB.prepare("SELECT COUNT(DISTINCT tag) AS n FROM tag_edits WHERE action = 'add'").first<{ n: number }>(),
+      // item_tags_tag_time finds each of your tags' recent rows; items you tagged yourself don't count.
+      c.env.DB.prepare(
+        `SELECT it.tag, MAX(it.label) AS label, COUNT(*) AS n FROM item_tags it
+         WHERE it.tag IN (SELECT tag FROM tag_edits WHERE action = 'add') AND it.received_at >= ?
+           AND NOT EXISTS (SELECT 1 FROM tag_edits e WHERE e.item_id = it.item_id AND e.tag = it.tag)
+         GROUP BY it.tag ORDER BY n DESC LIMIT 20`,
+      )
+        .bind(since)
+        .all<{ tag: string; label: string; n: number }>(),
+    ]);
+    const stats: MyTagStats = { own: own?.n ?? 0, used: used.results };
+    return c.json(stats);
+  });
+
   /** { add: "label" } puts a tag on, { remove: "label" } takes one off. Answers with the item's tags as they now are. */
   app.post('/api/items/:id/tags', async (c) => {
     const id = c.req.param('id');

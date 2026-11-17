@@ -1,5 +1,5 @@
 import { keysShown } from '../keySentences';
-import { AI_MAX_CHARS_CHOICES, PDF_PAGES_CHOICES, STORY_DAYS_CHOICES, MAX_REVIEW_SEARCHES, REVIEW_CHART_WEEKS, REVIEW_PARTS, type AppSettings, type Me, type ReviewKind, type ReviewQuality, type ReviewSettings, type Source, type SummaryKind } from '@newsletterapp/shared';
+import { AI_MAX_CHARS_CHOICES, PDF_PAGES_CHOICES, STORY_DAYS_CHOICES, MAX_REVIEW_SEARCHES, REVIEW_CHART_WEEKS, REVIEW_PARTS, MY_TAGS_TO_AI, type AppSettings, type MyTagStats, type Me, type ReviewKind, type ReviewQuality, type ReviewSettings, type Source, type SummaryKind } from '@newsletterapp/shared';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
@@ -40,6 +40,7 @@ import {
 } from '../prefs';
 import { useDensity, useViewOptions } from '../components/DensityToggle';
 import { Help } from '../components/Help';
+import { TagChip } from '../components/TagChip';
 import type { HelpTopic } from '../help';
 
 /** Loads the app settings and saves changes optimistically; shared by Settings and its sub-pages. */
@@ -413,6 +414,45 @@ export function AdvertsSection({ settings, onSave }: { settings: AppSettings; on
           </div>
         )}
         {recheck && <span className="hint">{recheck} Their summaries are written again too.</span>}
+      </section>
+    </div>
+  );
+}
+
+/** Settings > PC helper and AI: the tags you add by hand, told to the AI. */
+export function MyTagsSection({ settings, onSave }: { settings: AppSettings; onSave: (p: Partial<AppSettings>) => Promise<void> }) {
+  const [stats, setStats] = useState<MyTagStats | null>(null);
+  useEffect(() => {
+    api.myTagStats().then(setStats).catch(() => setStats(null));
+  }, []);
+  return (
+    <div className="section">
+      <span className="label">
+        Your tags<Help topic="myTags" />
+      </span>
+      <section className="card">
+        <label className="switchrow">
+          <span style={{ fontSize: 15 }}>Teach the AI the tags you add</span>
+          <input type="checkbox" checked={settings.myTagsToAi} onChange={(e) => void onSave({ myTagsToAi: e.target.checked })} />
+        </label>
+        <span className="hint">
+          {stats && stats.own > 0
+            ? `You have added ${stats.own} tag${stats.own === 1 ? '' : 's'} by hand (+ Tag in the reader). `
+            : 'Add a tag the AI missed with + Tag in the reader. '}
+          {settings.myTagsToAi
+            ? `The AI is given your ${MY_TAGS_TO_AI} most used ones and uses the same wording on new items mainly about them. Items already summarised keep their tags.`
+            : 'The AI is not told about them; they stay only on the items you put them on.'}
+        </span>
+        {stats && stats.used.length > 0 && (
+          <>
+            <span className="hint">Your tags the AI put on items itself, last 30 days (tap to check them):</span>
+            <div className="tagedit__suggest">
+              {stats.used.map((t) => (
+                <TagChip key={t.tag} tag={t.label} count={t.n} />
+              ))}
+            </div>
+          </>
+        )}
       </section>
     </div>
   );

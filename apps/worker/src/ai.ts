@@ -37,7 +37,7 @@ import { recordHolds } from './pcholds';
 import { logHelperEvents } from './problems';
 import { jobsThatFit, limitState } from './usage';
 import { adverdictStatements, withAdvertRules } from './adverts';
-import { withMyTags } from './my-tags';
+import { ownTagLabels, withMyTagRules, withMyTags } from './my-tags';
 
 // The AI job queue. The PC helper checks in, claims a few items, summarises
 // them with a local model and posts the results back. Everything here is
@@ -422,6 +422,8 @@ export function registerAi(app: App) {
       .bind(...ids)
       .all<JobRow>();
     const prompts = await loadPrompts(c.env);
+    // Read only when there is work to hand out, and only with the switch on.
+    const myTags = settings.myTagsToAi ? await ownTagLabels(c.env) : [];
     const model = (await loadModelMode(c.env)) === 'split' ? await pickSplitModel(c.env) : null;
     const allowance = await searchAllowance(c.env);
     let searchesLeft = allowance.summaries;
@@ -438,7 +440,7 @@ export function registerAi(app: App) {
           fromName: r.from_name,
           receivedAt: r.received_at,
           ...(await bodiesFor(c.env, r)),
-          prompt: withAdvertRules(fillPrompt(prompt.body, settings.categories, settings.interests), settings.adverts),
+          prompt: withMyTagRules(withAdvertRules(fillPrompt(prompt.body, settings.categories, settings.interests), settings.adverts), myTags),
           promptId: prompt.id,
           promptVersion: prompt.version,
           categories: settings.categories,
@@ -551,7 +553,10 @@ export function registerAi(app: App) {
           .bind(...ids)
           .all<JobRow>()
       : { results: [] as JobRow[] };
-    const prompt = withAdvertRules(fillPrompt(trial.prompt_body, settings.categories, settings.interests), settings.adverts);
+    const prompt = withMyTagRules(
+      withAdvertRules(fillPrompt(trial.prompt_body, settings.categories, settings.interests), settings.adverts),
+      settings.myTagsToAi ? await ownTagLabels(c.env) : [],
+    );
     const job: TrialJob = {
       trialId: trial.id,
       models: JSON.parse(trial.models) as ModelRef[],

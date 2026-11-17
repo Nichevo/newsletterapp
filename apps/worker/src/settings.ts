@@ -184,6 +184,7 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     saveSenders,
     tuning,
     adverts: input.adverts === 'move' || input.adverts === 'label' || input.adverts === 'off' ? input.adverts : (base.adverts ?? 'move'),
+    myTagsToAi: typeof input.myTagsToAi === 'boolean' ? input.myTagsToAi : (base.myTagsToAi ?? true),
     swipe: input.swipe === undefined ? (base.swipe ?? null) : normalizeSwipe(input.swipe),
   };
 }
