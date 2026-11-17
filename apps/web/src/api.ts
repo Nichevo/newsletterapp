@@ -1,4 +1,5 @@
 import type {
+  MyTagStats,
   TagEditResult,
   AppLogView,
   ProblemsView,
@@ -205,6 +206,8 @@ export const api = {
   setAdvert: (id: string, advert: boolean) => post<{ ok: boolean }>(`/api/items/${id}/advert`, { advert }),
   /** The hidden end of the article wasn't an ad (true), or was after all (false). */
   setAdTailWrong: (id: string, wrong: boolean) => post<{ ok: boolean }>(`/api/items/${id}/ad-tail`, { wrong }),
+  /** Your own tags: how many, and which the AI has used itself lately. */
+  myTagStats: () => get<MyTagStats>('/api/my-tags/stats'),
   advertStats: () => get<{ ai: number; wrong: number; missed: number; tails: number; tailsWrong: number }>('/api/adverts/stats'),
   advertRecheck: (days: 7 | 30) => post<{ queued: number }>('/api/adverts/recheck', { days }),
   fetchPage: (id: string) => post<FetchPageStatus>(`/api/items/${id}/fetch-page`),

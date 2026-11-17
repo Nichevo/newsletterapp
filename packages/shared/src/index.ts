@@ -748,6 +748,8 @@ export interface AppSettings {
   tuning: TuningSettings;
   /** Adverts the AI spots: moved to the Adverts view, only labelled, or not looked for. Ads at the end of articles are hidden unless off. */
   adverts: AdvertMode;
+  /** Tell the AI the tags you added by hand, so it uses them on new items when they fit. */
+  myTagsToAi: boolean;
   /**
    * Swipe distances from Settings > Reading, kept with the account so they
    * survive a browser clearing its storage and carry to every browser. null
@@ -825,6 +827,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   saveSenders: [],
   tuning: DEFAULT_TUNING,
   adverts: 'move',
+  myTagsToAi: true,
   swipe: null,
 };
 
@@ -1643,6 +1646,15 @@ export function mergeTagEdits(tags: string[], edits: TagEdit[]): string[] {
   for (const e of edits) if (e.action === 'add' && !out.has(e.tag)) out.set(e.tag, e.label);
   return [...out.values()].slice(0, ITEM_TAGS_MAX);
 }
+
+/** Settings > PC helper and AI > Your tags: the tags you added, and how often the AI has used them itself lately. */
+export interface MyTagStats {
+  /** How many different tags you have added by hand; the AI is told up to MY_TAGS_TO_AI of them. */
+  own: number;
+  /** Your tags on items where you didn't add them yourself, last 30 days, most first. */
+  used: { tag: string; label: string; n: number }[];
+}
+export const MY_TAGS_TO_AI = 40;
 
 /** What the reader gets back after you add or take off a tag. */
 export interface TagEditResult {

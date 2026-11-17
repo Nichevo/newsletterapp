@@ -53,6 +53,11 @@ export const HELP = {
     'Move: adverts leave the Inbox for the Adverts view (Filters > Show). Label only: they stay, with an Advert label. Off: the AI is not asked.',
     'In the reader, "Not an advert" puts one back for good, and "Advert?" marks one the AI missed. Ads at the end are hidden, never cut: "Show" brings them back.',
   ], 'Only items the AI summarises are checked; saved or starred items never move.'),
+  myTags: h('Your tags', [
+    'Tags you add with + Tag in the reader stay on that item, even when the AI summarises it again; ones you take off stay off.',
+    'With the switch on, the AI is also given your most used tags and told to use the same wording when a new item is mainly about one of them, never for loosely related ones. It still picks at most three tags.',
+    'If one turns up too often, take it off those items, or turn the switch off. Items already summarised are never changed.',
+  ], 'Up to 40 of your tags are passed on, most used first. About 30 extra words per summary request.'),
   readingTime: h('Reading', [
     'These choices are saved on this device only, so the phone and the PC can differ.',
   ], 'An article counts as finished in Reading statistics once you have scrolled 70% of it.'),
