@@ -4610,3 +4610,14 @@ a.chip { text-decoration: none; }
   margin: 10px 0 0;
   font-size: 12px;
 }
+.tagedit__suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.tagedit__suggest .chip {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
