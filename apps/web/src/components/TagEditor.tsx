@@ -30,7 +30,9 @@ export function TagEditor({ item, onChange, onClose }: { item: ItemSummary; onCh
   const full = item.tags.length >= ITEM_TAGS_MAX;
 
   useEffect(() => {
-    input.current?.focus();
+    // Only with a mouse: on an iPad or phone a focus the page makes itself can
+    // leave the box looking ready while the on-screen keyboard never opens.
+    if (window.matchMedia?.('(hover: hover) and (pointer: fine)').matches) input.current?.focus();
     void knownTags().then(setSuggest);
   }, []);
 
@@ -47,7 +49,6 @@ export function TagEditor({ item, onChange, onClose }: { item: ItemSummary; onCh
       setError(err instanceof Error ? err.message : 'That did not save');
     } finally {
       setBusy(false);
-      if ('add' in e) input.current?.focus();
     }
   }
 
@@ -62,7 +63,14 @@ export function TagEditor({ item, onChange, onClose }: { item: ItemSummary; onCh
   }
 
   const have = new Set(item.tags.map(tagKey));
-  const options = suggest.filter((s) => !have.has(tagKey(s)));
+  // Tags already in use that match what's typed: starting with it first, then containing it.
+  const typed = tagKey(cleanTagLabel(text));
+  const options = typed
+    ? suggest
+        .filter((s) => !have.has(tagKey(s)) && tagKey(s) !== typed && tagKey(s).includes(typed))
+        .sort((a, b) => Number(!tagKey(a).startsWith(typed)) - Number(!tagKey(b).startsWith(typed)))
+        .slice(0, 8)
+    : [];
 
   return (
     <div className="tagedit" role="group" aria-label="Edit tags">
@@ -101,7 +109,10 @@ export function TagEditor({ item, onChange, onClose }: { item: ItemSummary; onCh
           enterKeyHint="done"
           autoCapitalize="none"
           maxLength={MY_TAG_MAX}
-          list={listId}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          aria-describedby={options.length ? listId : undefined}
           placeholder={full ? `Up to ${ITEM_TAGS_MAX} tags` : 'Add a tag, e.g. Nuclear power'}
           aria-label="New tag"
           value={text}
@@ -111,15 +122,19 @@ export function TagEditor({ item, onChange, onClose }: { item: ItemSummary; onCh
             setError(null);
           }}
         />
-        <datalist id={listId}>
-          {options.map((s) => (
-            <option key={s} value={s} />
-          ))}
-        </datalist>
         <button type="submit" className="btn btn--primary btn--small" disabled={busy || full || !cleanTagLabel(text)}>
           Add
         </button>
       </form>
+      {options.length > 0 && (
+        <div className="tagedit__suggest" id={listId} aria-label="Tags you already use">
+          {options.map((s) => (
+            <button key={s} type="button" className="chip chip--tag chip--button" disabled={busy || full} onClick={() => void edit({ add: s })}>
+              + {s}
+            </button>
+          ))}
+        </div>
+      )}
       {error && <p className="error tagedit__error">{error}</p>}
       {item.removedTags?.length ? (
         <p className="tagedit__removed">
