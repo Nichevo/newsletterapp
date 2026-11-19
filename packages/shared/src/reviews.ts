@@ -5,6 +5,7 @@
 // connections. A review with no PC still shows its charts and lists.
 
 import type { DigestStory } from './index';
+import { DEFAULT_CATCH_UP, type CatchUpSettings } from './catchup';
 
 export type ReviewKind = 'week' | 'month';
 
@@ -66,6 +67,8 @@ export interface ReviewSettings {
   doneMarksRead: boolean;
   /** Also put each finished review in the inbox as an item. */
   inInbox: boolean;
+  /** The morning catch-up (the Day tab). */
+  catchUp: CatchUpSettings;
 }
 
 export const DEFAULT_REVIEW_SETTINGS: ReviewSettings = {
@@ -81,6 +84,7 @@ export const DEFAULT_REVIEW_SETTINGS: ReviewSettings = {
   skipCategories: [],
   doneMarksRead: false,
   inInbox: false,
+  catchUp: DEFAULT_CATCH_UP,
 };
 
 export const MAX_REVIEW_SEARCHES = 20;

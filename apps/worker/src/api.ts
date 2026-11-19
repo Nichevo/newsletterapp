@@ -57,6 +57,7 @@ import { registerKeySentences, loadKeySettings } from './keysentences';
 import { registerRefs } from './refs';
 import { registerKeyStats } from './keystats';
 import { registerReviews } from './reviews';
+import { registerCatchUp } from './catchup';
 import { registerFollow } from './follow';
 import { registerStories, toStoryInfo } from './stories';
 import { registerEmbed } from './embed';
@@ -101,7 +102,7 @@ app.get('/api/me', async (c) => {
   const me: Me = {
     email: c.get('userEmail'),
     domain: c.env.MAIL_DOMAIN || null,
-    reviewsOn: settings.reviews.weekly || settings.reviews.monthly,
+    reviewsOn: settings.reviews.weekly || settings.reviews.monthly || settings.reviews.catchUp.on,
     groupSameNews: settings.stories.groupSameNews,
     keySentencesOn: (await loadKeySettings(c.env)).enabled,
     swipe: settings.swipe ?? null,
@@ -133,6 +134,7 @@ registerProblems(app);
 registerSecurity(app);
 registerStories(app);
 registerReviews(app);
+registerCatchUp(app);
 registerFollow(app);
 registerKeySentences(app);
 registerRefs(app);

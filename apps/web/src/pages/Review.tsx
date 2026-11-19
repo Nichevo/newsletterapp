@@ -110,8 +110,19 @@ export function ReviewPage({ on }: { on: boolean }) {
     void loadList();
     void api
       .settings()
-      .then(setSettings)
+      .then((s) => {
+        setSettings(s);
+        // Only the morning catch-up is on: the Review tab is the Day tab.
+        if (!param && s.reviews.catchUp.on && !s.reviews.weekly && !s.reviews.monthly) navigate('/review/day', { replace: true });
+      })
       .catch(() => undefined);
+    // Plain /review opens the catch-up while one is waiting.
+    if (!param)
+      void api
+        .catchUpBanner()
+        .then((b) => b.banner && navigate('/review/day', { replace: true }))
+        .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const unread = (k: ReviewKind) => list?.find((r) => r.kind === k && !r.readAt) ?? null;
@@ -227,9 +238,14 @@ export function ReviewPage({ on }: { on: boolean }) {
           <span className="topbar__eyebrow">{shown ? shown.pack.label : caughtUp && list ? 'All caught up' : ''}</span>
         </div>
         <div className="rv-top">
-          {monthlyOn && (
-            <div className="segmented segmented--small" role="group" aria-label="Weekly or monthly">
-              {(['week', 'month'] as const).map((k) => (
+          {(monthlyOn || settings?.reviews.catchUp.on) && (
+            <div className="segmented segmented--small" role="group" aria-label="Day, week or month">
+              {settings?.reviews.catchUp.on && (
+                <button aria-pressed={false} onClick={() => navigate('/review/day')} className="rv-pick">
+                  Day
+                </button>
+              )}
+              {(monthlyOn ? (['week', 'month'] as const) : (['week'] as const)).map((k) => (
                 <button key={k} aria-pressed={kind === k} onClick={() => navigate(`/review/${k}`)} className="rv-pick">
                   {k === 'week' ? 'Week' : 'Month'}
                   {k !== kind && unread(k) && <i className="rv-dot" aria-label="not read yet" />}

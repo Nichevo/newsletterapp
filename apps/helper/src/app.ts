@@ -20,6 +20,8 @@ import type {
   KeyJob,
   KeyResult, RefJob, RefResult,
   ReviewJob,
+  CatchUpJob,
+  CatchUpResult,
   ReviewResult,
   StoryJob,
   StoryResult,
@@ -80,6 +82,8 @@ export class AppClient {
     this.call<{ ok: boolean }>('POST', '/api/helper/suggest/result', { results, done });
   reviewClaim = () => this.call<{ job: ReviewJob | null }>('POST', '/api/helper/review/claim', {});
   reviewResult = (r: ReviewResult) => this.call<{ ok: boolean }>('POST', '/api/helper/review/result', r);
+  catchUpClaim = () => this.call<{ job: CatchUpJob | null }>('POST', '/api/helper/catchup/claim', {});
+  catchUpResult = (r: CatchUpResult) => this.call<{ ok: boolean }>('POST', '/api/helper/catchup/result', r);
   followClaim = () => this.call<{ job: FollowJob | null; paused?: boolean }>('POST', '/api/helper/follow/claim', {});
   followResult = (r: FollowResult) => this.call<{ ok: boolean }>('POST', '/api/helper/follow/result', r);
   fetchResult = (r: FetchJobResult) => this.call<{ ok: boolean; added?: number }>('POST', '/api/helper/fetch/result', r);

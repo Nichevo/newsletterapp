@@ -124,6 +124,19 @@ export const HELP = {
   reviewDone: h('Done marks items read', [
     'Whether Mark review done also marks the lead stories and the items in the stories that moved as read. You can change it on each review.',
   ]),
+  catchUp: h('Morning catch-up', [
+    'A start-of-day review of what came in since your last visit (the last time you marked anything read), for the items you would only skim. It shows in Review > Day, with a banner at the top of the inbox.',
+    'Items you are likely to read stay in the inbox and show greyed: stories you follow, Likely interesting, saved pages, and (except on Deep) sources you often read in full. The rest is grouped into themes your PC makes, falling back to your categories, with a short overview. Clear marks a whole theme read, with Undo.',
+    'Items cleared here count as skipped, not read, in Source value and your reading statistics.',
+  ]),
+  catchUpWhen: h('When it is built', [
+    'Every morning at the hour you pick, if at least the number you set came in since your last visit. It can also be built after a long break: when you have been away for the hours you set and the pile reaches its own number.',
+    'A newer catch-up takes over from one you didn\'t finish. Build now on the Day tab makes one at any time.',
+  ]),
+  catchUpLevel: h('How much to catch', [
+    'Light takes only the top layer: Probably skip (adverts, Probably not for you, sources you often mark Not interested) and sources you nearly always skip. Normal takes everything except the likely reads. Deep also takes sources you read in full some of the time.',
+    'This sets where the dial starts; you can turn it on the catch-up itself any morning.',
+  ]),
   reviewInbox: h('Also put each review in the inbox', [
     'Adds a short article with the opening and a link to the whole review to your inbox once the PC has written it. Off: reviews only show in the Review tab.',
   ]),

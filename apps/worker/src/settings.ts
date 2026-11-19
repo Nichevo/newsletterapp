@@ -1,4 +1,6 @@
 import {
+  DEFAULT_CATCH_UP,
+  type CatchUpSettings,
   DEFAULT_SETTINGS,
   INDEX_TYPES,
   type IndexType,
@@ -232,5 +234,21 @@ export function normalizeReviews(input: unknown, base: ReviewSettings): ReviewSe
       : base.skipCategories,
     doneMarksRead: typeof r.doneMarksRead === 'boolean' ? r.doneMarksRead : base.doneMarksRead,
     inInbox: typeof r.inInbox === 'boolean' ? r.inInbox : base.inInbox,
+    catchUp: normalizeCatchUp(r.catchUp, base.catchUp ?? DEFAULT_CATCH_UP),
+  };
+}
+
+export function normalizeCatchUp(input: unknown, base: CatchUpSettings): CatchUpSettings {
+  const c = (input && typeof input === 'object' ? input : {}) as Partial<CatchUpSettings>;
+  const bool = (v: unknown, b: boolean) => (typeof v === 'boolean' ? v : b);
+  return {
+    on: bool(c.on, base.on),
+    hour: int(c.hour, 0, 23, base.hour),
+    minNew: int(c.minNew, 5, 500, base.minNew),
+    afterBreak: int(c.afterBreak, 0, 500, base.afterBreak),
+    breakHours: int(c.breakHours, 2, 48, base.breakHours),
+    banner: bool(c.banner, base.banner),
+    startLevel: c.startLevel === 1 || c.startLevel === 2 || c.startLevel === 3 ? c.startLevel : base.startLevel,
+    skipPile: bool(c.skipPile, base.skipPile),
   };
 }

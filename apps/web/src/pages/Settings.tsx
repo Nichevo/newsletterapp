@@ -1,5 +1,5 @@
 import { keysShown } from '../keySentences';
-import { AI_MAX_CHARS_CHOICES, PDF_PAGES_CHOICES, STORY_DAYS_CHOICES, MAX_REVIEW_SEARCHES, REVIEW_CHART_WEEKS, REVIEW_PARTS, MY_TAGS_TO_AI, type AppSettings, type MyTagStats, type Me, type ReviewKind, type ReviewQuality, type ReviewSettings, type Source, type SummaryKind } from '@newsletterapp/shared';
+import { AI_MAX_CHARS_CHOICES, PDF_PAGES_CHOICES, STORY_DAYS_CHOICES, MAX_REVIEW_SEARCHES, REVIEW_CHART_WEEKS, REVIEW_PARTS, MY_TAGS_TO_AI, CATCH_UP_LEVELS, type CatchUpSettings, type AppSettings, type MyTagStats, type Me, type ReviewKind, type ReviewQuality, type ReviewSettings, type Source, type SummaryKind } from '@newsletterapp/shared';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
@@ -98,7 +98,7 @@ export function SettingsPage({
   }, []);
 
   // Shows or hides the Review tab as soon as a switch is saved (or put back after a failed save).
-  const reviewsOn = settings ? settings.reviews.weekly || settings.reviews.monthly : undefined;
+  const reviewsOn = settings ? settings.reviews.weekly || settings.reviews.monthly || settings.reviews.catchUp.on : undefined;
   useEffect(() => {
     if (reviewsOn !== undefined) onReviewsChange(reviewsOn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -820,9 +820,94 @@ function ReviewsSection({ settings, onSave }: { settings: AppSettings; onSave: (
     }
   }
 
+  const cu = r.catchUp;
+  const saveCatchUp = (patch: Partial<CatchUpSettings>) => saveReviews({ catchUp: { ...cu, ...patch } });
+
   return (
     <div className="section">
       <span className="label">Reviews</span>
+      <section className="card">
+        <OptionSwitch label="Morning catch-up" help="catchUp" value={cu.on} onChange={(v) => void saveCatchUp({ on: v })} />
+        <span className="hint">
+          What came in since your last visit, grouped into themes to skim and clear. Likely reads stay in the inbox. It shows in Review › Day.
+        </span>
+        {cu.on && (
+          <>
+            <div className="inline" style={{ flexWrap: 'wrap' }}>
+              <div className="field" style={{ flex: 1, minWidth: 110 }}>
+                <label htmlFor="cu-hour">
+                  Built at<Help topic="catchUpWhen" />
+                </label>
+                <select id="cu-hour" className="input" value={cu.hour} onChange={(e) => void saveCatchUp({ hour: Number(e.target.value) })}>
+                  {HOURS.map((h) => (
+                    <option key={h} value={h}>
+                      {hourLabel(h)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field" style={{ flex: 1, minWidth: 130 }}>
+                <label htmlFor="cu-min">When at least</label>
+                <select id="cu-min" className="input" value={cu.minNew} onChange={(e) => void saveCatchUp({ minNew: Number(e.target.value) })}>
+                  {[...new Set([10, 15, 25, 40, 60, 100, cu.minNew])].sort((a, b) => a - b).map((n) => (
+                    <option key={n} value={n}>
+                      {n} new
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="inline" style={{ flexWrap: 'wrap' }}>
+              <div className="field" style={{ flex: 1, minWidth: 130 }}>
+                <label htmlFor="cu-break">Also after a break, when</label>
+                <select id="cu-break" className="input" value={cu.afterBreak} onChange={(e) => void saveCatchUp({ afterBreak: Number(e.target.value) })}>
+                  {[...new Set([0, 25, 40, 60, 100, cu.afterBreak])].sort((a, b) => a - b).map((n) => (
+                    <option key={n} value={n}>
+                      {n === 0 ? 'Never' : `${n} pile up`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {cu.afterBreak > 0 && (
+                <div className="field" style={{ flex: 1, minWidth: 130 }}>
+                  <label htmlFor="cu-hours">While you are away</label>
+                  <select id="cu-hours" className="input" value={cu.breakHours} onChange={(e) => void saveCatchUp({ breakHours: Number(e.target.value) })}>
+                    {[...new Set([3, 4, 6, 8, 12, 24, cu.breakHours])].sort((a, b) => a - b).map((n) => (
+                      <option key={n} value={n}>
+                        {n}+ hours
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            <div className="switchrow">
+              <span style={{ fontSize: 14 }}>
+                How much to catch<Help topic="catchUpLevel" />
+              </span>
+              <div className="segmented" role="group" aria-label="Where the dial starts" style={{ width: 240 }}>
+                {CATCH_UP_LEVELS.map((x) => (
+                  <button key={x.level} aria-pressed={cu.startLevel === x.level} onClick={() => void saveCatchUp({ startLevel: x.level })}>
+                    {x.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <span className="hint">Where the dial starts. You can turn it on the catch-up itself any morning.</span>
+            <OptionSwitch label="Show a banner in the inbox when one is ready" value={cu.banner} onChange={(v) => void saveCatchUp({ banner: v })} />
+            <OptionSwitch
+              label="Clear the Probably skip pile as Not interested (teaches the app)"
+              value={cu.skipPile}
+              onChange={(v) => void saveCatchUp({ skipPile: v })}
+            />
+            <div className="inline">
+              <Link to="/review/day" className="btn btn--ghost btn--small">
+                Open the catch-up
+              </Link>
+            </div>
+          </>
+        )}
+      </section>
       <section className="card">
         <span className="hint">
           A look back over the week (and, if you like, the month): stories that moved, how your topics are trending, source changes, what you

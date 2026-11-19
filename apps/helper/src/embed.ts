@@ -79,6 +79,11 @@ export class Embeddings {
     return this.items.size;
   }
 
+  /** An item's stored vector (unit length), if it has been embedded. */
+  vectorOf(id: string): Float32Array | undefined {
+    return this.items.get(id)?.v;
+  }
+
   /** Reads the store, starting a new one when there is none or it was made with another model. */
   private load() {
     try {

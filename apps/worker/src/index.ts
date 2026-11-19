@@ -5,6 +5,7 @@ import { handleEmail } from './email';
 import type { Env } from './env';
 import { runFeedChecks } from './feeds';
 import { buildReviewsIfDue } from './reviews';
+import { buildCatchUpIfDue } from './catchup';
 import { scoreRecentItems } from './scoring';
 import { runSecurityChecks } from './security';
 import { runStatusChecks } from './status';
@@ -24,6 +25,8 @@ export default {
     if (event.cron === HOURLY) {
       await scoreRecentItems(env);
       await buildReviewsIfDue(env).catch((err: unknown) => console.error('reviews failed', err));
+      // Morning catch-up: at its hour, or after a long break with a big pile.
+      await buildCatchUpIfDue(env).catch((err: unknown) => console.error('catch-up failed', err));
       await tidyDeleted(env).catch((err: unknown) => console.error('tidying deleted items failed', err));
       await tidyLog(env).catch((err: unknown) => console.error('tidying the app log failed', err));
       // Security alerts (Settings > Security alerts): HIBP's newest breach and a few detail refreshes.

@@ -1087,6 +1087,7 @@ const READ_VIA_LABEL: Record<NonNullable<ItemSummary['readVia']>, string> = {
   bulk: 'Marked read with its newsletter',
   digest: 'Marked read from the digest',
   not_interested: 'Marked not interested',
+  catchup: 'Cleared in the morning catch-up',
 };
 
 /** "Read on phone, Thu 30 Oct 9:12" or "Marked read from the digest on desktop, …". */

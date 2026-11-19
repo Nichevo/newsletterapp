@@ -12,6 +12,7 @@ import { log, pendingEvents, report, sentEvents } from './log';
 import { siteOfUrl } from './sites';
 import { runFollow } from './follow';
 import { runReview } from './reviews';
+import { runCatchUp } from './catchup';
 import { runSuggestions } from './suggest';
 import { findProvider, providersFrom, type Provider } from './providers';
 import { currentLoad, powerMeter } from './system';
@@ -603,6 +604,9 @@ async function tick(): Promise<number> {
   // Story notes after embeddings, since items join stories once they're embedded.
   doing('story notes');
   await storyNotes(config).catch(failed('story notes'));
+  // Morning catch-up next, since you may be waiting on it: themes from the embeddings, then one model call to name them.
+  doing('morning catch-up');
+  await runCatchUp(config, app, providers, embeddings, doing).catch(failed('catch-up'));
   // Key sentences after the summaries: they're only for articles already summarised.
   doing('key sentences');
   await keySentences(config).catch(failed('key sentences'));
