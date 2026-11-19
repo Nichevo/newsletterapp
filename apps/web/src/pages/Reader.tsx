@@ -1,4 +1,4 @@
-import type { AskPreset, FetchPageStatus, Highlight, ItemBody, ItemHighlights, ItemSummary, UnsubscribeResult } from '@newsletterapp/shared';
+import type { AskPreset, CatchUpThemeRef, FetchPageStatus, Highlight, ItemBody, ItemHighlights, ItemSummary, UnsubscribeResult } from '@newsletterapp/shared';
 import { fileFilterOf, fileTag } from '@newsletterapp/shared';
 import { noteDeleted } from '../deleted';
 import { TagChip } from '../components/TagChip';
@@ -27,6 +27,18 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
   const navigate = useNavigate();
   const location = useLocation();
   const [item, setItem] = useState<ItemSummary | null>(null);
+  // The morning catch-up theme it was last grouped under (kept apart from tags).
+  const [theme, setTheme] = useState<{ itemId: string; ref: CatchUpThemeRef } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api
+      .itemCatchUpTheme(id)
+      .then((r) => alive && setTheme(r.theme ? { itemId: id, ref: r.theme } : null))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [id]);
   const [body, setBody] = useState<ItemBody | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadImages, setLoadImages] = useState(false);
@@ -232,6 +244,11 @@ export function ReaderPage({ onChanged, keySentencesOn = false }: { onChanged: (
             {item.tags.map((t) => (
               <TagChip key={t} tag={t} count={item.tagCounts?.[t]} mine={item.myTags?.includes(t)} />
             ))}
+            {theme && theme.itemId === item.id && (
+              <Link className="chip chip--theme" to={`/review/day/${theme.ref.catchUpId}/${theme.ref.themeId}`} title="The morning catch-up theme it was grouped under">
+                Catch-up theme: {theme.ref.name}
+              </Link>
+            )}
             {item.kind !== 'ai' && (
               <button
                 type="button"

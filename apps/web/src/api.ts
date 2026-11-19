@@ -64,6 +64,7 @@ import type {
   CatchUp,
   CatchUpBanner,
   CatchUpListItem,
+  CatchUpThemeRef,
   ReviewQuality,
   CategorySuggestion,
   ReviewFinding,
@@ -327,6 +328,10 @@ export const api = {
   catchUpUnclear: (id: string, ids: string[]) => post<{ restored: number }>(`/api/catchup/${id}/unclear`, { ids }),
   catchUpDone: (id: string) => post<{ doneAt: number }>(`/api/catchup/${id}/done`),
   catchUpRetry: (id: string) => post<{ status: string }>(`/api/catchup/${id}/retry`),
+  catchUpUndone: (id: string) => post<{ doneAt: null }>(`/api/catchup/${id}/undone`),
+  catchUpThemeTag: (key: string, tag: string | null) =>
+    post<{ tagged: number }>('/api/catchup/theme-tag', tag ? { key, tag, action: 'tag' } : { key, action: 'no' }),
+  itemCatchUpTheme: (id: string) => get<{ theme: CatchUpThemeRef | null }>(`/api/items/${id}/catchup-theme`),
   reviews: () => get<ReviewListItem[]>('/api/reviews'),
   review: (id: string) => get<Review>(`/api/reviews/${id}`),
   reviewQuality: () => get<ReviewQuality>('/api/reviews/quality'),

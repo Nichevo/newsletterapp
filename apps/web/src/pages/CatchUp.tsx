@@ -1,6 +1,6 @@
 import { CATCH_UP_LEVELS, type AppSettings, type CatchUp, type CatchUpItem, type CatchUpLevel, type CatchUpListItem } from '@newsletterapp/shared';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { shortTime } from '../format';
 
@@ -38,6 +38,8 @@ const hourText = (h: number) => `${((h + 11) % 12) + 1} ${h < 12 ? 'am' : 'pm'}`
 interface Toast {
   text: string;
   ids: string[];
+  /** Undo puts the catch-up back (Done) rather than the items. */
+  done?: boolean;
 }
 
 /** /review/day: loads the settings the page needs for its tabs and wording. */
@@ -60,6 +62,8 @@ export function CatchUpPage({ settings }: { settings: AppSettings | null }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [tagNames, setTagNames] = useState<Record<string, string>>({});
+  const [tagNote, setTagNote] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
 
   const load = useCallback(
@@ -145,9 +149,40 @@ export function CatchUpPage({ settings }: { settings: AppSettings | null }) {
   async function undo(t: Toast) {
     if (!cu) return;
     setToast(null);
+    if (t.done) {
+      await api.catchUpUndone(cu.id).catch(() => undefined);
+      setCu((c) => (c ? { ...c, doneAt: null } : c));
+      return;
+    }
     await api.catchUpUnclear(cu.id, t.ids).catch(() => undefined);
     setGone((g) => new Set([...g].filter((id) => !t.ids.includes(id))));
     setCu((c) => (c ? { ...c, doneAt: null } : c));
+  }
+
+  /** Done: closes the catch-up; anything not cleared stays unread in the inbox. */
+  async function finish() {
+    if (!cu) return;
+    setBusy(true);
+    try {
+      const r = await api.catchUpDone(cu.id);
+      setCu((c) => (c ? { ...c, doneAt: r.doneAt } : c));
+      setToast({ text: `Done. ${plural(left.length, 'item')} left in your inbox`, ids: [], done: true });
+      window.scrollTo({ top: 0 });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not finish it');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answerTag(key: string, tag: string | null) {
+    try {
+      const r = await api.catchUpThemeTag(key, tag);
+      setTagNote(tag ? `Tagged ${plural(r.tagged, 'article')} “${tag}”.` : 'Okay, it won’t be suggested again.');
+      setCu((c) => (c ? { ...c, tagSuggestions: c.tagSuggestions.filter((x) => x.key !== key) } : c));
+    } catch (err) {
+      setTagNote(err instanceof Error ? err.message : 'Could not save that');
+    }
   }
 
   /** Clear all: every theme still showing, and the Probably skip pile (as Not interested). */
@@ -276,8 +311,13 @@ export function CatchUpPage({ settings }: { settings: AppSettings | null }) {
         {header}
         <div className="rv rv-caught">
           <div className="empty">
-            <h2>{cu ? 'All clear' : 'No catch-up yet'}</h2>
+            <h2>{!cu ? 'No catch-up yet' : left.length > 0 ? 'Done' : 'All clear'}</h2>
             {cu && cleared > 0 && <p>{plural(cleared, 'item')} from this catch-up cleared or read.</p>}
+            {cu?.doneAt && left.length > 0 && (
+              <p>
+                <Link to="/">{plural(left.length, 'item')} you didn't clear</Link> {left.length === 1 ? 'is' : 'are'} still unread in your inbox.
+              </p>
+            )}
             {cu && kept.length > 0 && (
               <p>
                 <Link to="/">{plural(kept.length, 'likely read')} waiting in your inbox</Link>
@@ -356,6 +396,38 @@ export function CatchUpPage({ settings }: { settings: AppSettings | null }) {
           )}
         </section>
 
+        {(cu.tagSuggestions.length > 0 || tagNote) && (
+          <section className="rv-sec">
+            {cu.tagSuggestions.map((sg) => {
+              const name = tagNames[sg.key] ?? sg.tag;
+              return (
+                <div key={sg.key} className="cu-suggest">
+                  <span>
+                    <b>{sg.name}</b> came up on {sg.mornings} mornings ({plural(sg.items, 'article')}). Make it a tag on all of them?
+                  </span>
+                  <input
+                    id={`cu-tag-${sg.key}`}
+                    className="input"
+                    aria-label="Tag name"
+                    value={name}
+                    maxLength={40}
+                    onChange={(e) => setTagNames((m) => ({ ...m, [sg.key]: e.target.value }))}
+                  />
+                  <div className="inline">
+                    <button className="btn btn--primary btn--small" disabled={!name.trim()} onClick={() => void answerTag(sg.key, name.trim())}>
+                      Make it a tag
+                    </button>
+                    <button className="btn btn--ghost btn--small" onClick={() => void answerTag(sg.key, null)}>
+                      No thanks
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {tagNote && <span className="hint">{tagNote}</span>}
+          </section>
+        )}
+
         <section className="rv-sec">
           <h2 className="rv-h">
             <span>Themes</span>
@@ -369,7 +441,7 @@ export function CatchUpPage({ settings }: { settings: AppSettings | null }) {
             const storyRows = [...stories].filter(([, s]) => s.n >= 2);
             const loose = t.clear.filter((i) => !i.storyId || !storyRows.some(([sid]) => sid === i.storyId));
             return (
-              <article key={t.id} className="cu-theme">
+              <article key={t.id} id={`theme-${t.id}`} className="cu-theme">
                 <div className="cu-theme__hd">
                   <h3>{t.name}</h3>
                   {t.fromCategory && <span className="chip">your category</span>}
@@ -468,11 +540,71 @@ export function CatchUpPage({ settings }: { settings: AppSettings | null }) {
       </div>
       <div className="cu-bar">
         <span>{plural(left.length, 'item')} left to skim</span>
-        <button className="btn btn--primary btn--small" disabled={busy} onClick={() => void clearAll()}>
-          Clear all {left.length}
-        </button>
+        <div className="inline">
+          <button className="btn btn--ghost btn--small" disabled={busy} title="Close the catch-up; what you didn't clear stays in your inbox" onClick={() => void finish()}>
+            Done
+          </button>
+          <button className="btn btn--primary btn--small" disabled={busy} onClick={() => void clearAll()}>
+            Clear all {left.length}
+          </button>
+        </div>
       </div>
       {toastEl}
+    </div>
+  );
+}
+
+/** /review/day/:id/:themeId — one morning's theme, from an article's theme chip: everything grouped under it, read or not. */
+export function CatchUpThemePage() {
+  const { id = '', themeId = '' } = useParams();
+  const [cu, setCu] = useState<CatchUp | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .catchUpOne(id)
+      .then(setCu)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load it'));
+  }, [id]);
+  const theme = cu?.themes.find((t) => t.id === themeId) ?? null;
+  const byId = new Map((cu?.items ?? []).map((i) => [i.id, i]));
+  const gone = new Set(cu?.goneIds ?? []);
+  return (
+    <div className="page">
+      <header className="topbar">
+        <div className="topbar__titles">
+          <h1>{theme?.name ?? 'Catch-up theme'}</h1>
+          <span className="topbar__eyebrow">{cu ? `Morning catch-up, ${shortTime(cu.builtAt)}` : ''}</span>
+        </div>
+      </header>
+      <div className="rv cu">
+        {error && <div className="error">{error}</div>}
+        {!cu && !error && <div className="spinner">Loading…</div>}
+        {cu && !theme && <div className="empty">That theme is no longer there.</div>}
+        {theme && (
+          <section className="rv-sec">
+            {theme.gist && <p className="cu-theme__gist">{theme.gist}</p>}
+            <ul className="cu-rows">
+              {theme.itemIds
+                .map((x) => byId.get(x))
+                .filter((i): i is CatchUpItem => !!i)
+                .map((i) => (
+                  <li key={i.id}>
+                    <Link to={`/item/${i.id}`}>{i.subject}</Link>
+                    {i.line && <p>{i.line}</p>}
+                    <span className="cu-rows__meta">
+                      {i.sourceName ?? ''} · {shortTime(i.receivedAt)} · {gone.has(i.id) ? 'read or cleared' : 'unread'}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+            {!cu?.doneAt && (
+              <Link className="btn btn--small" to="/review/day">
+                Open the catch-up
+              </Link>
+            )}
+          </section>
+        )}
+      </div>
     </div>
   );
 }
