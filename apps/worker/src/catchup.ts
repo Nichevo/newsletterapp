@@ -8,8 +8,11 @@ import type {
   CatchUpListItem,
   CatchUpResult,
   CatchUpSettings,
+  CatchUpTagSuggestion,
   CatchUpTheme,
+  CatchUpThemeRef,
 } from '@newsletterapp/shared';
+import { THEME_TAG_DAYS, THEME_TAG_MORNINGS, tagKey } from '@newsletterapp/shared';
 import type { Hono } from 'hono';
 import { deviceOf, markRead } from './api';
 import { isSavedPages, parseList, storyTitle } from './db';
@@ -17,6 +20,7 @@ import { levelSql, unreadCutoff } from './depth';
 import { dayKey, localHour } from './digest';
 import type { AppVariables, Env } from './env';
 import { newId, now } from './ids';
+import { addTagToItems } from './my-tags';
 import { loadSettings } from './settings';
 
 // Morning catch-up: a start-of-day review of what came in since your last
@@ -303,7 +307,33 @@ async function loadCatchUp(env: Env, id: string, settings?: CatchUpSettings): Pr
     notInterested: row.not_interested,
     startLevel: c.startLevel,
     skipPile: c.skipPile,
+    tagSuggestions: await tagSuggestions(env),
   };
+}
+
+/**
+ * Themes the PC named on THEME_TAG_MORNINGS or more mornings in the last
+ * THEME_TAG_DAYS, not answered before and not already a tag: offered once each.
+ */
+async function tagSuggestions(env: Env): Promise<CatchUpTagSuggestion[]> {
+  const rows = await env.DB.prepare(
+    `SELECT key, MAX(name) AS name, COUNT(DISTINCT catchup_id) AS mornings, SUM(items) AS items
+     FROM catchup_themes INDEXED BY catchup_themes_recent
+     WHERE built_at >= ? AND key NOT IN (SELECT key FROM theme_tag_choices)
+     GROUP BY key HAVING mornings >= ? ORDER BY mornings DESC, items DESC LIMIT 6`,
+  )
+    .bind(now() - THEME_TAG_DAYS * DAY, THEME_TAG_MORNINGS)
+    .all<{ key: string; name: string; mornings: number; items: number }>();
+  if (!rows.results.length) return [];
+  const tags = rows.results.map((r) => tagKey(r.name));
+  const have = await env.DB.prepare(`SELECT tag FROM tag_counts WHERE tag IN (${tags.map(() => '?').join(',')})`)
+    .bind(...tags)
+    .all<{ tag: string }>();
+  const exists = new Set(have.results.map((r) => r.tag));
+  return rows.results
+    .filter((r) => !exists.has(tagKey(r.name)))
+    .slice(0, 2)
+    .map((r) => ({ key: r.key, name: r.name, tag: r.name.toLowerCase(), mornings: r.mornings, items: r.items }));
 }
 
 /** For /api/me: the inbox banner, when a catch-up is ready and not done. Reads one row. */
@@ -366,7 +396,16 @@ async function claimJob(env: Env): Promise<CatchUpJob | null> {
     storyId: it.storyId,
   }));
   const settings = await loadSettings(env);
-  return { catchUpId: row.id, prompt: PROMPT, items, categories: settings.categories };
+  const recent = await env.DB.prepare(
+    'SELECT MAX(name) AS name FROM catchup_themes INDEXED BY catchup_themes_recent WHERE built_at >= ? GROUP BY key ORDER BY MAX(built_at) DESC LIMIT 40',
+  )
+    .bind(now() - THEME_TAG_DAYS * DAY)
+    .all<{ name: string }>();
+  const recentThemes = recent.results.map((r) => r.name);
+  const prompt = recentThemes.length
+    ? `${PROMPT}\n- Themes from earlier mornings: ${recentThemes.map((n) => `"${n.replace(/"/g, "'")}"`).join(', ')}. When a group is about the same thing as one of these, use that exact name, so a theme that keeps coming back keeps its name.`
+    : PROMPT;
+  return { catchUpId: row.id, prompt, items, categories: settings.categories, recentThemes };
 }
 
 async function saveResult(env: Env, r: CatchUpResult): Promise<void> {
@@ -400,6 +439,34 @@ async function saveResult(env: Env, r: CatchUpResult): Promise<void> {
   await env.DB.prepare("UPDATE catchups SET written = ?, status = 'done', error = NULL, claimed_at = NULL, seconds = ? WHERE id = ?")
     .bind(JSON.stringify(written), Number(r.seconds) || null, row.id)
     .run();
+  await storeThemes(env, row, themes.filter((t) => !t.fromCategory));
+}
+
+/** Keeps the PC's themes (not the category fallbacks) for the reader's theme chip and the tag suggestions. */
+async function storeThemes(env: Env, row: Row, themes: CatchUpTheme[]): Promise<void> {
+  const stmts = [env.DB.prepare('DELETE FROM catchup_themes WHERE catchup_id = ?').bind(row.id)];
+  for (const t of themes) {
+    stmts.push(
+      env.DB.prepare('INSERT INTO catchup_themes (catchup_id, theme_id, name, key, built_at, items) VALUES (?, ?, ?, ?, ?, ?)').bind(
+        row.id,
+        t.id,
+        t.name,
+        t.name.toLowerCase().replace(/\s+/g, ' ').trim(),
+        row.built_at,
+        t.itemIds.length,
+      ),
+    );
+    for (let i = 0; i < t.itemIds.length; i += 30) {
+      const chunk = t.itemIds.slice(i, i + 30);
+      stmts.push(
+        env.DB.prepare(
+          `INSERT INTO catchup_item_themes (item_id, catchup_id, theme_id) VALUES ${chunk.map(() => '(?, ?, ?)').join(', ')}
+           ON CONFLICT(item_id) DO UPDATE SET catchup_id = excluded.catchup_id, theme_id = excluded.theme_id`,
+        ).bind(...chunk.flatMap((id) => [id, row.id, t.id])),
+      );
+    }
+  }
+  await env.DB.batch(stmts);
 }
 
 /** For the helper's check-in: whether a catch-up is waiting for its themes. */
@@ -431,6 +498,45 @@ export function registerCatchUp(app: App) {
 
   /** The inbox banner: a catch-up that is ready and not done. */
   app.get('/api/catchup/banner', async (c) => c.json({ banner: await catchUpBanner(c.env, (await loadSettings(c.env)).reviews.catchUp) }));
+
+  /** The reader's theme chip: the catch-up theme this article was last grouped under. */
+  app.get('/api/items/:id/catchup-theme', async (c) => {
+    const r = await c.env.DB.prepare(
+      `SELECT t.catchup_id, t.theme_id, t.name, t.built_at FROM catchup_item_themes it
+       JOIN catchup_themes t ON t.catchup_id = it.catchup_id AND t.theme_id = it.theme_id WHERE it.item_id = ?`,
+    )
+      .bind(c.req.param('id'))
+      .first<{ catchup_id: string; theme_id: string; name: string; built_at: number }>();
+    const ref: CatchUpThemeRef | null = r ? { catchUpId: r.catchup_id, themeId: r.theme_id, name: r.name, builtAt: r.built_at } : null;
+    return c.json({ theme: ref });
+  });
+
+  /** Answers "make this theme a tag?": tag puts it on every article grouped under it; no stops asking. */
+  app.post('/api/catchup/theme-tag', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { key?: unknown; tag?: unknown; action?: unknown };
+    const key = typeof body.key === 'string' ? body.key.slice(0, 120) : '';
+    if (!key) return c.json({ error: 'no theme' }, 400);
+    const t = now();
+    if (body.action !== 'tag') {
+      await c.env.DB.prepare("INSERT INTO theme_tag_choices (key, choice, tag, at) VALUES (?, 'no', NULL, ?) ON CONFLICT(key) DO UPDATE SET choice = 'no', at = ?")
+        .bind(key, t, t)
+        .run();
+      return c.json({ tagged: 0 });
+    }
+    const label = typeof body.tag === 'string' ? body.tag : '';
+    if (!tagKey(label)) return c.json({ error: 'Type a tag first' }, 400);
+    const ids = await c.env.DB.prepare(
+      `SELECT DISTINCT it.item_id FROM catchup_themes t INDEXED BY catchup_themes_key
+       JOIN catchup_item_themes it ON it.catchup_id = t.catchup_id AND it.theme_id = t.theme_id WHERE t.key = ? LIMIT 1000`,
+    )
+      .bind(key)
+      .all<{ item_id: string }>();
+    const tagged = await addTagToItems(c.env, ids.results.map((r) => r.item_id), label);
+    await c.env.DB.prepare("INSERT INTO theme_tag_choices (key, choice, tag, at) VALUES (?, 'tag', ?, ?) ON CONFLICT(key) DO UPDATE SET choice = 'tag', tag = ?, at = ?")
+      .bind(key, label, t, label, t)
+      .run();
+    return c.json({ tagged });
+  });
 
   app.get('/api/catchup/:id', async (c) => {
     const r = await loadCatchUp(c.env, c.req.param('id'));
@@ -495,6 +601,12 @@ export function registerCatchUp(app: App) {
     const t = now();
     await c.env.DB.prepare('UPDATE catchups SET done_at = COALESCE(done_at, ?) WHERE id = ?').bind(t, c.req.param('id')).run();
     return c.json({ doneAt: t });
+  });
+
+  /** Undo for Done: the catch-up shows again. */
+  app.post('/api/catchup/:id/undone', async (c) => {
+    await c.env.DB.prepare('UPDATE catchups SET done_at = NULL, replaced = 0 WHERE id = ?').bind(c.req.param('id')).run();
+    return c.json({ doneAt: null });
   });
 
   app.post('/api/catchup/:id/retry', async (c) => {

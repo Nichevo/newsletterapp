@@ -60,6 +60,40 @@ export async function tagCountsFor(env: Env, tags: string[]): Promise<Record<str
   return Object.fromEntries(tags.map((t) => [t, n.get(tagKey(t)) ?? 1]));
 }
 
+/**
+ * Puts your tag on many items at once (a catch-up theme you made a lasting tag).
+ * Kept in tag_edits like a tag added in the reader, so it survives the AI running again.
+ * Items already at the most tags, or deleted, are skipped. Returns how many got it.
+ */
+export async function addTagToItems(env: Env, ids: string[], raw: string): Promise<number> {
+  const label = cleanTagLabel(raw);
+  const key = tagKey(label);
+  if (!key) return 0;
+  let n = 0;
+  for (let i = 0; i < ids.length; i += 40) {
+    const chunk = ids.slice(i, i + 40);
+    const rows = await env.DB.prepare(`SELECT id, tags FROM items WHERE id IN (${chunk.map(() => '?').join(',')}) AND deleted_at IS NULL`)
+      .bind(...chunk)
+      .all<{ id: string; tags: string | null }>();
+    const stmts: D1PreparedStatement[] = [];
+    for (const r of rows.results) {
+      const current = parseList(r.tags);
+      if (current.some((t) => tagKey(t) === key) || current.length >= ITEM_TAGS_MAX) continue;
+      const tags = [...current, label];
+      stmts.push(
+        env.DB.prepare(
+          `INSERT INTO tag_edits (item_id, tag, label, action, at) VALUES (?1, ?2, ?3, 'add', ?4)
+           ON CONFLICT(item_id, tag) DO UPDATE SET label = ?3, action = 'add', at = ?4`,
+        ).bind(r.id, key, label, now()),
+        env.DB.prepare('UPDATE items SET tags = ? WHERE id = ?').bind(JSON.stringify(tags), r.id),
+      );
+      n++;
+    }
+    if (stmts.length) await env.DB.batch(stmts);
+  }
+  return n;
+}
+
 export function registerMyTags(app: App) {
   /** Settings: how many tags you've added, and which of them the AI has put on items itself lately. */
   app.get('/api/my-tags/stats', async (c) => {

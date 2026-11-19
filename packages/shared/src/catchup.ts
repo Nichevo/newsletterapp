@@ -100,6 +100,8 @@ export interface CatchUp {
   notInterested: number;
   startLevel: CatchUpLevel;
   skipPile: boolean;
+  /** Themes that keep coming back, offered once as lasting tags. */
+  tagSuggestions: CatchUpTagSuggestion[];
 }
 
 export interface CatchUpListItem {
@@ -132,6 +134,8 @@ export interface CatchUpJobItem {
 
 export interface CatchUpJob {
   catchUpId: string;
+  /** Theme names from earlier mornings, so the PC reuses a name when a group is about the same thing. */
+  recentThemes?: string[];
   prompt: string;
   items: CatchUpJobItem[];
   /** The owner's categories, for the fallback groups. */
@@ -149,3 +153,26 @@ export interface CatchUpResult {
   overview?: string;
   themes?: { name: string; gist: string; fromCategory: boolean; itemIds: string[] }[];
 }
+
+/** The catch-up theme an article was last grouped under (the reader's theme chip). */
+export interface CatchUpThemeRef {
+  catchUpId: string;
+  themeId: string;
+  name: string;
+  builtAt: number;
+}
+
+/** A theme that keeps coming back across mornings, offered once as a lasting tag. */
+export interface CatchUpTagSuggestion {
+  /** The theme's name, lower-cased: how mornings are matched. */
+  key: string;
+  name: string;
+  /** The tag it would become (you can change it). */
+  tag: string;
+  mornings: number;
+  items: number;
+}
+
+/** Mornings within THEME_TAG_DAYS a theme must come back on before it is offered as a tag. */
+export const THEME_TAG_MORNINGS = 3;
+export const THEME_TAG_DAYS = 21;

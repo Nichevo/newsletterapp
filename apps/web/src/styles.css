@@ -4829,3 +4829,22 @@ a.chip { text-decoration: none; }
 .cu-bar ~ .toast {
   bottom: calc(76px + var(--safe-bottom) - var(--vv-gap) + 64px);
 }
+
+/* Catch-up theme chip on articles, and lasting-tag suggestions */
+.chip--theme {
+  background: var(--teal-tint);
+  color: var(--teal-ink);
+  text-decoration: none;
+}
+.cu-suggest {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 12px 0;
+}
+.cu-suggest input {
+  max-width: 320px;
+}
