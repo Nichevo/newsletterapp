@@ -1,5 +1,5 @@
 import { SavedTabs } from './Highlights';
-import type { ItemListResponse, ItemSummary, ItemView, Me, SavedFilter, Source } from '@newsletterapp/shared';
+import type { CatchUpBanner, ItemListResponse, ItemSummary, ItemView, Me, SavedFilter, Source } from '@newsletterapp/shared';
 import { FILE_FILTERS, KEY_KINDS } from '@newsletterapp/shared';
 import { useGlanceTracker } from '../glance';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -81,6 +81,21 @@ export function InboxPage({
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Morning catch-up waiting (Review > Day), unless put off on this device.
+  const [catchUp, setCatchUp] = useState<CatchUpBanner | null>(null);
+  useEffect(() => {
+    if (mode !== 'inbox' || !me.reviewsOn) return;
+    let put = '';
+    try {
+      put = localStorage.getItem('catchup:notNow') ?? '';
+    } catch {
+      // storage blocked: always show it
+    }
+    api
+      .catchUpBanner()
+      .then((r) => setCatchUp(r.banner && r.banner.id !== put ? r.banner : null))
+      .catch(() => undefined);
+  }, [mode, me.reviewsOn]);
   const [sources, setSources] = useState<Source[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [savedFilters, setSavedFilters] = useState<SavedFilter[] | null>(null);
@@ -509,6 +524,35 @@ export function InboxPage({
           </div>
           <span className="btn btn--small">Security</span>
         </Link>
+      )}
+
+      {mode === 'inbox' && catchUp && (
+        <div className="notice notice--teal-tint">
+          <Link to="/review/day" className="notice__text" style={{ color: 'inherit', textDecoration: 'none' }}>
+            <span className="notice__title">Morning catch-up: {catchUp.toSkim} to skim</span>
+            <span className="notice__sub">
+              Grouped into themes you can clear in one tap.{catchUp.kept > 0 ? ` ${catchUp.kept} likely reads stay here.` : ''}
+            </span>
+          </Link>
+          <div className="inline" style={{ flex: 'none' }}>
+            <button
+              className="btn btn--ghost btn--small"
+              onClick={() => {
+                try {
+                  localStorage.setItem('catchup:notNow', catchUp.id);
+                } catch {
+                  // storage blocked: it just shows again next time
+                }
+                setCatchUp(null);
+              }}
+            >
+              Not now
+            </button>
+            <Link to="/review/day" className="btn btn--primary btn--small">
+              Start
+            </Link>
+          </div>
+        </div>
       )}
 
       {mode === 'inbox' && counts.pendingSenders > 0 && (

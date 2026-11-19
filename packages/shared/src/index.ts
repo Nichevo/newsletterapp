@@ -11,6 +11,7 @@ export * from './highlights';
 export * from './files';
 export * from './keysentences';
 export * from './reviews';
+export * from './catchup';
 export * from './status';
 export * from './follow';
 export * from './doubles';
@@ -172,7 +173,7 @@ export interface ItemStory {
   followed: boolean;
 }
 
-export type ReadVia = 'reader' | 'swipe' | 'bulk' | 'digest' | 'not_interested';
+export type ReadVia = 'reader' | 'swipe' | 'bulk' | 'digest' | 'not_interested' | 'catchup';
 export type ReadDevice = 'phone' | 'desktop';
 
 /** Why an item was linked into its story, for "Why these are linked" on the story page. */
@@ -1140,7 +1141,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.12.0';
+export const HELPER_VERSION = '0.13.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
@@ -1183,6 +1184,8 @@ export interface HelperConfig {
   reviewWaiting?: boolean;
   /** A Find a way to follow lookup waiting for the PC (helpers from 0.10.0). */
   followWaiting?: boolean;
+  /** A morning catch-up waiting for its themes and overview (helpers from 0.13.0). */
+  catchUpWaiting?: boolean;
 }
 
 /** One item for the helper to embed: its text and when it arrived. */

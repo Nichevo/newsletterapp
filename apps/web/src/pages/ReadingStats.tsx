@@ -17,7 +17,7 @@ const ago = (at: number | null) => {
   return days === 0 ? 'today' : days === 1 ? 'yesterday' : days < 30 ? `${days} days ago` : shortDate(at);
 };
 
-const VIA_LABEL = { reader: 'Read in the reader', swipe: 'Swiped or marked read', digest: 'Marked read from the digest', bulk: 'Marked read in bulk', not_interested: 'Marked not interested' } as const;
+const VIA_LABEL = { reader: 'Read in the reader', swipe: 'Swiped or marked read', digest: 'Marked read from the digest', bulk: 'Marked read in bulk', not_interested: 'Marked not interested', catchup: 'Cleared in the morning catch-up' } as const;
 const DEVICE_LABEL = { phone: 'On the phone', desktop: 'On a PC' } as const;
 const KIND_LABEL = { newsletter: 'Newsletters', feed: 'Feeds', site: 'Websites', ai: 'AI notes' } as const;
 

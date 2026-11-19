@@ -14,6 +14,7 @@ import { WebSearchPage } from './pages/WebSearch';
 import { PcSitesPage } from './pages/PcSites';
 import { PcFetchStatsPage } from './pages/PcFetchStats';
 import { ReviewPage } from './pages/Review';
+import { CatchUpRoute } from './pages/CatchUp';
 import { InboxPage } from './pages/Inbox';
 import { ReaderPage } from './pages/Reader';
 import { KeySentencesPage } from './pages/KeySentences';
@@ -87,6 +88,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<InboxPage key="inbox" mode="inbox" me={me} counts={counts} onChanged={refreshCounts} />} />
         <Route path="/review" element={<ReviewPage on={me.reviewsOn} />} />
+        <Route path="/review/day" element={<CatchUpRoute />} />
         <Route path="/review/:id" element={<ReviewPage on={me.reviewsOn} />} />
         <Route path="/digest" element={<Navigate to="/review" replace />} />
         <Route path="/saved" element={<InboxPage key="saved" mode="saved" me={me} counts={counts} onChanged={refreshCounts} />} />
