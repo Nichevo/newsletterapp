@@ -7,6 +7,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // The whole site sits behind Cloudflare Access. Without this the browser fetches the
+      // manifest with no cookies, Access answers with its login page, and Chrome on Android
+      // says the app "cannot be installed". This adds crossorigin="use-credentials" to the link.
+      useCredentials: true,
       includeAssets: ['icons/icon.svg'],
       manifest: {
         name: 'Reader',
