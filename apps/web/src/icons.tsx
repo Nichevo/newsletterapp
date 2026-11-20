@@ -34,6 +34,13 @@ export const IconShield = (p: Props) => (
     <path d="M9 12l2 2 4-4" />
   </svg>
 );
+/** Alerts (System status + Security in one top-bar button): a bell. */
+export const IconBell = (p: Props) => (
+  <svg {...base(p)}>
+    <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" />
+    <path d="M10 20.5a2 2 0 0 0 4 0" />
+  </svg>
+);
 /** Security alerts: a shield with an exclamation mark. */
 export const IconShieldAlert = (p: Props) => (
   <svg {...base(p)}>
