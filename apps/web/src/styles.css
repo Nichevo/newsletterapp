@@ -4848,3 +4848,119 @@ a.chip { text-decoration: none; }
 .cu-suggest input {
   max-width: 320px;
 }
+
+/* Inbox top bar on narrow phones (and the Fold's folded screen): the counts get
+   their own full-width line above "Inbox" and the buttons, instead of being
+   squeezed into a thin column beside them; the buttons tighten up a little. */
+@media (max-width: 600px) {
+  .topbar--inbox {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 4px;
+    row-gap: 0;
+    align-items: center;
+  }
+  .topbar--inbox .topbar__titles {
+    display: contents;
+  }
+  .topbar--inbox .topbar__eyebrow {
+    grid-column: 1 / -1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .topbar--inbox h1 {
+    grid-column: 1;
+  }
+  .topbar--inbox .topbar__actions {
+    grid-column: 2;
+    gap: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .topbar--inbox h1 {
+    font-size: 24px;
+  }
+  .topbar--inbox .topbar__actions .iconbtn {
+    width: 40px;
+    height: 40px;
+  }
+  .topbar--inbox .statusbtn .sdot {
+    top: 7px;
+    right: 6px;
+  }
+}
+
+@media (max-width: 370px) {
+  .topbar--inbox {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .topbar--inbox h1 {
+    font-size: 22px;
+  }
+  .topbar--inbox .topbar__actions .iconbtn {
+    width: 36px;
+  }
+  .topbar--inbox .topbar__actions .iconbtn--primary {
+    width: 40px;
+  }
+}
+
+/* The combined Alerts button's menu (System status + Security alerts). */
+.topbar--inbox {
+  position: relative;
+}
+
+/* The menu hangs from the top bar's right edge, so it never runs off a narrow screen. */
+.alertsmenu {
+  display: inline-flex;
+}
+
+.alertsmenu__list {
+  position: absolute;
+  top: calc(100% - 2px);
+  right: 12px;
+  z-index: 30;
+  width: min(300px, calc(100vw - 24px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.alertsmenu__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px;
+  border-radius: 10px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.alertsmenu__row:hover,
+.alertsmenu__row:focus-visible {
+  background: var(--border);
+}
+
+.alertsmenu__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.alertsmenu__text strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.alertsmenu__text span {
+  font-size: 13px;
+  color: var(--muted);
+}

@@ -14,9 +14,8 @@ import { FilterBar, type Filters } from '../components/FilterBar';
 import { ItemRow, type RowGroup, type SwipeAction } from '../components/ItemRow';
 import { getSwipeReadSide, setViewOptions } from '../prefs';
 import { todayLabel } from '../format';
-import { IconPlus, IconPulse, IconRefresh, IconSearch, IconShieldAlert, IconSparkle } from '../icons';
-import { StatusDot, statusButtonLabel, statusButtonLevel } from './Status';
-import { SecurityDot, securityButtonLabel } from './Security';
+import { IconPlus, IconRefresh, IconSearch, IconSparkle } from '../icons';
+import { AlertsButton } from '../components/AlertsButton';
 
 const VIEWS: ItemView[] = ['inbox', 'unread', 'saved', 'interesting', 'likely', 'unlikely', 'adverts', 'archived'];
 
@@ -411,7 +410,7 @@ export function InboxPage({
 
   return (
     <div className="page">
-      <header className="topbar">
+      <header className="topbar topbar--inbox">
         <div className="topbar__titles">
           <span className="topbar__eyebrow">{eyebrow}</span>
           <h1>{mode === 'inbox' ? 'Inbox' : 'Saved'}</h1>
@@ -436,23 +435,7 @@ export function InboxPage({
           <button className="iconbtn" aria-label="Refresh" onClick={() => void load(false)}>
             <IconRefresh />
           </button>
-          {mode === 'inbox' && (counts.status.level !== 'off' || counts.problems.open > 0) && (
-            <Link
-              to="/status"
-              className="iconbtn statusbtn"
-              aria-label={statusButtonLabel(counts.status, counts.problems)}
-              title={statusButtonLabel(counts.status, counts.problems)}
-            >
-              <IconPulse />
-              <StatusDot level={statusButtonLevel(counts.status, counts.problems)} />
-            </Link>
-          )}
-          {mode === 'inbox' && counts.security.level !== 'off' && (
-            <Link to="/security" className="iconbtn statusbtn" aria-label={securityButtonLabel(counts.security)} title={securityButtonLabel(counts.security)}>
-              <IconShieldAlert />
-              <SecurityDot level={counts.security.level} />
-            </Link>
-          )}
+          {mode === 'inbox' && <AlertsButton status={counts.status} problems={counts.problems} security={counts.security} />}
           <Link to="/search" className="iconbtn" aria-label="Search" title="Search">
             <IconSearch />
           </Link>
