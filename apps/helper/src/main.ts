@@ -7,7 +7,7 @@ import { UPDATED_EXIT_CODE } from './constants';
 import { configPath, loadConfig, type LocalConfig } from './config';
 import { Embeddings } from './embed';
 import { askLookups, lookupsText, summaryLookups, toSources, type Lookups } from './lookups';
-import { holdReport, holdsSent, runFetchJob, setSkipSites } from './fetch';
+import { holdReport, holdsSent, runFetchJob, setSkipSites, whenPassed } from './fetch';
 import { log, pendingEvents, report, sentEvents } from './log';
 import { siteOfUrl } from './sites';
 import { runFollow } from './follow';
@@ -52,6 +52,13 @@ import { maxChars, updateLimits } from './limits';
 
 const cfg = loadConfig();
 const app = new AppClient(cfg);
+// A bot check passed in the window on the PC: the app fetches what was waiting from those sites.
+whenPassed((sites) => {
+  app
+    .fetchPassed(sites)
+    .then((r) => log(`bot check: ${r.requeued} waiting articles from ${sites.join(', ')} go back in the queue`))
+    .catch((err: unknown) => log(`bot check: could not tell the app the window closed: ${err instanceof Error ? err.message : String(err)}`));
+});
 const providers = providersFrom(cfg);
 const embeddings = new Embeddings(cfg, app);
 const once = process.argv.includes('--once');
@@ -512,7 +519,7 @@ async function fetchQueue(config: HelperConfig) {
       const result = await runFetchJob(job, cfg);
       const res = await app.fetchResult(result);
       if (result.later) {
-        log(`${job.kind} ${job.url.slice(0, 80)}: waiting for Reddit until ${new Date(result.later).toLocaleTimeString()}`);
+        log(`${job.kind} ${job.url.slice(0, 80)}: ${result.error ?? 'waiting'} (until ${new Date(result.later).toLocaleTimeString()} at the latest)`);
         continue;
       }
       const line = `${job.kind} ${job.url.slice(0, 80)}: ${result.ok ? (job.kind === 'article' ? 'article saved' : `${res.added ?? 0} new`) : result.error}`;

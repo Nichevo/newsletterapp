@@ -343,8 +343,9 @@ export async function computeProblems(env: Env, withLog: boolean): Promise<AppPr
           : [
               'Nothing to do now: the PC tries again by itself.',
               'If this site keeps doing it, add it to Sites the PC leaves alone. Its posts still come in from the feed; you read the full article in your browser.',
+              'Or, if you want its articles, add it to “Open bot checks on the PC for me” on the same page: the PC opens the check in a window for you to pass when you get to it.',
             ],
-        actions: reddit ? [] : [{ label: 'Sites the PC leaves alone', to: '/settings/ai/sites' }],
+        actions: reddit ? [] : [{ label: 'Leave alone, or open checks for me', to: '/settings/ai/sites' }],
         since: r.until - r.ms,
         site: r.site,
         until: r.until,

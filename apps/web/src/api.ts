@@ -214,7 +214,7 @@ export const api = {
   myTagStats: () => get<MyTagStats>('/api/my-tags/stats'),
   advertStats: () => get<{ ai: number; wrong: number; missed: number; tails: number; tailsWrong: number }>('/api/adverts/stats'),
   advertRecheck: (days: 7 | 30) => post<{ queued: number }>('/api/adverts/recheck', { days }),
-  fetchPage: (id: string) => post<FetchPageStatus>(`/api/items/${id}/fetch-page`),
+  fetchPage: (id: string, human = false) => post<FetchPageStatus>(`/api/items/${id}/fetch-page`, human ? { human: true } : undefined),
   fetchPageStatus: (id: string) => get<FetchPageStatus>(`/api/items/${id}/fetch-page`),
   itemAction: (
     id: string,

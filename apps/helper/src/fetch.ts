@@ -31,8 +31,8 @@ import {
 } from '@newsletterapp/shared';
 import { pdfArticle } from './pdf';
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { dataDir, type LocalConfig } from './config';
 import { log, report } from './log';
 
@@ -93,11 +93,93 @@ function browserCandidates(cfg: LocalConfig): string[] {
   return list.filter((p) => p && existsSync(p));
 }
 
+/**
+ * The name the browser gives in a normal window, so the windowless one says the same
+ * (it otherwise says "HeadlessChrome", and a site's "you passed" cookie is tied to the name).
+ * Taken from the version folder next to the browser, e.g. Application\131.0.2903.70.
+ */
+function browserUa(browser: string): string | null {
+  try {
+    const version = readdirSync(dirname(browser))
+      .filter((d) => /^\d+\.\d+\.\d+\.\d+$/.test(d))
+      .sort((a, b) => Number(b.split('.')[0]) - Number(a.split('.')[0]))[0];
+    if (!version) return null;
+    const major = version.split('.')[0];
+    const os = process.platform === 'win32' ? 'Windows NT 10.0; Win64; x64' : process.platform === 'darwin' ? 'Macintosh; Intel Mac OS X 10_15_7' : 'X11; Linux x86_64';
+    const base = `Mozilla/5.0 (${os}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
+    return /msedge/i.test(browser) ? `${base} Edg/${version}` : base;
+  } catch {
+    return null;
+  }
+}
+
+// ---------- Passing a bot check by hand ----------
+// For sites you pick (Settings > PC helper and AI > Sites the PC leaves alone), or an article
+// you ask for from the reader, the PC opens the page in a normal browser window on the PC,
+// using the same browser profile as its windowless browser. The window waits there until you
+// get to it: pass the check, close the window, and the site's "you passed" cookie stays in
+// the profile. The PC then stops resting from those sites and the app fetches what was waiting.
+
+/** The open window: its sites, and when it was opened. Only one window; more sites open as tabs. */
+let passWindow: { sites: Set<string>; since: number } | null = null;
+/** When the PC last opened a window for each site, so it doesn't keep opening one. */
+const passOpened = new Map<string, number>();
+/** Opens again for the same site no sooner than this, after a window was closed. */
+const PASS_REOPEN_MS = 12 * 3_600_000;
+/** Told when the window closes (main.ts asks the app to fetch those sites' waiting articles). */
+let onPassed: ((sites: string[]) => void) | null = null;
+export const whenPassed = (fn: (sites: string[]) => void) => {
+  onPassed = fn;
+};
+
+/** Whether a window for this site is open now. */
+const passOpen = (site: string) => Boolean(passWindow?.sites.has(site));
+
+/** Opens the page for you in a normal browser window (or a new tab in the one already open). */
+function openForPass(url: string, cfg: LocalConfig, why: string): boolean {
+  const browser = browserCandidates(cfg)[0];
+  const site = siteOf(url);
+  if (!browser || !site) return false;
+  if (passOpen(site)) return true;
+  const ua = browserUa(browser);
+  const args = ['--no-first-run', '--no-default-browser-check', `--user-data-dir=${join(dataDir(), 'browser')}`, ...(ua ? [`--user-agent=${ua}`] : []), url];
+  passOpened.set(site, Date.now());
+  if (passWindow) {
+    // Already open: the browser hands the address to that window as a new tab.
+    passWindow.sites.add(site);
+    execFile(browser, args, { windowsHide: false }, () => undefined);
+    log(`bot check: opened ${site} in a new tab of the window on the PC (${why})`);
+    return true;
+  }
+  passWindow = { sites: new Set([site]), since: Date.now() };
+  log(`bot check: opened ${site} in a browser window on the PC for you to pass (${why})`);
+  execFile(browser, args, { windowsHide: false, maxBuffer: 10_000_000 }, () => {
+    const sites = [...(passWindow?.sites ?? [])];
+    passWindow = null;
+    for (const s of sites) resting.delete(s);
+    log(`bot check: window closed; fetching what was waiting from ${sites.join(', ')}`);
+    onPassed?.(sites);
+  });
+  return true;
+}
+
+/** An article stuck behind a bot check from a site you picked: open the window, at most every 12 hours. */
+function maybeOpenForPass(job: FetchJob, cfg: LocalConfig): void {
+  const site = siteOf(job.url);
+  if (!site || !job.passSites?.some((s) => site === s || site.endsWith(`.${s}`))) return;
+  if (passOpen(site) || Date.now() - (passOpened.get(site) ?? 0) < PASS_REOPEN_MS) return;
+  openForPass(job.url, cfg, 'a bot check on a site you picked');
+}
+
 /** The page after its scripts have run, from a windowless Edge or Chrome with its own profile. */
 function renderInBrowser(url: string, cfg: LocalConfig): Promise<Page> {
   const browser = browserCandidates(cfg)[0];
   if (!browser) return Promise.reject(new Error('No Edge or Chrome found for pages that need a browser (set browserPath in config.json)'));
+  // The profile is in use by the window waiting for you; the windowless browser would only add a tab to it.
+  if (passWindow) return Promise.reject(new Error('The browser is open on the PC for a bot check, so pages that need it wait until it is closed'));
+  const ua = browserUa(browser);
   const args = [
+    ...(ua ? [`--user-agent=${ua}`] : []),
     '--headless=new',
     '--disable-gpu',
     '--no-first-run',
@@ -628,6 +710,19 @@ async function redditComments(url: string, cfg: LocalConfig): Promise<Article | 
 }
 
 async function articleJob(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult> {
+  const result = await articleJobOnce(job, cfg);
+  if (!result.ok && result.blocked && !job.human) maybeOpenForPass(job, cfg);
+  return result;
+}
+
+async function articleJobOnce(job: FetchJob, cfg: LocalConfig): Promise<FetchJobResult> {
+  if (job.human && !isRedditPost(job.url)) {
+    // "Pass the check on my PC": the window waits for you; the job waits with it (back in the queue).
+    if (!openForPass(job.url, cfg, 'asked for from the reader')) {
+      return { jobId: job.id, ok: false, error: 'No Edge or Chrome on the PC to open the page in' };
+    }
+    return { jobId: job.id, ok: false, later: Date.now() + 6 * 3_600_000, error: 'Open on the PC: pass the check, then close the window' };
+  }
   if (isRedditPost(job.url)) {
     // Only the comments: the post itself is already in the app from the feed.
     TOP_COMMENTS = typeof job.redditComments === 'number' && job.redditComments > 0 ? Math.min(job.redditComments, 25) : 8;

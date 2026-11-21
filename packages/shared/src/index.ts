@@ -443,6 +443,10 @@ export interface FetchPageStatus {
   error: string | null;
   /** Whether the PC helper has checked in recently (it does the fetching). */
   helperOnline: boolean;
+  /** The last try hit a bot check: offer to pass it in a browser window on the PC. */
+  canPass?: boolean;
+  /** The pending request is a browser window opened on the PC for you to pass the check. */
+  human?: boolean;
 }
 
 /** One web page added to the inbox on its own ("Add just this page"), without following the site. */
@@ -736,6 +740,11 @@ export interface AppSettings {
   pcSkipSites: string[];
   /** Categories whose items are fetched from those sites anyway. */
   pcSkipAllowCategories: string[];
+  /**
+   * Sites where, when an article is stuck behind a bot check, the PC opens the page in a
+   * normal browser window for you to pass the check, then fetches what was waiting.
+   */
+  pcPassSites: string[];
   /** Named filter sets for the Topics map. */
   topicFilters: TopicFilter[];
   /** Stories: related reading grouped by chain of events. */
@@ -823,6 +832,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   savedFilters: [],
   pcSkipSites: [...DEFAULT_SKIP_SITES],
   pcSkipAllowCategories: [],
+  pcPassSites: [],
   topicFilters: [],
   stories: DEFAULT_STORY_SETTINGS,
   saveSenders: [],
@@ -999,6 +1009,10 @@ export interface FetchJob {
   skipSites?: string[];
   /** Asked for by hand (Fetch full page, or a page added on its own): open it in a browser if it comes back built by JavaScript. */
   browserIfScripted?: boolean;
+  /** "Pass the check on my PC": open the page in a normal browser window for a person, then fetch it. */
+  human?: boolean;
+  /** Sites where a bot check opens a browser window on the PC for you (settings.pcPassSites). */
+  passSites?: string[];
 }
 
 export interface FetchJobResult {
@@ -1143,7 +1157,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.14.0';
+export const HELPER_VERSION = '0.15.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {

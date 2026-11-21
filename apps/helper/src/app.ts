@@ -86,6 +86,7 @@ export class AppClient {
   catchUpResult = (r: CatchUpResult) => this.call<{ ok: boolean }>('POST', '/api/helper/catchup/result', r);
   followClaim = () => this.call<{ job: FollowJob | null; paused?: boolean }>('POST', '/api/helper/follow/claim', {});
   followResult = (r: FollowResult) => this.call<{ ok: boolean }>('POST', '/api/helper/follow/result', r);
+  fetchPassed = (sites: string[]) => this.call<{ ok: boolean; requeued: number }>('POST', '/api/helper/fetch/passed', { sites });
   fetchResult = (r: FetchJobResult) => this.call<{ ok: boolean; added?: number }>('POST', '/api/helper/fetch/result', r);
 
   /** Downloads a file the web app serves (used for self-update). */

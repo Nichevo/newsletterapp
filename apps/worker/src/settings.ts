@@ -116,6 +116,9 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
   const pcSkipSites = Array.isArray(input.pcSkipSites)
     ? [...new Set(input.pcSkipSites.map((x) => siteName(str(x, 200))).filter(Boolean))].slice(0, 60)
     : (base.pcSkipSites ?? [...DEFAULT_SKIP_SITES]);
+  const pcPassSites = Array.isArray(input.pcPassSites)
+    ? [...new Set(input.pcPassSites.map((x) => siteName(str(x, 200))).filter(Boolean))].slice(0, 40)
+    : (base.pcPassSites ?? []);
   const pcSkipAllowCategories = Array.isArray(input.pcSkipAllowCategories)
     ? [...new Set(input.pcSkipAllowCategories.map((c) => str(c, 40)).filter(Boolean))].slice(0, 40)
     : (base.pcSkipAllowCategories ?? []);
@@ -181,6 +184,7 @@ export function normalizeSettings(input: Partial<AppSettings>, base: AppSettings
     savedFilters,
     pcSkipSites,
     pcSkipAllowCategories,
+    pcPassSites,
     topicFilters,
     stories,
     saveSenders,
