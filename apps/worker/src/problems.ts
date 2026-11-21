@@ -46,9 +46,23 @@ const LOG_LINES = 12;
 const ARTICLE_FAILS_MIN = 2;
 
 /** Plain advice for a failed check, from what the site answered. */
-export function adviceFor(error: string, kind: string, onPc: boolean): { cause: string; fix: string[]; toPc?: boolean; skip?: boolean } {
+export function adviceFor(
+  error: string,
+  kind: string,
+  onPc: boolean,
+  url?: string | null,
+): { cause: string; fix: string[]; toPc?: boolean; skip?: boolean } {
   const e = error.toLowerCase();
   const article = kind === 'article';
+  if (!article && url && /(^|\.)reddit\.com\//i.test(url.replace(/^https?:\/\//, '')) && /\b(404|410|403)\b|no longer returns a feed/.test(e)) {
+    return {
+      cause: 'Reddit ended its feeds',
+      fix: [
+        'Reddit switched off its RSS feeds from 13 November 2026 and is closing free access by March 2027, so this subreddit can’t be followed as a feed any more.',
+        'Pause or delete the source. Its old posts stay in the app.',
+      ],
+    };
+  }
   if (/leaves? (it )?alone|leave alone list/.test(e)) {
     return {
       cause: 'PC is resting from this site',
@@ -272,8 +286,13 @@ export async function computeProblems(env: Env, withLog: boolean): Promise<AppPr
     // Sites whose full articles failed at least twice this week.
     env.DB.prepare(
       `SELECT site, SUM(count) AS n, MIN(at) AS first, MAX(source_id) AS source_id,
-         (SELECT message FROM app_log AS l2 WHERE l2.site = app_log.site AND l2.area = 'article' ORDER BY at DESC LIMIT 1) AS message
+         (SELECT message FROM app_log AS l2 WHERE l2.site = app_log.site AND l2.area = 'article'
+           AND l2.message NOT LIKE '%PC leaves it to your browser%' AND l2.message NOT LIKE '%leaving it alone until%' ORDER BY at DESC LIMIT 1) AS message
        FROM app_log INDEXED BY app_log_at WHERE at >= ? AND area = 'article' AND site IS NOT NULL
+         -- Articles the PC never asked for (site left alone, or resting after a bot check) aren't failures.
+         AND message NOT LIKE '%PC leaves it to your browser%' AND message NOT LIKE '%leaving it alone until%'
+         -- A moved or deleted page has nothing to fix (the post came in with what its feed holds).
+         AND message NOT LIKE '%answered 404%' AND message NOT LIKE '%answered 410%'
        GROUP BY site HAVING SUM(count) >= ${ARTICLE_FAILS_MIN} ORDER BY n DESC LIMIT 15`,
     )
       .bind(t - 7 * DAY)
@@ -340,7 +359,7 @@ export async function computeProblems(env: Env, withLog: boolean): Promise<AppPr
     const common = { ...base, sourceId: s.id, site: siteOfUrl(s.feed_url ?? s.url), lastOkAt: lastOk, lastItemAt: s.last_item_at };
     if (s.error_count >= FAILING_AFTER) {
       const since = lastOk ?? s.created_at;
-      const why = adviceFor(s.last_error ?? '', s.kind, toPc);
+      const why = adviceFor(s.last_error ?? '', s.kind, toPc, s.feed_url ?? s.url);
       out.push({
         ...common,
         key: `source_failing:${s.id}`,

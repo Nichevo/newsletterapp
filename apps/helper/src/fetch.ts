@@ -287,8 +287,65 @@ export async function get(
   let page: Page;
   // A browser shows a PDF in its viewer, which --dump-dom gives back empty: files are always downloaded.
   if (opts.render && !fromApp && !(opts.files && looksLikeFile(url))) page = await renderInBrowser(url, cfg);
+  else if (fromApp) page = await plainFetch(url, { ...FETCH_HEADERS, ...appHeaders(url, cfg) }, true, opts);
   else {
-    const headers: Record<string, string> = { ...FETCH_HEADERS, ...appHeaders(url, cfg) };
+    const site = siteOf(url);
+    const asReader = readerSites.has(site);
+    page = await plainFetch(url, headersFor(asReader, opts.files), false, opts);
+    if (refusedPlainly(page)) {
+      // Many sites (Cloudflare, Wordfence) turn away a program dressed up as a browser
+      // but let an honestly named feed reader in; others the other way round. Try the other once.
+      await waitTurn(url);
+      const other = await plainFetch(url, headersFor(!asReader, opts.files), false, opts).catch(() => null);
+      if (other && !refusedPlainly(other) && !looksBlocked(other.status, other.body)) {
+        if (asReader) readerSites.delete(site);
+        else readerSites.add(site);
+        page = other;
+      } else if (opts.files && !looksLikeFile(url) && browserCandidates(cfg).length > 0) {
+        // Full articles only: a real browser passes checks a program can't.
+        await waitTurn(url);
+        const shown = await renderInBrowser(url, cfg).catch(() => null);
+        if (shown && !looksBlocked(shown.status, shown.body) && !looksBotCheck(articleText(shown.body).slice(0, 2000))) {
+          page = { ...shown, status: 200 };
+        }
+      }
+    }
+  }
+  if (fromApp) return page;
+  // A plain 403 is often just "no programs here"; a 429 or a bot-check page is the network being flagged.
+  const flagged = page.status === 429 || (page.status !== 403 && page.status !== 304 && looksBlocked(page.status, page.body));
+  noteAnswer(url, flagged, page.status);
+  if (page.url !== url && siteOf(page.url) !== siteOf(url)) noteAnswer(page.url, flagged, page.status);
+  return page;
+}
+
+/** A refusal or a server error with no bot check: worth asking once more another way. */
+const refusedPlainly = (page: Page) => page.status === 403 || page.status === 401 || page.status === 406 || (page.status >= 500 && page.status < 600);
+
+/** Sites that let the honest feed-reader name in but not the browser-like one (learnt as the PC goes). */
+const readerSites = new Set<string>();
+
+/** The honest name, for sites that refuse programs pretending to be a browser. */
+const READER_UA = `NewsletterHelper/${HELPER_VERSION} (personal feed reader; +https://github.com/Nichevo/newsletterapp)`;
+
+/** Headers for one request: browser-like or honest, asking for a web page first when it's an article. */
+function headersFor(asReader: boolean, article?: boolean): Record<string, string> {
+  const h: Record<string, string> = { ...FETCH_HEADERS };
+  if (article) h.Accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+  if (asReader) h['User-Agent'] = READER_UA;
+  return h;
+}
+
+/** One plain request (no browser), reading a file's bytes when asked for files. */
+async function plainFetch(
+  url: string,
+  baseHeaders: Record<string, string>,
+  fromApp: boolean,
+  opts: { etag?: string | null; lastModified?: string | null; files?: boolean },
+): Promise<Page> {
+  let page: Page;
+  {
+    const headers: Record<string, string> = { ...baseHeaders };
     if (opts.etag) headers['If-None-Match'] = opts.etag;
     if (opts.lastModified) headers['If-Modified-Since'] = opts.lastModified;
     const res = await fetch(url, { headers, redirect: fromApp ? 'manual' : 'follow', signal: AbortSignal.timeout(opts.files ? 90_000 : 30_000) });
@@ -312,11 +369,6 @@ export async function get(
       page = { ...base, body: res.status === 304 ? '' : await res.text() };
     }
   }
-  if (fromApp) return page;
-  // A plain 403 is often just "no programs here"; a 429 or a bot-check page is the network being flagged.
-  const flagged = page.status === 429 || (page.status !== 403 && page.status !== 304 && looksBlocked(page.status, page.body));
-  noteAnswer(url, flagged, page.status);
-  if (page.url !== url && siteOf(page.url) !== siteOf(url)) noteAnswer(page.url, flagged, page.status);
   return page;
 }
 
@@ -346,7 +398,7 @@ async function getReddit(url: string, opts: { etag?: string | null; lastModified
 
 function failed(job: FetchJob, page: Page): FetchJobResult | null {
   if (page.later) return { jobId: job.id, ok: false, later: page.later, error: 'Waiting for Reddit' };
-  if (page.held) return { jobId: job.id, ok: false, blocked: true, error: page.held };
+  if (page.held) return { jobId: job.id, ok: false, blocked: true, held: true, error: page.held };
   if (looksBlocked(page.status, page.body)) {
     return {
       jobId: job.id,
