@@ -12,6 +12,7 @@ export function PcSitesPage() {
   const navigate = useNavigate();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [site, setSite] = useState('');
+  const [passSite, setPassSite] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
@@ -42,6 +43,16 @@ export function PcSitesPage() {
     setError(null);
     setSite('');
     if (!settings.pcSkipSites.includes(s)) void save({ pcSkipSites: [...settings.pcSkipSites, s] });
+  }
+
+  function addPass(e: FormEvent) {
+    e.preventDefault();
+    if (!settings) return;
+    const s = siteName(passSite);
+    if (!s) return setError('That doesn’t look like a web address');
+    setError(null);
+    setPassSite('');
+    if (!settings.pcPassSites.includes(s)) void save({ pcPassSites: [...settings.pcPassSites, s] });
   }
 
   return (
@@ -120,6 +131,35 @@ export function PcSitesPage() {
               </section>
             </div>
           )}
+
+          <div className="section">
+            <span className="label">Open bot checks on the PC for me</span>
+            <section className="card">
+              <div className="chipedit">
+                {settings.pcPassSites.length === 0 && <span className="hint">None yet.</span>}
+                {settings.pcPassSites.map((s) => (
+                  <span key={s} className="chip chip--category">
+                    {s}
+                    <button aria-label={`Remove ${s}`} onClick={() => void save({ pcPassSites: settings.pcPassSites.filter((x) => x !== s) })}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <form className="inline" onSubmit={addPass}>
+                <input className="input" placeholder="e.g. geekwire.com" value={passSite} onChange={(e) => setPassSite(e.target.value)} />
+                <button className="btn btn--small" type="submit">
+                  Add
+                </button>
+              </form>
+              <span className="hint">
+                When the PC can’t get an article from one of these sites because of a “prove you’re not a robot” check, it opens the
+                page in a normal browser window on the PC and leaves it there for you. Pass the check when you get to it and close the
+                window: the PC then fetches every article from that site that was waiting. It opens a window for a site at most every
+                12 hours. Any other article stuck on a check has a “Pass the check on my PC” button in the reader.
+              </span>
+            </section>
+          </div>
 
           <div className="section">
             <div className="card card--list">

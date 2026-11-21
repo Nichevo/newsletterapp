@@ -425,6 +425,9 @@ async function recordOk(env: Env, source: SourceRow, f: { etag?: string | null; 
 const pcOnly = (s: Pick<SourceRow, 'kind' | 'fetch_via' | 'feed_url' | 'url'>) =>
   s.kind === 'site' || s.fetch_via === 'pc' || isRedditUrl(s.feed_url ?? s.url);
 
+/** A fetch error that means a bot check (or a rest after one), which a person can pass in a browser. */
+const BOT_CHECK_ERROR = /bot check|turned the pc away|leaving it alone until/i;
+
 /** Failed checks in a row before a Reddit feed that answers "gone" is paused. */
 const REDDIT_GONE_AFTER = 3;
 const REDDIT_GONE = 'Reddit switched off its RSS feeds from 13 November 2026, so the app paused this source. Its posts stay in the app.';
@@ -1202,22 +1205,27 @@ export function registerFeeds(app: App) {
   app.get('/api/items/:id/fetch-page', async (c) => {
     const [job, online] = await Promise.all([
       c.env.DB.prepare(
-        "SELECT status, error FROM fetch_jobs WHERE item_id = ? AND kind = 'article' AND force = 1 ORDER BY created_at DESC LIMIT 1",
+        "SELECT status, error, force FROM fetch_jobs WHERE item_id = ? AND kind = 'article' AND force >= 1 ORDER BY created_at DESC LIMIT 1",
       )
         .bind(c.req.param('id'))
-        .first<{ status: string; error: string | null }>(),
+        .first<{ status: string; error: string | null; force: number }>(),
       helperOnline(c.env),
     ]);
+    const error = job?.status === 'failed' ? (job.error ?? 'Fetch failed') : null;
     const status: FetchPageStatus = {
       pending: job?.status === 'pending' || job?.status === 'working',
-      error: job?.status === 'failed' ? (job.error ?? 'Fetch failed') : null,
+      error,
       helperOnline: online,
+      canPass: Boolean(error && BOT_CHECK_ERROR.test(error)),
+      human: job?.force === 2,
     };
     return c.json(status);
   });
 
   app.post('/api/items/:id/fetch-page', async (c) => {
     const id = c.req.param('id');
+    // "Pass the check on my PC": the PC opens the page in a normal browser window for you first.
+    const human = ((await c.req.json().catch(() => null)) as { human?: unknown } | null)?.human === true;
     const item = await c.env.DB.prepare(
       'SELECT items.id, items.source_id, items.web_url, items.html_key, sources.follow_link, sources.url AS source_url, sources.feed_url FROM items LEFT JOIN sources ON sources.id = items.source_id WHERE items.id = ?',
     )
@@ -1246,10 +1254,10 @@ export function registerFeeds(app: App) {
       c.env.DB.prepare("DELETE FROM fetch_jobs WHERE item_id = ? AND kind = 'article' AND status != 'working'").bind(id),
       c.env.DB.prepare(
         `INSERT INTO fetch_jobs (id, kind, source_id, item_id, url, created_at, force)
-         SELECT ?1, 'article', ?2, ?3, ?4, ?5, 1 WHERE NOT EXISTS (SELECT 1 FROM fetch_jobs WHERE item_id = ?3 AND kind = 'article')`,
-      ).bind(newId(), item.source_id, id, url, t),
+         SELECT ?1, 'article', ?2, ?3, ?4, ?5, ?6 WHERE NOT EXISTS (SELECT 1 FROM fetch_jobs WHERE item_id = ?3 AND kind = 'article')`,
+      ).bind(newId(), item.source_id, id, url, t, human ? 2 : 1),
     ]);
-    const status: FetchPageStatus = { pending: true, error: null, helperOnline: await helperOnline(c.env) };
+    const status: FetchPageStatus = { pending: true, error: null, helperOnline: await helperOnline(c.env), human };
     return c.json(status);
   });
 
@@ -1417,10 +1425,32 @@ export function registerFeeds(app: App) {
         wantPicture: s?.show_picture === 1,
         postUrl: s?.follow_link === 1 ? (post?.web_url ?? null) : null,
         skipSites,
-        browserIfScripted: j.kind === 'article' && j.force === 1,
+        browserIfScripted: j.kind === 'article' && (j.force ?? 0) >= 1,
+        human: j.kind === 'article' && j.force === 2,
+        passSites: j.kind === 'article' ? (settings?.pcPassSites ?? []) : [],
       });
     }
     return c.json({ jobs });
+  });
+
+  // The owner passed a bot check in a browser window on the PC: articles from those sites
+  // that were stuck in the last three days go back in the queue.
+  app.post('/api/helper/fetch/passed', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { sites?: unknown } | null;
+    const sites = Array.isArray(body?.sites) ? body.sites.filter((s): s is string => typeof s === 'string' && /^[\w.-]+$/.test(s)).slice(0, 20) : [];
+    let requeued = 0;
+    for (const site of sites) {
+      const r = await c.env.DB.prepare(
+        // Waiting "pass the check" requests become ordinary fetches, so the window doesn't open again.
+        `UPDATE fetch_jobs SET status = 'pending', attempts = 0, error = NULL, claimed_at = NULL, not_before = NULL, force = MIN(force, 1)
+         WHERE kind = 'article' AND (status = 'failed' OR (status = 'pending' AND force = 2)) AND created_at >= ?1 AND (url LIKE ?2 OR url LIKE ?3)`,
+      )
+        .bind(now() - 3 * 86_400_000, `%://${site}/%`, `%.${site}/%`)
+        .run();
+      requeued += r.meta.changes ?? 0;
+    }
+    await logLine(c.env, { origin: 'pc', level: 'info', area: 'fetch', site: sites[0] ?? null, message: `Bot check passed on the PC for ${sites.join(', ')}: ${requeued} articles fetched again` });
+    return c.json({ ok: true, requeued });
   });
 
   app.post('/api/helper/fetch/result', async (c) => {

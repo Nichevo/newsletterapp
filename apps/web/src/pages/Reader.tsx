@@ -1219,10 +1219,10 @@ function FetchPage({ item, onFetched }: { item: ItemSummary; onFetched: () => Pr
     return () => clearInterval(timer);
   }, [status?.pending, item.id]);
 
-  async function start() {
+  async function start(human = false) {
     setNote(null);
     try {
-      setStatus(await api.fetchPage(item.id));
+      setStatus(await api.fetchPage(item.id, human));
     } catch (err) {
       setNote(err instanceof Error ? err.message : 'Could not ask for the page');
     }
@@ -1233,9 +1233,11 @@ function FetchPage({ item, onFetched }: { item: ItemSummary; onFetched: () => Pr
     <div className="reader__images">
       <span>
         {status?.pending
-          ? status.helperOnline
-            ? 'Fetching the page on your PC…'
-            : 'Waiting for your PC to come online to fetch the page…'
+          ? status.human
+            ? 'The page is open in a browser window on your PC. Pass the check there and close the window: the article comes in after.'
+            : status.helperOnline
+              ? 'Fetching the page on your PC…'
+              : 'Waiting for your PC to come online to fetch the page…'
           : status?.error
             ? `Last try: ${status.error}`
             : (note ?? 'Only a summary or the wrong text? Your PC can fetch the whole article from the web page.')}
@@ -1243,6 +1245,11 @@ function FetchPage({ item, onFetched }: { item: ItemSummary; onFetched: () => Pr
       {!status?.pending && (
         <button className="btn btn--small" onClick={() => void start()}>
           {status?.error ? 'Try again' : label}
+        </button>
+      )}
+      {!status?.pending && status?.canPass && (
+        <button className="btn btn--small" onClick={() => void start(true)} title="Opens the page in a browser window on your PC for you to pass the check">
+          Pass the check on my PC
         </button>
       )}
     </div>
