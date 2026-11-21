@@ -59,7 +59,7 @@ export function adviceFor(
       cause: 'Reddit ended its feeds',
       fix: [
         'Reddit switched off its RSS feeds from 13 November 2026 and is closing free access by March 2027, so this subreddit can’t be followed as a feed any more.',
-        'Pause or delete the source. Its old posts stay in the app.',
+        'The app pauses it by itself after three failed checks in a row. Its old posts stay in the app.',
       ],
     };
   }
