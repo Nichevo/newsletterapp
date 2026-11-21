@@ -425,6 +425,10 @@ async function recordOk(env: Env, source: SourceRow, f: { etag?: string | null; 
 const pcOnly = (s: Pick<SourceRow, 'kind' | 'fetch_via' | 'feed_url' | 'url'>) =>
   s.kind === 'site' || s.fetch_via === 'pc' || isRedditUrl(s.feed_url ?? s.url);
 
+/** Failed checks in a row before a Reddit feed that answers "gone" is paused. */
+const REDDIT_GONE_AFTER = 3;
+const REDDIT_GONE = 'Reddit switched off its RSS feeds from 13 November 2026, so the app paused this source. Its posts stay in the app.';
+
 async function recordFailure(env: Env, source: SourceRow, error: string, blocked: boolean, origin: 'pc' | 'cloud' = 'cloud') {
   const t = now();
   const errors = source.error_count + 1;
@@ -437,6 +441,14 @@ async function recordFailure(env: Env, source: SourceRow, error: string, blocked
     sourceId: source.id,
     message: `${source.name}: ${error}${errors > 1 ? ` (${errors} checks in a row)` : ''}`,
   });
+  if (errors >= REDDIT_GONE_AFTER && isRedditUrl(source.feed_url ?? source.url) && /\b(404|410)\b|no longer returns a feed/i.test(error)) {
+    // Reddit switched its RSS feeds off from 13 November 2026: a dead Reddit feed is paused, its posts kept.
+    await env.DB.prepare('UPDATE sources SET paused_at = ?, last_checked_at = ?, last_error = ?, error_count = ? WHERE id = ?')
+      .bind(t, t, REDDIT_GONE, errors, source.id)
+      .run();
+    await logLine(env, { origin, level: 'info', area: 'feed', site: 'reddit.com', sourceId: source.id, message: `${source.name}: paused. ${REDDIT_GONE}` });
+    return;
+  }
   if (blocked && source.fetch_via === 'cloud' && errors >= BLOCKED_TO_PC) {
     await env.DB.prepare(
       "UPDATE sources SET fetch_via = 'pc', last_checked_at = ?, next_check_at = ?, last_error = ?, error_count = 0 WHERE id = ?",
