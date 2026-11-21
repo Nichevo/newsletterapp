@@ -517,7 +517,9 @@ async function fetchQueue(config: HelperConfig) {
       }
       const line = `${job.kind} ${job.url.slice(0, 80)}: ${result.ok ? (job.kind === 'article' ? 'article saved' : `${res.added ?? 0} new`) : result.error}`;
       // Feed and page failures are logged by the app against their source; articles are logged here.
-      if (!result.ok && job.kind === 'article') report('warn', 'article', line, { site: siteOfUrl(job.url), sourceId: job.sourceId ?? null });
+      // An article the PC never asked for (site left alone or resting) isn't a problem of its own:
+      // the site already shows under "Sites turning your PC away" or is left alone on purpose.
+      if (!result.ok && job.kind === 'article' && !result.held) report('warn', 'article', line, { site: siteOfUrl(job.url), sourceId: job.sourceId ?? null });
       else log(line);
     }
   }

@@ -1007,6 +1007,8 @@ export interface FetchJobResult {
   error?: string;
   /** The site turned the PC away too (a bot check). */
   blocked?: boolean;
+  /** Not asked at all: the site is on the leave-alone list or resting after a bot check. */
+  held?: boolean;
   notModified?: boolean;
   etag?: string | null;
   lastModified?: string | null;
@@ -1141,7 +1143,7 @@ export interface PcHoldsView {
 }
 
 /** Bump with every change to apps/helper; the helper updates itself when the app has a newer one. */
-export const HELPER_VERSION = '0.13.0';
+export const HELPER_VERSION = '0.14.0';
 
 /** The Worker's answer to a heartbeat: what the helper should do. */
 export interface HelperConfig {
