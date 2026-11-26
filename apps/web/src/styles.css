@@ -386,7 +386,7 @@ select {
 
 .pill--more {
   border-style: dashed;
-  color: var(--muted, var(--ink));
+  color: var(--muted);
 }
 
 .pill--excluded {
@@ -865,12 +865,12 @@ select {
   margin-top: 32px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
-  color: var(--muted, var(--ink));
+  color: var(--muted);
   font-size: 13px;
 }
 
 .reader__delete > .btn--ghost {
-  color: var(--muted, var(--ink));
+  color: var(--muted);
   margin-left: auto;
 }
 
@@ -4962,5 +4962,46 @@ a.chip { text-decoration: none; }
 
 .alertsmenu__text span {
   font-size: 13px;
+  color: var(--muted);
+}
+
+/* Catch up now: pick what it covers */
+.cu-build {
+  position: relative;
+}
+.cu-build__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: min(280px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+.cu-build__menu button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 12px;
+  background: none;
+  border: 0;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.cu-build__menu button + button {
+  border-top: 1px solid var(--border);
+}
+.cu-build__menu button:hover {
+  background: var(--teal-tint);
+}
+.cu-build__menu span {
+  font-size: 0.85em;
   color: var(--muted);
 }

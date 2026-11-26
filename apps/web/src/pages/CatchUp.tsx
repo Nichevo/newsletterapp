@@ -65,6 +65,7 @@ export function CatchUpPage({ settings }: { settings: AppSettings | null }) {
   const [tagNames, setTagNames] = useState<Record<string, string>>({});
   const [tagNote, setTagNote] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
+  const [picking, setPicking] = useState(false);
 
   const load = useCallback(
     () =>
@@ -205,11 +206,12 @@ export function CatchUpPage({ settings }: { settings: AppSettings | null }) {
     }
   }
 
-  async function build() {
+  async function build(scope: 'since' | 'all') {
+    setPicking(false);
     setBuilding(true);
     setError(null);
     try {
-      await api.buildCatchUp();
+      await api.buildCatchUp(scope);
       setLevel(null);
       await load();
     } catch (err) {
@@ -225,7 +227,7 @@ export function CatchUpPage({ settings }: { settings: AppSettings | null }) {
     <header className="topbar">
       <div className="topbar__titles">
         <h1>Catch-up</h1>
-        <span className="topbar__eyebrow">{cu ? `Since ${shortTime(cu.fromAt)}` : ''}</span>
+        <span className="topbar__eyebrow">{cu ? (cu.fromAt > 0 ? `Since ${shortTime(cu.fromAt)}` : 'Whole inbox') : ''}</span>
       </div>
       <div className="rv-top">
         {tabs && (
@@ -245,9 +247,23 @@ export function CatchUpPage({ settings }: { settings: AppSettings | null }) {
             )}
           </div>
         )}
-        <button className="btn btn--ghost btn--small" disabled={building} onClick={() => void build()}>
-          {building ? 'Building…' : 'Build now'}
-        </button>
+        <div className="cu-build">
+          <button className="btn btn--ghost btn--small" disabled={building} aria-expanded={picking} onClick={() => setPicking((p) => !p)}>
+            {building ? 'Building…' : 'Catch up now'}
+          </button>
+          {picking && (
+            <div className="cu-build__menu" role="menu">
+              <button role="menuitem" onClick={() => void build('all')}>
+                <b>Everything unread</b>
+                <span>All unread posts in your inbox (newest 400)</span>
+              </button>
+              <button role="menuitem" onClick={() => void build('since')}>
+                <b>Since last visit</b>
+                <span>Only what came in since you last read something</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
@@ -301,7 +317,7 @@ export function CatchUpPage({ settings }: { settings: AppSettings | null }) {
     ? `The next one is built at ${hourText(r.catchUp.hour)} when ${r.catchUp.minNew} or more have come in${
         r.catchUp.afterBreak > 0 ? `, or after ${r.catchUp.breakHours} hours away with ${r.catchUp.afterBreak} or more` : ''
       }.`
-    : 'The morning catch-up is off in Settings › Reviews. Build now makes one anyway.';
+    : 'The morning catch-up is off in Settings › Reviews. Catch up now makes one any time.';
 
   // Nothing to do: none yet, finished, or nothing left at this level.
   if (!cu || cu.doneAt || left.length === 0) {

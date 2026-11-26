@@ -131,7 +131,7 @@ export const HELP = {
   ]),
   catchUpWhen: h('When it is built', [
     'Every morning at the hour you pick, if at least the number you set came in since your last visit. It can also be built after a long break: when you have been away for the hours you set and the pile reaches its own number.',
-    'A newer catch-up takes over from one you didn\'t finish. Build now on the Day tab makes one at any time.',
+    'A newer catch-up takes over from one you didn\'t finish. Catch up now on the Day tab makes one at any time, from everything unread or just since your last visit.',
   ]),
   catchUpLevel: h('How much to catch', [
     'Light takes only the top layer: Probably skip (adverts, Probably not for you, sources you often mark Not interested) and sources you nearly always skip. Normal takes everything except the likely reads. Deep also takes sources you read in full some of the time.',
