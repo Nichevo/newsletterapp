@@ -206,9 +206,12 @@ function byCategory(items: CatchUpItem[]): CatchUpTheme[] {
     .map(([name, ids]) => ({ id: `cat:${name}`, name, gist: null, fromCategory: true, itemIds: ids }));
 }
 
-/** Builds a catch-up of what arrived since your last visit and queues it for the PC. */
-export async function buildCatchUp(env: Env, at = now()): Promise<CatchUp | null> {
-  const from = await lastVisit(env);
+/**
+ * Builds a catch-up and queues it for the PC: what arrived since your last visit,
+ * or (scope 'all', on demand) everything still unread in the inbox, newest first.
+ */
+export async function buildCatchUp(env: Env, at = now(), scope: 'since' | 'all' = 'since'): Promise<CatchUp | null> {
+  const from = scope === 'all' ? 0 : await lastVisit(env);
   const rows = await env.DB.prepare(
     `SELECT items.id, items.subject, items.source_id, sources.name AS source_name, sources.kind AS source_kind, sources.url AS source_url,
             items.received_at, items.summary, items.preheader, COALESCE(items.category, sources.category) AS category,
@@ -224,7 +227,8 @@ export async function buildCatchUp(env: Env, at = now()): Promise<CatchUp | null
     .all<ItemRow>();
   if (rows.results.length === 0) return null;
   const sourceIds = [...new Set(rows.results.map((r) => r.source_id).filter((s): s is string => !!s))];
-  const habits = await sourceHabits(env, sourceIds, from);
+  // Habits come from before the oldest item here, so this pile doesn't count against itself.
+  const habits = await sourceHabits(env, sourceIds, Math.min(...rows.results.map((r) => r.received_at)));
   const items: CatchUpItem[] = rows.results.map((r) => ({
     id: r.id,
     subject: clip(r.subject || '(no subject)', 200),
@@ -543,10 +547,12 @@ export function registerCatchUp(app: App) {
     return r ? c.json(r) : c.json({ error: 'not found' }, 404);
   });
 
-  /** Builds one now, covering what came in since your last visit. */
+  /** Builds one now: since your last visit, or { scope: 'all' } for everything unread in the inbox. */
   app.post('/api/catchup/build', async (c) => {
-    const r = await buildCatchUp(c.env);
-    return r ? c.json(r) : c.json({ error: 'Nothing has come in since your last visit' }, 409);
+    const body = (await c.req.json().catch(() => ({}))) as { scope?: unknown };
+    const scope = body.scope === 'all' ? 'all' : 'since';
+    const r = await buildCatchUp(c.env, now(), scope);
+    return r ? c.json(r) : c.json({ error: scope === 'all' ? 'Nothing unread in your inbox' : 'Nothing has come in since your last visit' }, 409);
   });
 
   /** Clears items: marked read as "cleared in catch-up", or Not interested (the Probably skip pile). */

@@ -322,7 +322,7 @@ export const api = {
   catchUp: () => get<{ latest: CatchUp | null; list: CatchUpListItem[] }>('/api/catchup'),
   catchUpOne: (id: string) => get<CatchUp>(`/api/catchup/${id}`),
   catchUpBanner: () => get<{ banner: CatchUpBanner | null }>('/api/catchup/banner'),
-  buildCatchUp: () => post<CatchUp>('/api/catchup/build'),
+  buildCatchUp: (scope: 'since' | 'all' = 'since') => post<CatchUp>('/api/catchup/build', { scope }),
   catchUpClear: (id: string, ids: string[], notInterested = false) =>
     post<{ cleared: number }>(`/api/catchup/${id}/clear`, { ids, notInterested, device: isPhone() }),
   catchUpUnclear: (id: string, ids: string[]) => post<{ restored: number }>(`/api/catchup/${id}/unclear`, { ids }),
